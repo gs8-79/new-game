@@ -1,0 +1,7 @@
+/build/
+/saves/
+/.vs/
+/out/
+*.user
+*.VC.db
+
