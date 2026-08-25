@@ -41,6 +41,7 @@ public:
 };
 
 enum class RunnerExit { BackToMenu, QuitApplication, Completed };
+enum class ConsoleStyle { Normal, Title, Success, Warning, Error };
 
 ParsedCommand parseCommand(std::string_view input);
 bool commandIs(const ParsedCommand& command, std::initializer_list<std::string_view> aliases);
@@ -60,6 +61,6 @@ RunnerExit runScenario(
     const std::filesystem::path& savePath);
 
 void enableUtf8Console();
+void writeStyled(std::ostream& output, ConsoleStyle style, std::string_view text);
 
 } // namespace mud
-

@@ -33,12 +33,15 @@ $environmentLines = & $env:COMSPEC /d /s /c $devShellCommand
 if ($LASTEXITCODE -ne 0) {
     throw '无法加载 Visual Studio C++ 开发环境。'
 }
+$importedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($line in $environmentLines) {
     $separator = $line.IndexOf('=')
     if ($separator -gt 0) {
         $name = $line.Substring(0, $separator)
         $value = $line.Substring($separator + 1)
-        Set-Item -LiteralPath "Env:$name" -Value $value
+        if ($importedNames.Add($name)) {
+            Set-Item -LiteralPath "Env:$name" -Value $value
+        }
     }
 }
 

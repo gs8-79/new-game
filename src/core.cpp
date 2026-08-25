@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "scenarios.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -208,7 +209,8 @@ RunnerExit runScenario(
     std::istream& input,
     std::ostream& output,
     const std::filesystem::path& savePath) {
-    output << "\n=== " << scenario.title() << " ===\n";
+    output << '\n';
+    writeStyled(output, ConsoleStyle::Title, "=== " + scenario.title() + " ===\n");
     output << scenario.intro() << "\n输入 help 或 帮助 查看命令。\n";
 
     std::string line;
@@ -230,12 +232,20 @@ RunnerExit runScenario(
         }
         if (commandIs(command, {"save", "保存"})) {
             std::string error;
-            output << (saveScenario(scenario, savePath, error) ? "保存成功。" : "保存失败：" + error) << '\n';
+            if (saveScenario(scenario, savePath, error)) {
+                writeStyled(output, ConsoleStyle::Success, "保存成功。\n");
+            } else {
+                writeStyled(output, ConsoleStyle::Error, "保存失败：" + error + "\n");
+            }
             continue;
         }
         if (commandIs(command, {"load", "读取"})) {
             std::string error;
-            output << (loadScenario(scenario, savePath, error) ? "读取成功。" : "读取失败：" + error) << '\n';
+            if (loadScenario(scenario, savePath, error)) {
+                writeStyled(output, ConsoleStyle::Success, "读取成功。\n");
+            } else {
+                writeStyled(output, ConsoleStyle::Error, "读取失败：" + error + "\n");
+            }
             continue;
         }
         if (commandIs(command, {"back", "返回"})) {
@@ -248,13 +258,17 @@ RunnerExit runScenario(
         }
 
         const CommandResult result = scenario.execute(command);
-        output << (result.recognized ? result.message : "无法识别该命令，请输入 help 或 帮助。") << '\n';
+        if (result.recognized) {
+            output << result.message << '\n';
+        } else {
+            writeStyled(output, ConsoleStyle::Warning, "无法识别该命令，请输入 help 或 帮助。\n");
+        }
     }
 
     if (scenario.outcome() == Outcome::Won) {
-        output << "\n[成功] Demo 已完成，返回选题菜单。\n";
+        writeStyled(output, ConsoleStyle::Success, "\n[成功] Demo 已完成，返回选题菜单。\n");
     } else {
-        output << "\n[失败] 本次尝试结束，返回选题菜单。\n";
+        writeStyled(output, ConsoleStyle::Error, "\n[失败] 本次尝试结束，返回选题菜单。\n");
     }
     return RunnerExit::Completed;
 }
@@ -266,5 +280,58 @@ void enableUtf8Console() {
 #endif
 }
 
-} // namespace mud
+void writeStyled(std::ostream& output, const ConsoleStyle style, const std::string_view text) {
+#ifdef _WIN32
+    if (&output == &std::cout) {
+        const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        CONSOLE_SCREEN_BUFFER_INFO original{};
+        if (handle != INVALID_HANDLE_VALUE &&
+            GetConsoleMode(handle, &mode) != 0 &&
+            GetConsoleScreenBufferInfo(handle, &original) != 0) {
+            WORD attributes = original.wAttributes;
+            switch (style) {
+            case ConsoleStyle::Title:
+                attributes = FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+                break;
+            case ConsoleStyle::Success:
+                attributes = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+                break;
+            case ConsoleStyle::Warning:
+                attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+                break;
+            case ConsoleStyle::Error:
+                attributes = FOREGROUND_RED | FOREGROUND_INTENSITY;
+                break;
+            case ConsoleStyle::Normal:
+                break;
+            }
+            SetConsoleTextAttribute(handle, attributes);
+            output << text;
+            SetConsoleTextAttribute(handle, original.wAttributes);
+            return;
+        }
+    }
+#else
+    static_cast<void>(style);
+#endif
+    output << text;
+}
 
+std::unique_ptr<Scenario> makeScenarioForMenu(const ParsedCommand& command) {
+    if (!command.args.empty()) {
+        return nullptr;
+    }
+    if (commandIs(command, {"1", "starport", "星港", "星港危机"})) {
+        return makeStarportScenario();
+    }
+    if (commandIs(command, {"2", "island", "荒岛", "荒岛求生7日"})) {
+        return makeIslandScenario();
+    }
+    if (commandIs(command, {"3", "tribe", "部落", "燧火纪", "部落黎明"})) {
+        return makeTribeScenario();
+    }
+    return nullptr;
+}
+
+} // namespace mud

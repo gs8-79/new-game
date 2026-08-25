@@ -3,29 +3,11 @@
 
 #include <filesystem>
 #include <iostream>
-#include <memory>
 #include <string>
-
-namespace {
-
-std::unique_ptr<mud::Scenario> chooseScenario(const mud::ParsedCommand& command) {
-    if (mud::commandIs(command, {"1", "starport", "星港", "星港危机"})) {
-        return mud::makeStarportScenario();
-    }
-    if (mud::commandIs(command, {"2", "island", "荒岛", "荒岛求生7日"})) {
-        return mud::makeIslandScenario();
-    }
-    if (mud::commandIs(command, {"3", "tribe", "部落", "燧火纪", "部落黎明"})) {
-        return mud::makeTribeScenario();
-    }
-    return nullptr;
-}
-
-} // namespace
 
 int main() {
     mud::enableUtf8Console();
-    std::cout << "C++ MUD 选题试玩集\n";
+    mud::writeStyled(std::cout, mud::ConsoleStyle::Title, "C++ MUD 选题试玩集\n");
 
     std::string line;
     for (;;) {
@@ -47,9 +29,9 @@ int main() {
             break;
         }
 
-        auto scenario = chooseScenario(command);
+        auto scenario = mud::makeScenarioForMenu(command);
         if (!scenario) {
-            std::cout << "无效选择，请输入 1、2、3 或中文名称。\n";
+            mud::writeStyled(std::cout, mud::ConsoleStyle::Warning, "无效选择，请输入 1、2、3 或中文名称。\n");
             continue;
         }
 
@@ -63,4 +45,3 @@ int main() {
     std::cout << "感谢试玩。\n";
     return 0;
 }
-
