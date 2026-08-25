@@ -15,7 +15,7 @@
 .\run.ps1 -SkipBuild
 ```
 
-程序使用中文叙事，并同时接受中英文命令。每款 Demo 有独立的文本存档，保存在 `saves/`。
+程序使用中文叙事，并同时接受中英文命令。每款 Demo 有独立的文本存档，保存在 `saves/`。Release 版本静态链接 MSVC 运行库，便于直接发给未安装 Visual Studio 的队员试玩。
 
 完成三款官方路线和自由试玩后，请使用 [EVALUATION.md](EVALUATION.md) 记录评分。
 

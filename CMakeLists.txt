@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 add_library(mud_lib
     src/core.cpp
     src/starport.cpp
@@ -46,4 +50,3 @@ else()
 endif()
 
 add_test(NAME mud-tests COMMAND mud-tests)
-
