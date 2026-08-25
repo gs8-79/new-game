@@ -38,6 +38,7 @@ public:
 private:
     ActionResult gather(std::string_view resource);
     ActionResult guardCamp();
+    ActionResult celebrate();
     ActionResult scout(std::string_view target);
     ActionResult trainWarrior();
     ActionResult build(std::string_view target);

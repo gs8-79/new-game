@@ -18,6 +18,22 @@ tribe::ActionResult execute(tribe::GameEngine& engine, const std::string& comman
     return engine.execute(command);
 }
 
+void requireChanged(tribe::GameEngine& engine, const std::string& command) {
+    const auto result = execute(engine, command);
+    if (!result.stateChanged) throw std::runtime_error(command + " failed: " + result.message);
+}
+
+void gatherFoodUntilSeasonEnd(tribe::GameEngine& engine) {
+    while (engine.state().phase == tribe::Phase::Playing && engine.state().actionsLeft > 0) {
+        const auto result = execute(engine, "gather food");
+        if (!result.stateChanged) {
+            if (result.message.find("上限") != std::string::npos) break;
+            throw std::runtime_error("gather food failed: " + result.message);
+        }
+    }
+    if (engine.state().phase == tribe::Phase::Playing) requireChanged(engine, "endturn");
+}
+
 void replace(tribe::GameEngine& engine, const std::function<void(tribe::GameState&)>& change) {
     tribe::GameState candidate = engine.state();
     change(candidate);
@@ -50,6 +66,71 @@ tribe::GameState finalChoiceState(tribe::GameEngine& engine) {
 
 std::filesystem::path testSaveRoot() {
     return std::filesystem::current_path() / "formal-test-saves";
+}
+
+std::string resourceCommand(const tribe::GameState& state, const int food, const int wood,
+    const int stone, const std::string& readyCommand) {
+    if (state.food < food) return "gather food";
+    if (state.wood < wood) return "gather wood";
+    if (state.stone < stone) return "gather stone";
+    return readyCommand;
+}
+
+std::string nextAllianceCommand(const tribe::GameEngine& engine) {
+    const tribe::GameState& state = engine.state();
+    const auto building = [&](const tribe::BuildingId id) { return state.buildings[tribe::indexOf(id)]; };
+    const auto technology = [&](const tribe::TechnologyId id) { return state.technologies[tribe::indexOf(id)]; };
+    const auto discovered = [&](const tribe::LocationId id) { return state.discovered[tribe::indexOf(id)]; };
+
+    if (state.food < 18) return "gather food";
+    if (!discovered(tribe::LocationId::Quarry)) return "scout quarry";
+    if (!technology(tribe::TechnologyId::FoodPreservation)) {
+        return resourceCommand(state, 4, 4, 0, "research preservation");
+    }
+    if (!discovered(tribe::LocationId::Marsh)) return "scout marsh";
+    if (!discovered(tribe::LocationId::RiverFord)) return "scout riverford";
+    if (!discovered(tribe::LocationId::WhiteFeatherCamp)) return "scout whitefeather";
+    if (!discovered(tribe::LocationId::OldPass)) return "scout pass";
+    if (state.warriors < 5) return state.food >= 4 ? "train" : "gather food";
+    if (!building(tribe::BuildingId::Workshop)) {
+        return resourceCommand(state, 0, 10, 8, "build workshop");
+    }
+    if (!building(tribe::BuildingId::HealerHut)) {
+        if (state.herbs < 3) return "gather herbs";
+        return resourceCommand(state, 0, 8, 4, "build healer");
+    }
+    if (!building(tribe::BuildingId::CouncilFire)) {
+        return resourceCommand(state, 0, 8, 6, "build council");
+    }
+    if (!technology(tribe::TechnologyId::HerbalKnowledge)) {
+        return resourceCommand(state, 6, 0, 4, "research herbalism");
+    }
+    if (!technology(tribe::TechnologyId::GiftCustoms)) {
+        return resourceCommand(state, 4, 4, 0, "research gifts");
+    }
+    if (!technology(tribe::TechnologyId::SharedLanguage)) {
+        return resourceCommand(state, 6, 0, 4, "research language");
+    }
+    if (!technology(tribe::TechnologyId::Confederation)) {
+        return resourceCommand(state, 8, 6, 6, "research confederation");
+    }
+
+    const std::size_t river = tribe::indexOf(tribe::FactionId::RiverDeer);
+    const std::size_t white = tribe::indexOf(tribe::FactionId::WhiteFeather);
+    const std::size_t rock = tribe::indexOf(tribe::FactionId::Rockfang);
+    if (state.quests[river] == 0) return "talk riverdeer";
+    if (state.quests[river] == 1) return state.food >= 8 ? "quest riverdeer" : "gather food";
+    if (state.quests[river] == 2) return "quest riverdeer";
+    if (state.quests[white] == 0) return "talk whitefeather";
+    if (state.quests[white] == 1) return state.food >= 6 ? "quest whitefeather" : "gather food";
+    if (state.quests[white] == 2) return "quest whitefeather";
+    if (state.quests[rock] == 0) return "talk rockfang";
+    if (state.quests[rock] == 1) return "quest rockfang";
+    if (state.quests[rock] == 2) return state.food >= 6 ? "quest rockfang" : "gather food";
+    if (state.relations[river] < 70) return state.food >= 2 ? "gift riverdeer" : "gather food";
+    if (state.relations[white] < 70) return state.food >= 2 ? "gift whitefeather" : "gather food";
+    if (state.food < 50) return "gather food";
+    return "guard";
 }
 
 } // namespace
@@ -348,6 +429,137 @@ TEST_CASE("formal exposes and selects alliance conquest prosperity migration and
     std::string error;
     REQUIRE(extinct.replaceState(state, error));
     REQUIRE(extinct.state().ending == tribe::Ending::Extinction);
+}
+
+TEST_CASE("formal official conquest route reaches the ending through ordinary commands") {
+    tribe::GameEngine engine({tribe::GameMode::Standard, 1U});
+    const std::vector<std::vector<std::string>> openingSeasons{
+        {"scout quarry", "gather food", "gather food"},
+        {"scout pass", "gather food", "gather food"},
+        {"scout rockfangfort", "train", "gather food"},
+        {"research spear", "train", "gather food"},
+        {"train", "train", "gather food"},
+        {"train", "attack rockfang assault", "attack rockfang assault"},
+        {"attack rockfang assault", "gather food", "gather food"},
+    };
+    for (const auto& season : openingSeasons) {
+        for (const auto& command : season) requireChanged(engine, command);
+        requireChanged(engine, "endturn");
+    }
+    while (engine.state().phase != tribe::Phase::FinalChoice
+        && engine.state().phase != tribe::Phase::Finished) {
+        if (engine.state().phase == tribe::Phase::AwaitingRaid) requireChanged(engine, "battle defend");
+        else gatherFoodUntilSeasonEnd(engine);
+    }
+    REQUIRE(engine.state().phase == tribe::Phase::FinalChoice);
+    requireChanged(engine, "choose conquest");
+    REQUIRE(engine.state().ending == tribe::Ending::Conquest);
+}
+
+TEST_CASE("formal official migration route survives all seasons without special ending goals") {
+    tribe::GameEngine engine({tribe::GameMode::Standard, 2U});
+    while (engine.state().phase != tribe::Phase::FinalChoice
+        && engine.state().phase != tribe::Phase::Finished) {
+        if (engine.state().phase == tribe::Phase::AwaitingRaid) requireChanged(engine, "battle retreat");
+        else gatherFoodUntilSeasonEnd(engine);
+    }
+    REQUIRE(engine.state().phase == tribe::Phase::FinalChoice);
+    requireChanged(engine, "choose migration");
+    REQUIRE(engine.state().ending == tribe::Ending::Migration);
+}
+
+TEST_CASE("formal neglect route can reach extinction through ordinary commands") {
+    bool foundExtinction = false;
+    for (std::uint32_t seed = 1; seed <= 5000U && !foundExtinction; ++seed) {
+        tribe::GameEngine engine({tribe::GameMode::Standard, seed});
+        while (engine.state().phase != tribe::Phase::Finished
+            && engine.state().phase != tribe::Phase::FinalChoice) {
+            if (engine.state().phase == tribe::Phase::AwaitingRaid) {
+                const auto battle = execute(engine, "battle assault");
+                REQUIRE(battle.stateChanged);
+            } else {
+                const auto settlement = execute(engine, "endturn");
+                REQUIRE(settlement.stateChanged);
+            }
+        }
+        foundExtinction = engine.state().ending == tribe::Ending::Extinction;
+    }
+    REQUIRE(foundExtinction);
+}
+
+TEST_CASE("formal quick mode completes its eight seasons and reaches a selectable ending") {
+    tribe::GameEngine engine({tribe::GameMode::Quick, 6U});
+    REQUIRE(engine.state().turn == 9);
+    while (engine.state().phase != tribe::Phase::FinalChoice
+        && engine.state().phase != tribe::Phase::Finished) {
+        if (engine.state().phase == tribe::Phase::AwaitingRaid) requireChanged(engine, "battle retreat");
+        else gatherFoodUntilSeasonEnd(engine);
+    }
+    REQUIRE(engine.state().phase == tribe::Phase::FinalChoice);
+    REQUIRE(engine.state().turn == 16);
+    requireChanged(engine, "choose migration");
+    REQUIRE(engine.state().ending == tribe::Ending::Migration);
+}
+
+TEST_CASE("formal official prosperity route grows population and completes four buildings and technologies") {
+    tribe::GameEngine engine({tribe::GameMode::Standard, 3U});
+    const auto doSeason = [&](const std::vector<std::string>& commands) {
+        for (const auto& command : commands) requireChanged(engine, command);
+        requireChanged(engine, "endturn");
+    };
+    doSeason({"scout quarry", "gather food", "celebrate"});
+    doSeason({"research preservation", "gather stone", "gather wood"});
+    doSeason({"gather stone", "gather food", "build granary"});
+    doSeason({"gather wood", "gather wood", "build workshop"});
+    doSeason({"gather food", "celebrate", "gather food"});
+    doSeason({"gather wood", "gather wood", "gather stone"});
+    doSeason({"gather food", "gather wood", "build wall"});
+    doSeason({"gather wood", "gather stone", "research spear"});
+    doSeason({"gather food", "celebrate", "gather food"});
+    doSeason({"gather wood", "gather stone", "research gifts"});
+    doSeason({"gather food", "build watchtower", "research language"});
+    REQUIRE(engine.state().phase == tribe::Phase::AwaitingRaid);
+    requireChanged(engine, "battle defend");
+    while (engine.state().phase != tribe::Phase::FinalChoice
+        && engine.state().phase != tribe::Phase::Finished) {
+        if (engine.state().phase == tribe::Phase::AwaitingRaid) requireChanged(engine, "battle defend");
+        else {
+            if (tribe::seasonForTurn(engine.state().turn) == tribe::Season::Spring
+                && engine.state().morale < 65 && engine.state().food >= 3 && engine.state().actionsLeft > 0) {
+                requireChanged(engine, "celebrate");
+            }
+            gatherFoodUntilSeasonEnd(engine);
+        }
+    }
+    REQUIRE(engine.state().phase == tribe::Phase::FinalChoice);
+    REQUIRE(engine.state().population >= 20);
+    REQUIRE(engine.buildingCount() >= 4);
+    REQUIRE(engine.technologyCount() >= 4);
+    REQUIRE(engine.state().food >= 40);
+    requireChanged(engine, "choose prosperity");
+    REQUIRE(engine.state().ending == tribe::Ending::Prosperity);
+}
+
+TEST_CASE("formal official alliance route completes three diplomatic stories through ordinary commands") {
+    tribe::GameEngine engine({tribe::GameMode::Standard, 4U});
+    while (engine.state().phase != tribe::Phase::FinalChoice
+        && engine.state().phase != tribe::Phase::Finished) {
+        if (engine.state().phase == tribe::Phase::AwaitingRaid) {
+            requireChanged(engine, "battle defend");
+            continue;
+        }
+        while (engine.state().phase == tribe::Phase::Playing && engine.state().actionsLeft > 0) {
+            requireChanged(engine, nextAllianceCommand(engine));
+        }
+        if (engine.state().phase == tribe::Phase::Playing) requireChanged(engine, "endturn");
+    }
+    REQUIRE(engine.state().phase == tribe::Phase::FinalChoice);
+    const auto endings = engine.availableEndings();
+    if (std::find(endings.begin(), endings.end(), tribe::Ending::Alliance) == endings.end()) {
+        throw std::runtime_error(engine.objectivesText() + "\n" + engine.statusText());
+    }
+    requireChanged(engine, "choose alliance");
+    REQUIRE(engine.state().ending == tribe::Ending::Alliance);
 }
 
 TEST_CASE("formal save repository round trips every field for all four slots") {

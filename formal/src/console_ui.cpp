@@ -89,7 +89,8 @@ void ConsoleUI::renderMainMenu(const std::string_view message) {
             << "  5. 读取手动存档3\n"
             << "  6. 读取自动存档\n"
             << "  h. 查看新手帮助\n"
-            << "  q. 退出\n";
+            << "  q. 退出\n"
+            << "  高级复现：seed <数字> / quickseed <数字>\n";
     if (!message.empty()) {
         output_ << '\n';
         write(UiColor::Warning, message);
@@ -151,7 +152,7 @@ void ConsoleUI::renderGame(const GameEngine& engine, const std::string_view mess
     } else if (state.phase == Phase::FinalChoice) {
         write(UiColor::Warning, "最终议事：71联盟 72征服 73繁荣 74迁徙\n");
     } else {
-        output_ << "1状态 2地图 3食物 4木材 5石料 6草药 7训练 8结束 9帮助\n";
+        output_ << "1状态 2地图 3食物 4木材 5石料 6草药 7训练 8结束 9帮助 10鼓舞\n";
     }
     output_ << "保存：save/保存 1|2|3  读取：load/读取 1|2|3|auto  返回：back  退出：quit\n";
     prompt();

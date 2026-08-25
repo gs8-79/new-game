@@ -5,11 +5,14 @@ project(mud_demos VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+option(TRIBE_FORMAL_ONLY "Build only the formal Tribe Dawn game" OFF)
+enable_testing()
 
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+if(NOT TRIBE_FORMAL_ONLY)
 add_library(mud_lib
     src/core.cpp
     src/starport.cpp
@@ -31,8 +34,6 @@ if(MSVC)
     target_compile_options(mud-demos PRIVATE /W4 /permissive- /utf-8)
 endif()
 
-enable_testing()
-
 add_executable(mud-tests
     tests/test_main.cpp
     tests/core_tests.cpp
@@ -50,6 +51,7 @@ else()
 endif()
 
 add_test(NAME mud-tests COMMAND mud-tests)
+endif()
 
 add_library(tribe_formal_lib
     formal/src/formal_types.cpp

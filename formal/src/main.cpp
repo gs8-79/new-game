@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cctype>
+#include <charconv>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
@@ -45,6 +46,12 @@ bool verbIs(const Words& command, const std::initializer_list<std::string_view> 
 std::uint32_t freshSeed() {
     const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     return static_cast<std::uint32_t>(static_cast<unsigned long long>(now) & 0xFFFFFFFFULL);
+}
+
+bool parseSeed(const std::string& text, std::uint32_t& seed) {
+    if (text.empty()) return false;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), seed);
+    return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 
 void waitForEnter(tribe::ConsoleUI& ui) {
@@ -168,6 +175,18 @@ int main() {
         if (command.args.empty() && (command.verb == "1" || command.verb == "2")) {
             const tribe::GameMode mode = command.verb == "1" ? tribe::GameMode::Standard : tribe::GameMode::Quick;
             tribe::GameEngine engine({mode, freshSeed()});
+            if (!runGame(engine, saves, ui, true)) break;
+            menuMessage = "已经返回主菜单；最近游戏保存在自动档。";
+            continue;
+        }
+        if ((command.verb == "seed" || command.verb == "quickseed") && command.args.size() == 1U) {
+            std::uint32_t seed = 0;
+            if (!parseSeed(command.args.front(), seed)) {
+                menuMessage = "种子必须是0到4294967295之间的整数。";
+                continue;
+            }
+            const tribe::GameMode mode = command.verb == "seed" ? tribe::GameMode::Standard : tribe::GameMode::Quick;
+            tribe::GameEngine engine({mode, seed});
             if (!runGame(engine, saves, ui, true)) break;
             menuMessage = "已经返回主菜单；最近游戏保存在自动档。";
             continue;

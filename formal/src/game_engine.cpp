@@ -58,6 +58,7 @@ std::string numericAlias(const std::string& value, const bool awaitingRaid) {
     static const std::unordered_map<std::string, std::string> aliases{
         {"1", "status"}, {"2", "map"}, {"3", "gather food"}, {"4", "gather wood"},
         {"5", "gather stone"}, {"6", "gather herbs"}, {"7", "train"}, {"8", "endturn"},
+        {"10", "celebrate"},
         {"11", "scout marsh"}, {"12", "scout riverford"}, {"13", "scout whitefeather"},
         {"14", "scout quarry"}, {"15", "scout pass"}, {"16", "scout rockfangfort"},
         {"21", "build granary"}, {"22", "build wall"}, {"23", "build workshop"},
@@ -232,6 +233,9 @@ ActionResult GameEngine::execute(const std::string_view input) {
     if (verbIs(command, {"guard", "守卫", "防卫"})) {
         return command.args.empty() ? guardCamp() : rejected("用法：guard / 守卫");
     }
+    if (verbIs(command, {"celebrate", "inspire", "鼓舞", "庆典"})) {
+        return command.args.empty() ? celebrate() : rejected("用法：celebrate / 鼓舞");
+    }
     if (verbIs(command, {"scout", "explore", "侦察", "探索"})) {
         return command.args.size() == 1U ? scout(command.args.front())
                                          : rejected("用法：scout <location> / 侦察 <地点>");
@@ -288,7 +292,7 @@ ActionResult GameEngine::gather(const std::string_view resource) {
     std::ostringstream message;
 
     if (resource == "food" || resource == "食物") {
-        int gain = seasonForTurn(candidate.turn) == Season::Winter ? 5 : 8;
+        int gain = seasonForTurn(candidate.turn) == Season::Winter ? 8 : 12;
         if (has(candidate, TechnologyId::FoodPreservation)) gain += 2;
         if (has(candidate, TechnologyId::Irrigation)) gain += 3;
         const int capacity = has(candidate, BuildingId::Granary) ? 100 : 60;
@@ -297,12 +301,12 @@ ActionResult GameEngine::gather(const std::string_view resource) {
         candidate.food += actual;
         message << "采集队带回 " << actual << " 单位食物。";
     } else if (resource == "wood" || resource == "木材") {
-        candidate.wood += 6;
-        message << "伐木队从苍林带回6单位木材。";
+        candidate.wood += 10;
+        message << "伐木队从苍林带回10单位木材。";
     } else if (resource == "stone" || resource == "石料" || resource == "石头") {
         if (!found(candidate, LocationId::Quarry)) return rejected("尚未发现燧石矿场，不能开采石料。");
-        candidate.stone += 5;
-        message << "矿场小队开采了5单位石料。";
+        candidate.stone += 8;
+        message << "矿场小队开采了8单位石料。";
     } else if (resource == "herbs" || resource == "herb" || resource == "草药") {
         if (!found(candidate, LocationId::Marsh)) return rejected("尚未发现芦苇沼泽，不能采集草药。");
         const int gain = has(candidate, TechnologyId::HerbalKnowledge) ? 4 : 3;
@@ -320,6 +324,17 @@ ActionResult GameEngine::guardCamp() {
     GameState candidate = state_;
     candidate.temporaryDefense = std::min(12, candidate.temporaryDefense + 4);
     return commitAction(std::move(candidate), "一支小队加固警戒，本季临时防御提高4。整季最多提高到12。");
+}
+
+ActionResult GameEngine::celebrate() {
+    ActionResult result;
+    if (!canUseAction(result)) return result;
+    if (state_.food < 3) return rejected("鼓舞族人需要3单位食物，状态未改变。");
+    if (state_.morale >= 100) return rejected("士气已经达到上限，不需要再次鼓舞。");
+    GameState candidate = state_;
+    candidate.food -= 3;
+    candidate.morale = clampMorale(candidate.morale + 8);
+    return commitAction(std::move(candidate), "族人围绕燧火分享食物与故事，食物减少3、士气提高8。");
 }
 
 ActionResult GameEngine::scout(const std::string_view target) {
@@ -581,9 +596,9 @@ ActionResult GameEngine::endSeason() {
     }
     if (seasonForTurn(candidate.turn) == Season::Spring && candidate.population > 0
         && candidate.food >= 15 && candidate.morale >= 65) {
-        ++candidate.population;
+        candidate.population += 2;
         candidate.morale = clampMorale(candidate.morale + 2);
-        message << " 春季储备充足，人口增加1、士气提高2。";
+        message << " 春季储备充足，人口增加2、士气提高2。";
     }
     std::string settlementMessage = message.str();
     finishExtinctionIfNeeded(candidate, settlementMessage);
@@ -882,7 +897,7 @@ std::string GameEngine::helpText() const {
         "  1 status 状态          2 map 地图          objectives 目标\n"
         "  3 gather food 采集 食物    4 gather wood 采集 木材\n"
         "  5 gather stone 采集 石料   6 gather herbs 采集 草药\n"
-        "  7 train 训练            guard 守卫          8 endturn 结束回合\n"
+        "  7 train 训练    10 celebrate 鼓舞    guard 守卫    8 endturn 结束回合\n"
         "探索：11沼泽 12河鹿渡口 13白羽营地 14矿场 15山隘 16岩牙要塞；或 scout/侦察 <地点>\n"
         "建筑：21粮仓 22木墙 23工坊 24医者小屋 25瞭望塔 26议事火坛；或 build/建造 <建筑>\n"
         "技术：31食物保存 32草药知识 33引水 34长矛 35盾墙 36伏击 37赠礼 38语言 39联盟\n"
