@@ -48,6 +48,7 @@ private:
     ActionResult endSeason();
     ActionResult chooseEnding(std::string_view target);
 
+    bool commitState(GameState candidate, std::string& error);
     ActionResult commitAction(GameState candidate, std::string message);
     ActionResult rejected(std::string message) const;
     bool canUseAction(ActionResult& result) const;

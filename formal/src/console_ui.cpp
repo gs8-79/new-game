@@ -1,6 +1,7 @@
 #include "tribe/console_ui.hpp"
 
 #include "tribe/content.hpp"
+#include "tribe/expansion_game.hpp"
 
 #include <algorithm>
 #include <iostream>
@@ -84,13 +85,15 @@ void ConsoleUI::renderMainMenu(const std::string_view message) {
     output_ << "你将领导整个燧火部落，在四年中经营、结盟或征服。\n\n"
             << "  1. 开始正式模式（16季，约60分钟）\n"
             << "  2. 开始快速展示模式（从第三年开始，8季）\n"
+            << "  e. 大型扩展V1：苍林狩猎与可操控战斗\n"
             << "  3. 读取手动存档1\n"
             << "  4. 读取手动存档2\n"
             << "  5. 读取手动存档3\n"
             << "  6. 读取自动存档\n"
             << "  h. 查看新手帮助\n"
             << "  q. 退出\n"
-            << "  高级复现：seed <数字> / quickseed <数字>\n";
+            << "  扩展小队：expanded <2至8>\n"
+            << "  高级复现：seed <数字> / quickseed <数字> / expandedseed <种子> <人数>\n";
     if (!message.empty()) {
         output_ << '\n';
         write(UiColor::Warning, message);
@@ -98,6 +101,22 @@ void ConsoleUI::renderMainMenu(const std::string_view message) {
     }
     output_ << "\n------------------------------------------------------------\n";
     prompt("请选择 > ");
+}
+
+void ConsoleUI::renderExpansion(const ExpansionGame& game, const std::string_view message) {
+    clear();
+    write(UiColor::Title, "=========== 《燧火纪：部落黎明》大型扩展 V1 ===========\n");
+    output_ << game.lookText() << '\n'
+            << "------------------------------------------------------------\n";
+    if (!message.empty()) output_ << "最近消息：" << message << '\n';
+    output_ << "------------------------------------------------------------\n"
+            << "探索：move/移动 forest|deep|hunting|clearing  gather/采集 食物|草药|兽皮\n"
+            << "遭遇：talk/交谈  trade/贸易  raid/劫掠  return/回营\n"
+            << "战斗：attack/攻击  defend/防御  order/下令 集火|坚守|突进|后撤\n"
+            << "物品：use/使用  loot/搜取  equip/装备 <栏位> <物品编号>\n"
+            << "公共：look/查看  help/帮助  back/返回主菜单  quit/退出\n"
+            << "说明：V1纵切用于试玩新系统，存档将在V2接入。\n";
+    prompt();
 }
 
 void ConsoleUI::renderGame(const GameEngine& engine, const std::string_view message) {

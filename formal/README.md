@@ -1,5 +1,11 @@
 # 《燧火纪：部落黎明》正式版
 
+## 大型扩展 V1 试玩
+
+V1已经加入具名角色、八项属性、八栏装备、2至8人小队以及可操控的苍林狩猎与三段战线战斗。运行 `tribe-dawn.exe` 后输入 `e` 即可开始；输入 `expanded <2至8>` 可以选择小队人数。
+
+扩展V1暂不写入正式存档，完成任务后输入 `back` 返回主菜单。完整路线和验证结果见 `docs/V1_VERSION_SUMMARY.md`。
+
 这是一款 C++17 单机文字策略 MUD。玩家代表整个燧火部落，在九地点地图中经营资源、建设营地、研究技术，并与河鹿、白羽和岩牙三个部落互动。
 
 ## 最简单的启动方法
@@ -29,6 +35,8 @@ Windows 上在项目根目录运行：
 ```
 
 脚本会先完成 Release 构建和测试，再把 Windows 试玩 ZIP 与 Windows/macOS 源码 ZIP 放到桌面。
+
+注意：现有桌面包属于此前正式版；大型扩展V1工作区预览尚未重新生成和验证ZIP，完成V1提交后需要重新执行打包脚本。
 
 ## Visual Studio 2026
 
@@ -61,3 +69,7 @@ Windows 上在项目根目录运行：
 - [测试报告](docs/TEST_REPORT.md)
 - [演示路线](docs/SHOWCASE_ROUTES.md)
 - [小组分工模板](docs/TEAM_ASSIGNMENT.md)
+- [大型扩展V1版本总结](docs/V1_VERSION_SUMMARY.md)
+- [大型扩展课程报告](docs/EXPANSION_REPORT.md)
+- [大型扩展四张设计图（区分V1已实现与V2蓝图）](docs/EXPANSION_DIAGRAMS.md)
+- [V1程序烟雾测试记录](docs/V1_SMOKE_TEST.md)

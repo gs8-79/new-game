@@ -1,138 +1,154 @@
 classDiagram
+    class MainLoop {
+      <<V1已完成>>
+      +runGame(GameEngine, SaveRepository, ConsoleUI)
+      +runExpansionGame(ExpansionGame, ConsoleUI)
+      +routeMainMenu(command)
+    }
+
     class GameEngine {
-      -CampaignState state
-      +execute(command) ActionResult
-      +startMission(squadId, locationId)
-      +endSeason()
-      +availableEndings()
+      <<现有正式模式-V1已完成>>
+      -GameState state_
+      -BattleSystem battles_
+      +execute(input) ActionResult
+      +replaceState(candidate, error) bool
+      +validateState(candidate, error) bool
     }
-    class CampaignState {
+    class GameState {
+      <<现有正式模式状态>>
       +GameMode mode
-      +int season
       +uint32 seed
-      +WorldState world
-      +vector~Character~ characters
-      +vector~Squad~ squads
-      +vector~TribeProfile~ tribes
-      +vector~ChronicleEntry~ chronicle
+      +int turn
+      +int actionsLeft
+      +Phase phase
+      +Ending ending
     }
-    class Character {
-      +CharacterId id
-      +string name
-      +Profession profession
-      +Attributes attributes
-      +int level
-      +int experience
-      +int growthPoints
-      +int health
-      +int fatigue
-      +Equipment equipment
-    }
-    class Squad {
-      +SquadId id
-      +CharacterId captain
-      +vector~CharacterId~ members
-      +StandingTask standingTask
-      +Inventory inventory
-      +int cohesion
-    }
-    class Army {
-      +CharacterId commander
-      +int warriors
-      +int militia
-      +Formation formation
-      +Inventory supplies
-    }
-    class Item {
-      +ItemId id
-      +EquipmentSlot slot
-      +ItemQuality quality
-      +ItemCondition condition
-      +int weight
-      +int bagSlots
-      +AttributeBonus bonus
-    }
-    class Inventory {
-      +vector~Item~ items
-      +int maxWeight
-      +int maxSlots
-      +canAdd(item) bool
-    }
-    class MissionState {
-      +MissionType type
-      +LocationId location
-      +SquadId squad
-      +MissionPhase phase
-      +Encounter encounter
-    }
-    class CombatState {
-      +BattleMode mode
-      +Battlefield battlefield
-      +int round
-      +BattleOrder order
-      +resolveTurn(action)
-    }
-    class TribeProfile {
-      +TribeId id
-      +string name
-      +CharacterId leader
-      +optional~CharacterId~ actingLeader
-      +vector~Faction~ factions
-      +int stability
-    }
-    class Faction {
-      +string name
-      +int influence
-      +int approval
-      +string demand
-      +CharacterId candidate
-    }
-    class DiplomacyRelation {
-      +TribeId first
-      +TribeId second
-      +int relation
-      +int trust
-      +int fear
-      +int tradeDependence
-      +vector~Treaty~ treaties
-    }
-    class TradeSystem {
-      +quote(offer, demand, relation)
-      +completeTrade()
-      +canUnlockCurrency()
-    }
-    class EndingPresentation {
-      +buildSummary(state) EndingSummary
-      +play(ending, capabilities)
-      +renderChronicle(entries)
+    class BattleSystem {
+      <<现有正式模式战斗>>
+      +resolve(state, tactic, raid)
     }
     class SaveRepository {
-      +saveV2(state, slot)
-      +loadV2(slot, candidate)
-      +convertV1Copy(slot)
-      +recoverBackup(slot)
+      <<V1已完成-仅GameState>>
+      -filesystem_path root_
+      +save(GameState, SaveSlot, error) bool
+      +load(SaveSlot, GameState, error) bool
+      +pathFor(slot) filesystem_path
     }
     class ConsoleUI {
-      +renderPage(state, page)
-      +renderMission(mission)
-      +renderCombat(combat)
-      +renderEnding(summary)
+      <<V1已完成>>
+      +renderMainMenu(message)
+      +renderGame(GameEngine, message)
+      +renderExpansion(ExpansionGame, message)
+      +showStandalone(title, text)
     }
 
-    GameEngine *-- CampaignState
-    CampaignState *-- Character
-    CampaignState *-- Squad
-    CampaignState *-- TribeProfile
-    CampaignState o-- MissionState
-    CampaignState o-- Army
-    Character *-- Item
-    Squad *-- Inventory
-    Army *-- Inventory
-    MissionState o-- CombatState
-    TribeProfile *-- Faction
-    CampaignState *-- DiplomacyRelation
-    GameEngine --> TradeSystem
-    GameEngine --> EndingPresentation
-    ConsoleUI --> CampaignState
-    SaveRepository --> CampaignState
+    class ExpansionGame {
+      <<V1已完成-苍林纵切状态机>>
+      -ExpansionState state_
+      +execute(input) ExpansionCommandResult
+      +state() ExpansionState
+      +lookText() string
+      +validateState(state) OperationResult
+    }
+    class ExpansionState {
+      <<V1已完成>>
+      +uint32 seed
+      +int turn
+      +ExpansionPhase phase
+      +ExpansionLocation location
+      +ForeignStance foreignStance
+      +SquadOrder order
+      +Squad squad
+      +Inventory inventory
+      +int frontline
+      +bool battleWon
+      +bool settled
+    }
+    class expansion_types {
+      <<V1已完成-领域模块>>
+      +Attributes
+      +Character
+      +Item
+      +Inventory
+      +Squad
+      +Army
+      +OperationResult
+    }
+    class Attributes {
+      +array_int_8 values
+    }
+    class Character {
+      +string name
+      +Occupation occupation
+      +Attributes attributes
+      +int level
+      +int fatigue
+      +array_optional_Item_8 equipment
+    }
+    class Squad {
+      +string name
+      +vector_Character members
+      +size_t leaderIndex
+      +ResidentMission residentMission
+      +int cohesion
+    }
+    class Inventory {
+      -vector_Item items_
+      -int weightLimit_
+      -int slotLimit_
+      +pickupFree(item) OperationResult
+    }
+    class Item {
+      +string id
+      +string name
+      +ItemQuality quality
+      +ItemCondition condition
+      +optional_EquipmentSlot equipmentSlot
+      +Attributes bonuses
+    }
+    class Army {
+      +string commanderName
+      +int warriors
+      +int militia
+    }
 
+    class CampaignStateV2 {
+      <<V2待实现-不存在于当前源码>>
+      +sixTribes
+      +sixteenLocations
+      +thirtyTwoSeasons
+      +factionsAndEconomy
+      +chronicleAndEndings
+    }
+
+    MainLoop --> GameEngine : 创建旧正式模式
+    MainLoop --> ExpansionGame : 创建扩展V1试玩
+    MainLoop --> SaveRepository : 仅旧正式模式存读档
+    MainLoop --> ConsoleUI : 驱动显示
+    ConsoleUI ..> GameEngine : renderGame
+    ConsoleUI ..> ExpansionGame : renderExpansion
+
+    GameEngine *-- GameState : 当前持有
+    GameEngine *-- BattleSystem : 当前持有
+    SaveRepository ..> GameState : save load
+    SaveRepository ..> GameEngine : 调用validateState
+
+    ExpansionGame *-- ExpansionState : 当前持有
+    ExpansionGame ..> expansion_types : 使用领域规则
+    ExpansionState *-- Squad : 当前小队
+    ExpansionState *-- Inventory : 当前背包
+    Squad *-- "2..8" Character : members
+    Character *-- Attributes
+    Character *-- "0..8" Item : equipment
+    Inventory *-- "0..*" Item : items
+    Item *-- Attributes : bonuses
+    expansion_types ..> Attributes : 定义
+    expansion_types ..> Character : 定义
+    expansion_types ..> Squad : 定义
+    expansion_types ..> Inventory : 定义
+    expansion_types ..> Item : 定义
+    expansion_types ..> Army : 定义
+
+    CampaignStateV2 ..> GameState : V2计划整合
+    CampaignStateV2 ..> ExpansionState : V2计划持久化
+    SaveRepository ..> CampaignStateV2 : V2计划版本2存档

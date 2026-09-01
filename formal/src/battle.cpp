@@ -20,7 +20,7 @@ class AssaultTactic final : public BattleTactic {
 public:
     int modifier(const BattleContext&) const override { return 3; }
     int failureCasualtyAdjustment() const override { return 1; }
-    int enemyDamageOnWin() const override { return 5; }
+    int enemyDamageOnWin() const override { return 6; }
 };
 
 class AmbushTactic final : public BattleTactic {
@@ -29,7 +29,7 @@ public:
         if (!context.battlefieldScouted) return -2;
         return 5 + (context.hasAmbushTraining ? 3 : 0);
     }
-    int enemyDamageOnWin() const override { return 6; }
+    int enemyDamageOnWin() const override { return 5; }
 };
 
 class DefendTactic final : public BattleTactic {
@@ -55,6 +55,7 @@ std::unique_ptr<BattleTactic> makeTactic(const Tactic tactic) {
 BattleResult BattleSystem::resolve(const BattleContext& context, const Tactic tactic) const {
     BattleResult result;
     if (tactic == Tactic::Retreat) {
+        result.valid = true;
         result.retreated = true;
         result.moraleDelta = -5;
         result.message = "燧火战士保持队形撤退，没有人员伤亡，但食物减少3、士气下降5。";
@@ -62,6 +63,11 @@ BattleResult BattleSystem::resolve(const BattleContext& context, const Tactic ta
     }
 
     const auto strategy = makeTactic(tactic);
+    if (!strategy) {
+        result.message = "非法战术：无法进行战斗。";
+        return result;
+    }
+    result.valid = true;
     const int weaponBonus = context.hasFlintSpear ? 2 : 0;
     result.playerPower = context.warriors * 2 + context.morale / 20 + weaponBonus
         + strategy->modifier(context);

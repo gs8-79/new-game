@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(mud_demos VERSION 0.1.0 LANGUAGES CXX)
+project(mud_demos VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,6 +55,8 @@ endif()
 
 add_library(tribe_formal_lib
     formal/src/formal_types.cpp
+    formal/src/expansion_types.cpp
+    formal/src/expansion_game.cpp
     formal/src/content.cpp
     formal/src/battle.cpp
     formal/src/game_engine.cpp
@@ -81,6 +83,10 @@ endif()
 add_executable(tribe-formal-tests
     tests/test_main.cpp
     formal/tests/formal_tests.cpp
+    formal/tests/baseline_gameplay_tests.cpp
+    formal/tests/save_reliability_tests.cpp
+    formal/tests/expansion_domain_tests.cpp
+    formal/tests/expansion_game_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
 target_include_directories(tribe-formal-tests PRIVATE tests)

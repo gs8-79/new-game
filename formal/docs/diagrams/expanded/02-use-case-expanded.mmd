@@ -1,68 +1,53 @@
 flowchart LR
     Player((玩家))
 
-    subgraph Game[《燧火纪：部落黎明》扩展版系统边界]
-      direction LR
+    subgraph V1[V1 已完成：当前可试玩的苍林狩猎纵切]
+      direction TB
+      UC1([从主菜单进入扩展试玩])
+      UC2([选择2至8人小队或固定种子])
+      UC3([查看状态并移动探索])
+      UC4([采集和使用补给])
+      UC5([处理外族遭遇])
+      UC6([交谈并完成和平贸易])
+      UC7([劫掠并进入三段战线])
+      UC8([攻击 防御 下令或撤退])
+      UC9([胜利后免费搜取并装备])
+      UC10([回营结算并返回主菜单])
 
-      subgraph Manage[开局与部落管理]
-        direction TB
-        UC1([创建部落与首领])
-        UC2([管理人物属性与装备])
-        UC3([编成作业小队])
-        UC4([设置常驻任务与休整])
-        UC1 -.包含.-> UC2
-        UC2 -.包含.-> UC3
-        UC3 -.扩展.-> UC4
-      end
-
-      subgraph Mission[外出任务与战斗]
-        direction TB
-        UC5([操控队长探索采集])
-        UC6([处理外族遭遇])
-        UC7([操控小队战斗])
-        UC8([组建军队并指挥战争])
-        UC5 -.包含.-> UC6
-        UC6 -.可能进入.-> UC7
-        UC8 -.复用规则.-> UC7
-      end
-
-      subgraph Diplomacy[外交、贸易与内政]
-        direction TB
-        UC9([外交 联姻 朝贡 条约])
-        UC10([以物易物与贝币贸易])
-        UC11([处理派系与内部稳定])
-        UC12([季节结算与自主外交])
-        UC9 -.影响.-> UC11
-        UC10 -.影响.-> UC11
-        UC12 -.更新.-> UC11
-      end
-
-      subgraph System[存档与结局]
-        direction TB
-        UC13([保存 读取与旧档转换])
-        UC14([查看独立结局与编年史])
-        UC15([结局后继续沙盒])
-        UC14 -.可选择.-> UC15
-      end
+      UC1 --> UC2 --> UC3
+      UC3 --> UC4
+      UC3 --> UC5
+      UC5 --> UC6 --> UC10
+      UC5 --> UC7 --> UC8
+      UC8 -- 继续战斗 --> UC8
+      UC8 -- 胜利 --> UC9 --> UC10
+      UC8 -- 撤退 --> UC10
     end
 
-    AI((其他部落AI))
-    Clock((季节系统))
+    subgraph V2[V2 待实现：长期战役与扩展持久化]
+      direction TB
+      UC11([创建并管理统一长期战役])
+      UC12([保存读取ExpansionState和六个手动档])
+      UC13([探索16地点并执行常驻任务])
+      UC14([经营供需贸易路线与贝币])
+      UC15([与六部落联姻朝贡结盟或战争])
+      UC16([处理派系稳定首领更替])
+      UC17([推进32季并结算五种独立结局])
+      UC11 --> UC12
+      UC11 --> UC13 --> UC17
+      UC11 --> UC14 --> UC17
+      UC11 --> UC15 --> UC16 --> UC17
+    end
+
+    AI((其他部落AI V2))
+    Clock((季节系统 V2))
 
     Player --> UC1
-    Player --> UC2
-    Player --> UC3
-    Player --> UC5
-    Player --> UC8
-    Player --> UC9
-    Player --> UC10
-    Player --> UC11
-    Player --> UC13
-    Player --> UC14
-    AI --> UC6
-    AI --> UC9
-    AI --> UC10
-    AI --> UC12
-    Clock --> UC12
-    UC12 -.触发.-> UC14
+    Player -. V2规划 .-> UC11
+    AI -. V2规划 .-> UC15
+    Clock -. V2规划 .-> UC16
 
+    classDef done fill:#e7f6ed,stroke:#238636,color:#173b22,stroke-width:2px
+    classDef pending fill:#fff4df,stroke:#b26a00,color:#5c3900,stroke-width:2px,stroke-dasharray: 6 4
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10 done
+    class UC11,UC12,UC13,UC14,UC15,UC16,UC17,AI,Clock pending

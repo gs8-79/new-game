@@ -10,6 +10,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -172,14 +173,15 @@ void GameEngine::newGame(const GameConfig config) {
     initial.currentEvent = initial.eventSchedule.at(static_cast<std::size_t>(initial.turn - 1));
     applyEvent(initial, static_cast<EventId>(initial.currentEvent), openingMessage_);
     finishExtinctionIfNeeded(initial, openingMessage_);
-    state_ = std::move(initial);
+    std::string error;
+    if (!commitState(std::move(initial), error)) {
+        throw std::logic_error("新游戏状态校验失败：" + error);
+    }
 }
 
 bool GameEngine::replaceState(const GameState& candidate, std::string& error) {
-    if (!validateState(candidate, error)) return false;
-    state_ = candidate;
+    if (!commitState(candidate, error)) return false;
     openingMessage_.clear();
-    error.clear();
     return true;
 }
 
@@ -277,8 +279,18 @@ bool GameEngine::canUseAction(ActionResult& result) const {
 ActionResult GameEngine::commitAction(GameState candidate, std::string message) {
     --candidate.actionsLeft;
     finishExtinctionIfNeeded(candidate, message);
-    state_ = std::move(candidate);
+    std::string error;
+    if (!commitState(std::move(candidate), error)) {
+        return rejected("操作后的状态未通过校验，操作已取消：" + error);
+    }
     return {true, true, true, false, std::move(message)};
+}
+
+bool GameEngine::commitState(GameState candidate, std::string& error) {
+    if (!validateState(candidate, error)) return false;
+    state_ = std::move(candidate);
+    error.clear();
+    return true;
 }
 
 ActionResult GameEngine::rejected(std::string message) const {
@@ -323,7 +335,7 @@ ActionResult GameEngine::guardCamp() {
     if (!canUseAction(result)) return result;
     GameState candidate = state_;
     candidate.temporaryDefense = std::min(12, candidate.temporaryDefense + 4);
-    return commitAction(std::move(candidate), "一支小队加固警戒，本季临时防御提高4。整季最多提高到12。");
+    return commitAction(std::move(candidate), "一支小队加固警戒，下次岩牙来袭时防御提高4，来袭解决后清零。最多累积到12。");
 }
 
 ActionResult GameEngine::celebrate() {
@@ -521,8 +533,20 @@ ActionResult GameEngine::attack(const Tactic tactic, const bool raid) {
         if (!found(state_, LocationId::RockfangFort)) return rejected("尚未发现岩牙要塞，不能发动进攻。");
         if (tactic == Tactic::Defend) return rejected("主动进攻不能选择防守；防守战术用于岩牙来袭。");
     }
-    if (state_.rockfangFortCaptured || state_.rockfangStrength <= 0) return rejected("岩牙要塞已经被攻下，无需继续战斗。");
+    if (state_.rockfangFortCaptured) return rejected("岩牙要塞已经被攻下，无需继续战斗。");
     if (state_.warriors <= 0) return rejected("没有战士可以参战，状态未改变。");
+    if (!raid && state_.rockfangStrength <= 0) {
+        if (tactic == Tactic::Retreat) return rejected("岩牙守军已经溃散，不需要撤退；请选择正面或伏击完成占领。");
+        GameState candidate = state_;
+        candidate.rockfangFortCaptured = true;
+        std::string message = "岩牙主力已经在来袭中被击溃，燧火战士进入并占领了无人防守的要塞。";
+        if (candidate.rockfangTruce) {
+            candidate.rockfangTruce = false;
+            candidate.relations[indexOf(FactionId::Rockfang)] = clampRelation(candidate.relations[indexOf(FactionId::Rockfang)] - 40);
+            message += " 你撕毁了停战约定，岩牙关系大幅下降。";
+        }
+        return commitAction(std::move(candidate), std::move(message));
+    }
     if (tactic == Tactic::Retreat && state_.food < 3) return rejected("撤退需要3单位食物维持队形，状态未改变。");
 
     BattleContext context;
@@ -536,6 +560,7 @@ ActionResult GameEngine::attack(const Tactic tactic, const bool raid) {
     context.defense = raid ? permanentDefense() + state_.temporaryDefense : 0;
     context.enemyStrength = state_.rockfangStrength;
     const BattleResult battle = battles_.resolve(context, tactic);
+    if (!battle.valid) return rejected(battle.message.empty() ? "非法战术，战斗未发生。" : battle.message);
 
     GameState candidate = state_;
     std::string message = battle.message;
@@ -557,8 +582,12 @@ ActionResult GameEngine::attack(const Tactic tactic, const bool raid) {
     if (raid) {
         candidate.pendingRaid = false;
         candidate.phase = Phase::Playing;
+        candidate.temporaryDefense = 0;
         finishExtinctionIfNeeded(candidate, message);
-        state_ = std::move(candidate);
+        std::string error;
+        if (!commitState(std::move(candidate), error)) {
+            return rejected("战斗后的状态未通过校验，战斗已取消：" + error);
+        }
         return {true, true, false, false, std::move(message)};
     }
     if (candidate.rockfangTruce) {
@@ -603,20 +632,25 @@ ActionResult GameEngine::endSeason() {
     std::string settlementMessage = message.str();
     finishExtinctionIfNeeded(candidate, settlementMessage);
     if (candidate.phase == Phase::Finished) {
-        state_ = std::move(candidate);
+        std::string error;
+        if (!commitState(std::move(candidate), error)) {
+            return rejected("季节结算后的状态未通过校验，结算已取消：" + error);
+        }
         return {true, true, false, true, settlementMessage + "\n结局：部落覆灭。"};
     }
 
     if (candidate.turn == static_cast<int>(kSeasonCount)) {
         candidate.actionsLeft = 0;
         candidate.phase = Phase::FinalChoice;
-        state_ = std::move(candidate);
+        std::string error;
+        if (!commitState(std::move(candidate), error)) {
+            return rejected("最终结算后的状态未通过校验，结算已取消：" + error);
+        }
         return {true, true, false, true, settlementMessage
             + "\n四年已经结束。输入 objectives 查看道路，再用 choose/选择 决定结局。"};
     }
 
     ++candidate.turn;
-    candidate.temporaryDefense = 0;
     candidate.actionsLeft = teamsForPopulation(candidate.population);
     candidate.phase = Phase::Playing;
     candidate.currentEvent = candidate.eventSchedule.at(static_cast<std::size_t>(candidate.turn - 1));
@@ -624,7 +658,10 @@ ActionResult GameEngine::endSeason() {
     applyEvent(candidate, static_cast<EventId>(candidate.currentEvent), eventMessage);
     finishExtinctionIfNeeded(candidate, eventMessage);
     candidate.actionsLeft = std::min(candidate.actionsLeft, teamsForPopulation(candidate.population));
-    state_ = std::move(candidate);
+    std::string error;
+    if (!commitState(std::move(candidate), error)) {
+        return rejected("新季节状态未通过校验，结算已取消：" + error);
+    }
     return {true, true, false, true, settlementMessage + "\n" + eventMessage};
 }
 
@@ -638,7 +675,10 @@ ActionResult GameEngine::chooseEnding(const std::string_view target) {
     GameState candidate = state_;
     candidate.phase = Phase::Finished;
     candidate.ending = *ending;
-    state_ = std::move(candidate);
+    std::string error;
+    if (!commitState(std::move(candidate), error)) {
+        return rejected("结局状态未通过校验，选择已取消：" + error);
+    }
     return {true, true, false, false, "族人围绕燧火作出共同决定。结局：" + endingName(*ending) + "。"};
 }
 
@@ -832,7 +872,7 @@ std::string GameEngine::statusText() const {
            << "食物：" << state_.food << "/" << (has(state_, BuildingId::Granary) ? 100 : 60)
            << "  木材：" << state_.wood << "  石料：" << state_.stone << "  草药：" << state_.herbs << "\n"
            << "营地耐久：" << state_.campDurability << "/20  永久防御：" << permanentDefense()
-           << "  本季临时防御：" << state_.temporaryDefense << "\n"
+           << "  下次来袭防御：" << state_.temporaryDefense << "\n"
            << "河鹿关系：" << state_.relations[indexOf(FactionId::RiverDeer)]
            << "  白羽关系：" << state_.relations[indexOf(FactionId::WhiteFeather)]
            << "  岩牙关系：" << state_.relations[indexOf(FactionId::Rockfang)]
@@ -897,12 +937,12 @@ std::string GameEngine::helpText() const {
         "  1 status 状态          2 map 地图          objectives 目标\n"
         "  3 gather food 采集 食物    4 gather wood 采集 木材\n"
         "  5 gather stone 采集 石料   6 gather herbs 采集 草药\n"
-        "  7 train 训练    10 celebrate 鼓舞    guard 守卫    8 endturn 结束回合\n"
+        "  7 train 训练    10 celebrate 鼓舞    guard 守卫（防御保留到下次来袭）    8 endturn 结束回合\n"
         "探索：11沼泽 12河鹿渡口 13白羽营地 14矿场 15山隘 16岩牙要塞；或 scout/侦察 <地点>\n"
         "建筑：21粮仓 22木墙 23工坊 24医者小屋 25瞭望塔 26议事火坛；或 build/建造 <建筑>\n"
         "技术：31食物保存 32草药知识 33引水 34长矛 35盾墙 36伏击 37赠礼 38语言 39联盟\n"
         "外交：41-43交谈河鹿/白羽/岩牙，44-46赠礼，47-49协助；或 talk/gift/quest <部落>\n"
-        "战斗：51正面 52伏击 53防守 54撤退；或 attack rockfang <tactic> / 应战 <战术>\n"
+        "战斗：51正面（削敌更多） 52伏击（侦察后更稳） 53防守 54撤退；或 attack rockfang <tactic> / 应战 <战术>\n"
         "结局：71联盟 72征服 73繁荣 74迁徙；或 choose/选择 <结局>\n"
         "公共：help 帮助，save 保存，load 读取，back 返回，quit 退出。";
 }

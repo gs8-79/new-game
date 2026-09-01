@@ -19,6 +19,7 @@ struct BattleContext {
 };
 
 struct BattleResult {
+    bool valid = false;
     bool retreated = false;
     bool victory = false;
     int playerPower = 0;

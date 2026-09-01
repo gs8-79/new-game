@@ -234,6 +234,42 @@ bool deserializeText(const std::string& text, GameState& candidate, std::string&
     return deserialize(input, candidate, error);
 }
 
+enum class LoadFileStatus { Loaded, Missing, Invalid, Unavailable };
+
+LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate, std::string& error) {
+    std::error_code code;
+    const bool exists = std::filesystem::exists(path, code);
+    if (code) {
+        error = "无法检查文件" + path.filename().string() + "：" + code.message();
+        return LoadFileStatus::Unavailable;
+    }
+    if (!exists) {
+        error = "文件不存在：" + path.filename().string();
+        return LoadFileStatus::Missing;
+    }
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        error = "无法打开文件：" + path.filename().string();
+        return LoadFileStatus::Unavailable;
+    }
+    return deserialize(input, candidate, error) ? LoadFileStatus::Loaded : LoadFileStatus::Invalid;
+}
+
+void restoreRecoveredFile(const std::filesystem::path& source, const std::filesystem::path& destination) {
+    std::error_code code;
+    if (std::filesystem::exists(destination, code)) {
+        if (code) return;
+        std::filesystem::remove(destination, code);
+        if (code) return;
+    } else if (code) {
+        return;
+    }
+
+    // Copy instead of rename so an interruption during recovery always leaves
+    // the already-validated .bak/.tmp source available for the next load.
+    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, code);
+}
+
 } // namespace
 
 SaveRepository::SaveRepository(std::filesystem::path root) : root_(std::move(root)) {}
@@ -269,6 +305,10 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
     std::filesystem::path backup = path;
     backup += ".bak";
     std::filesystem::remove(temporary, code);
+    if (code) {
+        error = "无法清理旧的临时存档：" + code.message();
+        return false;
+    }
     code.clear();
 
     {
@@ -283,12 +323,26 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
             error = "写入临时存档失败。";
             return false;
         }
+        output.close();
+        if (!output) {
+            error = "关闭临时存档失败。";
+            return false;
+        }
     }
 
-    const bool hadOriginal = std::filesystem::exists(path, code) && !code;
+    const bool hadOriginal = std::filesystem::exists(path, code);
+    if (code) {
+        error = "无法检查旧存档：" + code.message();
+        std::filesystem::remove(temporary, code);
+        return false;
+    }
     if (hadOriginal) {
         std::filesystem::remove(backup, code);
-        code.clear();
+        if (code) {
+            error = "无法清理旧备份：" + code.message();
+            std::filesystem::remove(temporary, code);
+            return false;
+        }
         std::filesystem::rename(path, backup, code);
         if (code) {
             error = "无法备份旧存档：" + code.message();
@@ -303,6 +357,13 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
         if (hadOriginal) {
             std::error_code restoreCode;
             std::filesystem::rename(backup, path, restoreCode);
+            if (restoreCode) {
+                std::filesystem::remove(temporary, code);
+                error = "无法替换正式存档：" + renameError
+                    + "；恢复旧存档也失败：" + restoreCode.message()
+                    + "。旧数据仍保留在" + backup.filename().string() + "。";
+                return false;
+            }
         }
         std::filesystem::remove(temporary, code);
         error = "无法替换正式存档：" + renameError;
@@ -315,16 +376,44 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
 
 bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error) const {
     const std::filesystem::path path = pathFor(slot);
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        error = "找不到" + slotName(slot) + "。";
+    GameState parsed;
+    std::string primaryError;
+    const LoadFileStatus primaryStatus = loadFile(path, parsed, primaryError);
+    if (primaryStatus == LoadFileStatus::Loaded) {
+        candidate = std::move(parsed);
+        error.clear();
+        return true;
+    }
+    if (primaryStatus == LoadFileStatus::Unavailable) {
+        error = "读取" + slotName(slot) + "失败。主文件暂时不可用：" + primaryError
+            + "。为避免误读旧备份，本次没有自动回退。";
         return false;
     }
-    GameState parsed;
-    if (!deserialize(input, parsed, error)) return false;
-    candidate = std::move(parsed);
-    error.clear();
-    return true;
+
+    std::filesystem::path backup = path;
+    backup += ".bak";
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+
+    std::string backupError;
+    if (loadFile(backup, parsed, backupError) == LoadFileStatus::Loaded) {
+        restoreRecoveredFile(backup, path);
+        candidate = std::move(parsed);
+        error.clear();
+        return true;
+    }
+
+    std::string temporaryError;
+    if (loadFile(temporary, parsed, temporaryError) == LoadFileStatus::Loaded) {
+        restoreRecoveredFile(temporary, path);
+        candidate = std::move(parsed);
+        error.clear();
+        return true;
+    }
+
+    error = "读取" + slotName(slot) + "失败。主文件：" + primaryError
+        + "；备份文件：" + backupError + "；临时文件：" + temporaryError;
+    return false;
 }
 
 std::optional<SaveSlot> SaveRepository::parseSlot(const std::string_view text) {
