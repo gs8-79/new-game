@@ -1,53 +1,50 @@
 flowchart LR
     Player((玩家))
+    TribeAI((其他部落AI))
+    Season((季节系统))
+    Storage[(版本2存档)]
 
-    subgraph V1[V1 已完成：当前可试玩的苍林狩猎纵切]
+    subgraph Campaign[V2长期战役用例]
       direction TB
-      UC1([从主菜单进入扩展试玩])
-      UC2([选择2至8人小队或固定种子])
-      UC3([查看状态并移动探索])
-      UC4([采集和使用补给])
-      UC5([处理外族遭遇])
-      UC6([交谈并完成和平贸易])
-      UC7([劫掠并进入三段战线])
-      UC8([攻击 防御 下令或撤退])
-      UC9([胜利后免费搜取并装备])
-      UC10([回营结算并返回主菜单])
+      UC1([选择快速8季 课程16季 长期32季])
+      UC2([查看部落 人物 小队 世界地图])
+      UC3([采集 建设 研究与常驻任务])
+      UC4([直接操控苍林小队任务])
+      UC5([交谈 送礼 贸易 联姻 朝贡])
+      UC6([结盟 宣战 停战 劫掠])
+      UC7([组建军队并操控三段战争])
+      UC8([处理派系危机 政变与继承])
+      UC9([保存读取六个档位与自动档])
+      UC10([选择并播放五种结局])
+      UC11([查看结算 人物与编年史])
+      UC12([长期模式继续沙盒])
 
-      UC1 --> UC2 --> UC3
-      UC3 --> UC4
-      UC3 --> UC5
-      UC5 --> UC6 --> UC10
-      UC5 --> UC7 --> UC8
-      UC8 -- 继续战斗 --> UC8
-      UC8 -- 胜利 --> UC9 --> UC10
-      UC8 -- 撤退 --> UC10
-    end
-
-    subgraph V2[V2 待实现：长期战役与扩展持久化]
-      direction TB
-      UC11([创建并管理统一长期战役])
-      UC12([保存读取ExpansionState和六个手动档])
-      UC13([探索16地点并执行常驻任务])
-      UC14([经营供需贸易路线与贝币])
-      UC15([与六部落联姻朝贡结盟或战争])
-      UC16([处理派系稳定首领更替])
-      UC17([推进32季并结算五种独立结局])
+      UC1 --> UC2
+      UC2 --> UC3
+      UC2 --> UC4
+      UC2 --> UC5
+      UC5 --> UC6
+      UC6 --> UC7
+      UC3 --> UC8
+      UC4 --> UC8
+      UC7 --> UC8
+      UC8 --> UC10 --> UC11
       UC11 --> UC12
-      UC11 --> UC13 --> UC17
-      UC11 --> UC14 --> UC17
-      UC11 --> UC15 --> UC16 --> UC17
+      UC2 --> UC9
     end
-
-    AI((其他部落AI V2))
-    Clock((季节系统 V2))
 
     Player --> UC1
-    Player -. V2规划 .-> UC11
-    AI -. V2规划 .-> UC15
-    Clock -. V2规划 .-> UC16
+    Player --> UC2
+    Player --> UC4
+    Player --> UC5
+    Player --> UC7
+    Player --> UC9
+    Player --> UC10
+    TribeAI --> UC5
+    TribeAI --> UC6
+    Season --> UC3
+    Season --> UC8
+    Storage --> UC9
 
     classDef done fill:#e7f6ed,stroke:#238636,color:#173b22,stroke-width:2px
-    classDef pending fill:#fff4df,stroke:#b26a00,color:#5c3900,stroke-width:2px,stroke-dasharray: 6 4
-    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10 done
-    class UC11,UC12,UC13,UC14,UC15,UC16,UC17,AI,Clock pending
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10,UC11,UC12,TribeAI,Season,Storage done

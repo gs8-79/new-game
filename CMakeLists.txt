@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(mud_demos VERSION 1.0.0 LANGUAGES CXX)
+project(mud_demos VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,6 +57,9 @@ add_library(tribe_formal_lib
     formal/src/formal_types.cpp
     formal/src/expansion_types.cpp
     formal/src/expansion_game.cpp
+    formal/src/campaign.cpp
+    formal/src/campaign_save_repository.cpp
+    formal/src/ending_presentation.cpp
     formal/src/content.cpp
     formal/src/battle.cpp
     formal/src/game_engine.cpp
@@ -87,6 +90,9 @@ add_executable(tribe-formal-tests
     formal/tests/save_reliability_tests.cpp
     formal/tests/expansion_domain_tests.cpp
     formal/tests/expansion_game_tests.cpp
+    formal/tests/campaign_tests.cpp
+    formal/tests/campaign_save_tests.cpp
+    formal/tests/ending_presentation_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
 target_include_directories(tribe-formal-tests PRIVATE tests)

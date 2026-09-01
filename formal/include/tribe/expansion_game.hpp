@@ -71,6 +71,7 @@ struct ExpansionState {
 class ExpansionGame {
 public:
     explicit ExpansionGame(std::uint32_t seed = 1U, std::size_t squadSize = 4U);
+    explicit ExpansionGame(ExpansionState state);
 
     ExpansionCommandResult execute(std::string_view input);
     const ExpansionState& state() const { return state_; }

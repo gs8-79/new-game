@@ -2,11 +2,13 @@
 
 本页用于课程报告和课堂展示，不替代旧正式版设计图。四张图统一使用以下状态边界：
 
-- **V1 已完成**：当前源码中已经存在并可从主菜单进入的“苍林狩猎”纵切，包括 `expansion_types`、`ExpansionGame`、`ExpansionState`、2至8人小队、探索/遭遇/三段战线/拾取/回营，以及对应的 `ConsoleUI` 显示。
-- **V2 待实现**：六部落、16地点、长期32季、动态外交与派系、供需经济、扩展状态存档、五种独立结局和完整编年史仍是后续目标，不能作为当前完成能力。
-- **存档边界**：现有 `SaveRepository` 只保存和读取旧正式模式的 `GameState`；扩展 V1 退出后不会保存 `ExpansionState`，版本2存档属于 V2。
+- **V1 已完成**：`expansion_types`、`ExpansionGame`、`ExpansionState` 和“苍林狩猎”纵切已经存在并可从主菜单试玩。
+- **V2 已实现范围通过本机验证**：`CampaignGame`、`CampaignSaveRepository`、`EndingPresentation`、主菜单和 `ConsoleUI` 已接入，覆盖8/16/32季、六部落、16地点、永久小队、外交贸易、派系、战争、版本2存档、五结局和编年史。
+- **自动测试边界**：本机 Visual Studio 2026 Debug、Release 均为旧 Demo `33/33`、正式/V1/V2 `73/73`；V2另有双语存档路线和迁徙结局路线烟测。
+- **外部证据未完成**：Mac实机、交换小组试玩、课堂验收和GitHub推送仍未验证，图中以灰色交付项表示。
+- **计划缺口明确保留**：旧正式档复制转换、结局动画播放中任意键中断尚未实现，不在图中写成完成。
 
-> 2026-09-01 已从当前 Mermaid 图源重新生成 SVG 和 PNG；`.mmd`、`.svg`、`.png` 三种格式内容一致。
+> 四个 `.mmd` 已按V2最终源码刷新；SVG/PNG由同一图源重新导出后使用。
 
 ## 1. WBS 工作分解图
 
@@ -14,7 +16,7 @@
 
 ![扩展版WBS](diagrams/expanded/01-wbs-expanded.svg)
 
-WBS 已拆成“V1 已完成”和“V2 待实现”两棵分支。V1覆盖基础稳定、扩展领域类型、苍林纵切和现有接入验证；长期战役、复杂外交经济、结局和完整跨平台交付证据保留在 V2。
+WBS 把“代码与基础设施完成”“本机验证完成”“仍需队员完成的外部证据”分开，防止把Mac或交换组验证提前写成已完成。
 
 ## 2. Use Case 用例图
 
@@ -22,7 +24,7 @@ WBS 已拆成“V1 已完成”和“V2 待实现”两棵分支。V1覆盖基�
 
 ![扩展版用例图](diagrams/expanded/02-use-case-expanded.svg)
 
-V1 的实际参与者是玩家：从主菜单进入扩展试玩，选择小队/种子，探索采集，和平贸易或进入三段战线，最后搜取并回营。其他部落 AI 和季节系统只出现在 V2 规划中。
+玩家用例覆盖部落经营、小队任务、外交贸易、战争、派系、存档与结局；其他部落AI、季节系统和存储模块作为外部参与者单列。
 
 ## 3. UML 核心类图
 
@@ -30,7 +32,7 @@ V1 的实际参与者是玩家：从主菜单进入扩展试玩，选择小队/�
 
 ![扩展版核心类图](diagrams/expanded/03-class-diagram-expanded.svg)
 
-当前实现中，主循环分别创建 `GameEngine` 和 `ExpansionGame`；`ConsoleUI` 分别通过 `renderGame`、`renderExpansion` 显示两种模式。`ExpansionGame` 持有 `ExpansionState`，后者组合使用 `expansion_types` 中的 `Squad`、`Character`、`Inventory`、`Item` 和 `Attributes`。`SaveRepository` 仍只依赖 `GameState` 并调用 `GameEngine::validateState`；它与扩展统一状态/版本2存档的关系明确标为 V2 计划，不伪装成现有代码。
+类图对应V2源码：`MainModule`表示`main.cpp`中的主循环与自由函数，不是额外C++类；`CampaignGame`协调规则，`CampaignSaveRepository`只负责版本2持久化，`EndingPresentation`只读显示，`ConsoleUI`负责主页面；苍林任务继续复用独立的 `ExpansionGame` / `ExpansionState`。
 
 ## 4. 核心游戏流程图
 
@@ -38,4 +40,4 @@ V1 的实际参与者是玩家：从主菜单进入扩展试玩，选择小队/�
 
 ![扩展版核心流程图](diagrams/expanded/04-core-flow-expanded.svg)
 
-V1 流程按当前状态机展开：营地准备→森林探索→外族遭遇→和平贸易或三段战线→免费搜取→回营结算。非法操作走“说明原因、状态不变”分支。统一长期战役、季节外交和独立结局单列为 V2，尚未接入当前扩展试玩。
+流程图从主菜单开始，串联管理、小队任务、战争、季节结算、结局演出、版本2存档和长期沙盒；所有失败分支都回到原阶段且不修改状态。

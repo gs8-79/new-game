@@ -1,5 +1,8 @@
 #include "tribe/console_ui.hpp"
+#include "tribe/campaign.hpp"
+#include "tribe/campaign_save_repository.hpp"
 #include "tribe/expansion_game.hpp"
+#include "tribe/ending_presentation.hpp"
 #include "tribe/game_engine.hpp"
 #include "tribe/save_repository.hpp"
 
@@ -68,10 +71,37 @@ bool parseSquadSize(const std::string& text, std::size_t& size) {
     return true;
 }
 
+std::optional<tribe::CampaignMode> parseCampaignMode(const std::string_view text) {
+    if (text == "quick" || text == "fast" || text == "8" || text == "快速" || text == "快速8季") {
+        return tribe::CampaignMode::Quick;
+    }
+    if (text == "course" || text == "standard" || text == "16" || text == "课程" || text == "课程16季") {
+        return tribe::CampaignMode::Course;
+    }
+    if (text == "long" || text == "32" || text == "长期" || text == "长期32季") {
+        return tribe::CampaignMode::Long;
+    }
+    return std::nullopt;
+}
+
 void waitForEnter(tribe::ConsoleUI& ui) {
     if (!ui.interactive()) return;
     std::string ignored;
     std::getline(std::cin, ignored);
+}
+
+void playCampaignEnding(const tribe::CampaignGame& game, tribe::ConsoleUI& ui) {
+    tribe::EndingPresentationOptions options;
+    options.animated = ui.interactive();
+    options.ansiEnabled = ui.ansiEnabled();
+    options.clearBetweenFrames = ui.interactive() && ui.ansiEnabled();
+    options.frameDelay = std::chrono::milliseconds{260};
+    ui.clear();
+    tribe::EndingPresentation::play(game.endingSummary(), std::cout, options);
+    if (ui.interactive()) {
+        std::cout << "\n\n按 Enter 返回结算菜单。";
+        waitForEnter(ui);
+    }
 }
 
 enum class SaveExitStatus { Autosaved, Manual1, Manual2, Manual3, Cancelled, InputClosed };
@@ -281,6 +311,121 @@ bool runExpansionGame(tribe::ExpansionGame& game, tribe::ConsoleUI& ui, std::str
     }
 }
 
+bool runCampaignGame(tribe::CampaignGame& game, const tribe::CampaignSaveRepository& saves,
+    tribe::ConsoleUI& ui, std::string& exitMessage) {
+    exitMessage.clear();
+    std::string message = tribe::CampaignGame::modeName(game.state().mode)
+        + "已经开始。输入1查看状态，输入9或帮助查看完整命令。";
+    std::string line;
+    for (;;) {
+        ui.renderCampaign(game, message);
+        if (!std::getline(std::cin, line)) return false;
+        const Words command = words(line);
+        if (command.verb.empty()) {
+            message = "请输入命令；第一次游玩可输入9、help或帮助。";
+            continue;
+        }
+        if ((command.verb == "9" || verbIs(command, {"help", "帮助"})) && command.args.empty()) {
+            ui.showStandalone("V2长期战役帮助", game.helpText()
+                + "\n存档：save/保存 <1至6|auto>，load/读取 <1至6|auto>。"
+                  "\n公共：back/返回主菜单；quit/退出。每季和返回时自动保存。");
+            waitForEnter(ui);
+            message = "帮助页已关闭。";
+            continue;
+        }
+        if (verbIs(command, {"back", "返回", "返回主菜单"}) && command.args.empty()) {
+            std::string error;
+            if (!saves.save(game.state(), tribe::CampaignSaveSlot::Autosave, error)) {
+                message = "自动保存失败，仍留在游戏中：" + error
+                    + " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
+                continue;
+            }
+            exitMessage = "已返回主菜单；V2战役保存在自动档。";
+            return true;
+        }
+        if (verbIs(command, {"quit", "exit", "退出"}) && command.args.empty()) {
+            std::string error;
+            if (!saves.save(game.state(), tribe::CampaignSaveSlot::Autosave, error)) {
+                message = "退出前保存失败，游戏仍保留：" + error
+                    + " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
+                continue;
+            }
+            return false;
+        }
+        if (verbIs(command, {"forcequit", "强制退出"}) && command.args.empty()) return false;
+        if (verbIs(command, {"replay", "重新播放"}) && command.args.empty()) {
+            if (game.state().phase != tribe::CampaignPhase::Finished) {
+                message = "只有结局确定后才能重新播放演出。";
+            } else {
+                playCampaignEnding(game, ui);
+                message = "结局演出播放完毕。";
+            }
+            continue;
+        }
+        if (verbIs(command, {"characters", "人物", "查看人物"}) && command.args.empty()) {
+            ui.showStandalone("人物与小队结算", game.squadText());
+            waitForEnter(ui);
+            message = "已查看人物与小队结算。";
+            continue;
+        }
+        if (verbIs(command, {"save", "保存"})) {
+            if (command.args.size() != 1U) {
+                message = "用法：save 1（可选1至6或auto）。";
+                continue;
+            }
+            const auto slot = tribe::CampaignSaveRepository::parseSlot(command.args.front());
+            if (!slot) {
+                message = "V2存档位必须是1至6或auto。";
+                continue;
+            }
+            std::string error;
+            message = saves.save(game.state(), *slot, error)
+                ? "已保存到" + tribe::CampaignSaveRepository::slotName(*slot) + "。"
+                : "保存失败，当前游戏不受影响：" + error;
+            continue;
+        }
+        if (verbIs(command, {"load", "读取"})) {
+            if (command.args.size() != 1U) {
+                message = "用法：load 1（可选1至6或auto）。";
+                continue;
+            }
+            const auto slot = tribe::CampaignSaveRepository::parseSlot(command.args.front());
+            if (!slot) {
+                message = "V2存档位必须是1至6或auto。";
+                continue;
+            }
+            tribe::CampaignState loaded;
+            std::string error;
+            if (!saves.load(*slot, loaded, error) || !game.replaceState(loaded, error)) {
+                message = "读取失败，当前游戏不受影响：" + error;
+                continue;
+            }
+            message = "已读取" + tribe::CampaignSaveRepository::slotName(*slot) + "。";
+            continue;
+        }
+
+        const tribe::CampaignActionResult result = game.execute(line);
+        message = result.recognized ? result.message
+                                    : "无法识别该命令。输入9、help或帮助查看完整操作。";
+        if (result.endingReached) {
+            std::string error;
+            if (!saves.save(game.state(), tribe::CampaignSaveSlot::Autosave, error)) {
+                message += "\n结局自动保存失败：" + error + "。";
+            }
+            playCampaignEnding(game, ui);
+            message += "\n结局演出播放完毕，可重新播放、查看人物或编年史。";
+        }
+        if (result.seasonAdvanced) {
+            std::string error;
+            if (!saves.save(game.state(), tribe::CampaignSaveSlot::Autosave, error)) {
+                message += "\n本季自动保存失败：" + error + "（游戏仍可继续）。";
+            } else {
+                message += "\n本季已自动保存。";
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -288,6 +433,8 @@ int main() {
     const bool ansi = interactive && tribe::ConsoleUI::initializeTerminal();
     tribe::ConsoleUI ui(std::cout, interactive, ansi);
     const tribe::SaveRepository saves(std::filesystem::current_path() / "saves" / "formal");
+    const tribe::CampaignSaveRepository campaignSaves(
+        std::filesystem::current_path() / "saves" / "formal-v2");
 
     std::string menuMessage;
     std::string line;
@@ -298,7 +445,9 @@ int main() {
         if (verbIs(command, {"q", "quit", "退出"})) break;
         if (verbIs(command, {"h", "help", "帮助"})) {
             tribe::GameEngine example({tribe::GameMode::Standard, 1U});
-            ui.showStandalone("新手帮助", example.helpText());
+            ui.showStandalone("主菜单与新手帮助",
+                "V2战役：7快速8季、8课程16季、9长期32季；也可输入 campaign quick|course|long。\n"
+                "大型扩展V1：输入e；旧正式模式：输入1或2。\n\n旧正式模式命令：\n" + example.helpText());
             waitForEnter(ui);
             menuMessage.clear();
             continue;
@@ -329,6 +478,59 @@ int main() {
             }
             tribe::ExpansionGame game(seed, squadSize);
             if (!runExpansionGame(game, ui, menuMessage)) break;
+            continue;
+        }
+
+        std::optional<tribe::CampaignMode> campaignMode;
+        std::uint32_t campaignSeed = freshSeed();
+        bool campaignRequested = false;
+        if (command.args.empty() && (command.verb == "7" || command.verb == "v2quick"
+                || command.verb == "快速战役")) {
+            campaignMode = tribe::CampaignMode::Quick;
+            campaignRequested = true;
+        } else if (command.args.empty() && (command.verb == "8" || command.verb == "v2course"
+                || command.verb == "课程战役")) {
+            campaignMode = tribe::CampaignMode::Course;
+            campaignRequested = true;
+        } else if (command.args.empty() && (command.verb == "9" || command.verb == "v2long"
+                || command.verb == "长期战役")) {
+            campaignMode = tribe::CampaignMode::Long;
+            campaignRequested = true;
+        } else if (verbIs(command, {"campaign", "v2", "战役"}) && command.args.size() == 1U) {
+            campaignMode = parseCampaignMode(command.args.front());
+            campaignRequested = true;
+        } else if (verbIs(command, {"campaignseed", "v2seed", "战役种子"}) && command.args.size() == 2U) {
+            campaignMode = parseCampaignMode(command.args[0]);
+            campaignRequested = true;
+            if (!parseSeed(command.args[1], campaignSeed)) {
+                menuMessage = "战役种子必须是0到4294967295之间的整数。";
+                continue;
+            }
+        }
+        if (campaignRequested) {
+            if (!campaignMode) {
+                menuMessage = "V2模式必须是 quick/course/long，或 快速/课程/长期。";
+                continue;
+            }
+            tribe::CampaignGame game({*campaignMode, campaignSeed});
+            if (!runCampaignGame(game, campaignSaves, ui, menuMessage)) break;
+            continue;
+        }
+
+        if (verbIs(command, {"v2load", "campaignload", "读取战役"}) && command.args.size() == 1U) {
+            const auto slot = tribe::CampaignSaveRepository::parseSlot(command.args.front());
+            if (!slot) {
+                menuMessage = "V2存档位必须是1至6或auto。";
+                continue;
+            }
+            tribe::CampaignState loaded;
+            std::string error;
+            if (!campaignSaves.load(*slot, loaded, error)) {
+                menuMessage = "V2读取失败：" + error;
+                continue;
+            }
+            tribe::CampaignGame game(std::move(loaded));
+            if (!runCampaignGame(game, campaignSaves, ui, menuMessage)) break;
             continue;
         }
 
@@ -368,7 +570,7 @@ int main() {
             if (!runGame(engine, saves, ui, false, menuMessage)) break;
             continue;
         }
-        menuMessage = "无效选择，请输入1至6、e、h或q。";
+        menuMessage = "无效选择，请输入1至9、e、h或q。";
     }
 
     std::cout << "\n燧火未熄，感谢游玩。\n";

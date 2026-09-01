@@ -1,5 +1,6 @@
 #include "tribe/console_ui.hpp"
 
+#include "tribe/campaign.hpp"
 #include "tribe/content.hpp"
 #include "tribe/expansion_game.hpp"
 
@@ -80,12 +81,15 @@ void ConsoleUI::clear() {
 void ConsoleUI::renderMainMenu(const std::string_view message) {
     clear();
     write(UiColor::Title, "============================================================\n");
-    write(UiColor::Title, "              《燧火纪：部落黎明》正式版\n");
+    write(UiColor::Title, "                 《燧火纪：部落黎明》\n");
     write(UiColor::Title, "============================================================\n");
     output_ << "你将领导整个燧火部落，在四年中经营、结盟或征服。\n\n"
             << "  1. 开始正式模式（16季，约60分钟）\n"
             << "  2. 开始快速展示模式（从第三年开始，8季）\n"
             << "  e. 大型扩展V1：苍林狩猎与可操控战斗\n"
+            << "  7. V2快速战役（8季）\n"
+            << "  8. V2课程战役（16季）\n"
+            << "  9. V2长期战役（32季）\n"
             << "  3. 读取手动存档1\n"
             << "  4. 读取手动存档2\n"
             << "  5. 读取手动存档3\n"
@@ -93,7 +97,10 @@ void ConsoleUI::renderMainMenu(const std::string_view message) {
             << "  h. 查看新手帮助\n"
             << "  q. 退出\n"
             << "  扩展小队：expanded <2至8>\n"
-            << "  高级复现：seed <数字> / quickseed <数字> / expandedseed <种子> <人数>\n";
+            << "  V2命令：campaign quick|course|long / 战役 快速|课程|长期\n"
+            << "  V2读档：v2load <1至6|auto> / 读取战役 <1至6|auto>\n"
+            << "  高级复现：seed <数字> / quickseed <数字> / expandedseed <种子> <人数>\n"
+            << "            campaignseed <quick|course|long> <种子>\n";
     if (!message.empty()) {
         output_ << '\n';
         write(UiColor::Warning, message);
@@ -116,6 +123,92 @@ void ConsoleUI::renderExpansion(const ExpansionGame& game, const std::string_vie
             << "物品：use/使用  loot/搜取  equip/装备 <栏位> <物品编号>\n"
             << "公共：look/查看  help/帮助  back/返回主菜单  quit/退出\n"
             << "说明：V1纵切用于试玩新系统，存档将在V2接入。\n";
+    prompt();
+}
+
+void ConsoleUI::renderCampaign(const CampaignGame& game, const std::string_view message) {
+    clear();
+    const CampaignState& state = game.state();
+    write(UiColor::Title, "================ 《燧火纪》V2长期战役 ================\n");
+    output_ << CampaignGame::modeName(state.mode) << " | 季节 " << state.season << '/' << state.seasonLimit
+            << " | " << CampaignGame::phaseName(state.phase) << " | 行动点 " << state.actionsLeft
+            << " | 种子 " << state.seed << '\n'
+            << "------------------------------------------------------------\n"
+            << "部落 " << state.tribeName << "  首领 " << state.leaderName;
+    if (!state.actingLeaderName.empty()) output_ << "（代理/继任 " << state.actingLeaderName << "）";
+    output_ << "  人口 " << state.population << "  战士 " << state.warriors
+            << "  稳定 " << state.stability << "  士气 " << state.morale
+            << "  营地 " << state.campDurability << '\n';
+    write(UiColor::Food, "食物 " + std::to_string(state.food));
+    output_ << "  ";
+    write(UiColor::Wood, "木材 " + std::to_string(state.wood));
+    output_ << "  ";
+    write(UiColor::Stone, "石料 " + std::to_string(state.stone));
+    output_ << "  ";
+    write(UiColor::Herbs, "草药 " + std::to_string(state.herbs));
+    output_ << "  贝币 " << state.shells << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
+            << "地图 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
+            << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
+            << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
+            << "  贸易 " << state.tradeCount << "  战争胜负 " << state.warsWon << '/' << state.warsLost << '\n'
+            << "------------------------------------------------------------\n";
+
+    for (std::size_t index = 1; index < kTribeV2Count; ++index) {
+        const auto tribe = static_cast<TribeIdV2>(index);
+        const DiplomacyRelation& relation = state.relations[index];
+        const UiColor color = relation.atWar ? UiColor::Enemy
+            : relation.alliance ? UiColor::Friendly : UiColor::Neutral;
+        write(color, CampaignGame::tribeName(tribe) + " " + std::to_string(relation.relation));
+        if (relation.atWar) output_ << "[战]";
+        else if (relation.alliance) output_ << "[盟]";
+        else if (relation.tradeRoute) output_ << "[商]";
+        output_ << (index + 1U == kTribeV2Count ? '\n' : ' ');
+    }
+
+    if (!state.squads.empty()) {
+        const PermanentSquad& squad = state.squads.front();
+        output_ << squad.name << "：队长 " << squad.captain << "，" << squad.members.size()
+                << "人，疲劳 " << squad.fatigue << "，精锐经验 " << squad.eliteExperience;
+        if (squad.refusingOrders) output_ << " [抗命]";
+        output_ << '\n';
+    }
+    if (state.phase == CampaignPhase::Mission && state.activeMission) {
+        const ExpansionState& mission = *state.activeMission;
+        output_ << "苍林任务：" << ExpansionGame::phaseName(mission.phase) << " / "
+                << ExpansionGame::locationName(mission.location) << "，回合 " << mission.turn;
+        if (mission.phase == ExpansionPhase::FrontlineCombat) {
+            output_ << "，战线 " << mission.frontline << "/3，敌方生命 " << mission.enemyLife;
+        }
+        output_ << '\n';
+    } else if (state.phase == CampaignPhase::War) {
+        output_ << "部落战争：对" << CampaignGame::tribeName(state.war.enemy) << "，战线 "
+                << state.war.front << "/3，己方战力 " << state.war.playerPower
+                << "，敌方战力 " << state.war.enemyPower << '\n';
+    } else if (state.phase == CampaignPhase::Finished) {
+        write(UiColor::Warning, "结局已确定：" + CampaignGame::endingName(state.ending) + "\n");
+    }
+
+    output_ << "------------------------------------------------------------\n";
+    if (!message.empty()) output_ << "最近消息：" << message << '\n';
+    output_ << "------------------------------------------------------------\n";
+    if (state.phase == CampaignPhase::Mission) {
+        output_ << "任务：move/移动 gather/采集 talk/交谈 trade/贸易 raid/劫掠 attack/攻击\n"
+                << "      defend/防御 order/下令 loot/搜取 return/回营 abort/放弃任务\n";
+    } else if (state.phase == CampaignPhase::War) {
+        output_ << "战争：attack/攻击 defend/防御 order/下令 <推进|坚守|集火|包抄|掩护|撤退> retreat/撤退\n";
+    } else if (state.phase == CampaignPhase::EndingChoice) {
+        output_ << "结算：objectives/目标  choose/选择 <alliance|conquest|prosperity|migration>\n";
+    } else if (state.phase == CampaignPhase::Finished) {
+        output_ << "结局：replay/重新播放  characters/人物  chronicle/编年史\n"
+                << "      长期非覆灭结局可 sandbox/继续沙盒；也可 back/返回主菜单\n";
+    } else {
+        output_ << "1状态 2地图 3食物 4木材 5苍林任务 6外交 7小队 8结束季节 9帮助\n"
+                << "经营：gather/采集 scout/侦察 build/建造 research/研究\n"
+                << "外交：talk/交谈 gift/送礼 trade/贸易 openroute/开通商路 marry/联姻\n"
+                << "内政战争：factions/派系 appease/安抚 formarmy/组建军队 war/出征\n";
+    }
+    output_ << "存档：save/保存 <1至6|auto>  load/读取 <1至6|auto>\n"
+            << "公共：help/帮助  back/返回主菜单  quit/退出\n";
     prompt();
 }
 

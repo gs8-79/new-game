@@ -178,6 +178,11 @@ ExpansionGame::ExpansionGame(const std::uint32_t seed, const std::size_t squadSi
     if (!valid) throw std::logic_error("苍林狩猎初始状态无效：" + valid.message);
 }
 
+ExpansionGame::ExpansionGame(ExpansionState state) : state_(std::move(state)) {
+    const OperationResult valid = validateState(state_);
+    if (!valid) throw std::invalid_argument("苍林狩猎状态无效：" + valid.message);
+}
+
 ExpansionCommandResult ExpansionGame::execute(const std::string_view input) {
     const ParsedCommand command = parseCommand(input);
     if (command.verb.empty()) return {};
@@ -266,6 +271,9 @@ ExpansionCommandResult ExpansionGame::move(const std::string_view target) {
 
 ExpansionCommandResult ExpansionGame::gather(const std::string_view resource) {
     if (state_.phase != ExpansionPhase::ForestExploration) return rejected("只有探索苍林时可以采集。");
+    if (state_.turn >= 6) {
+        return rejected("本次苍林作业的采集时段已经结束，请与外族接触或回营结算。");
+    }
     ExpansionState candidate = state_;
     const Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
     const Attributes attributes = effectiveAttributes(leader);
