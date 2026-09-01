@@ -1,0 +1,68 @@
+flowchart LR
+    Player((玩家))
+
+    subgraph Game[《燧火纪：部落黎明》扩展版系统边界]
+      direction LR
+
+      subgraph Manage[开局与部落管理]
+        direction TB
+        UC1([创建部落与首领])
+        UC2([管理人物属性与装备])
+        UC3([编成作业小队])
+        UC4([设置常驻任务与休整])
+        UC1 -.包含.-> UC2
+        UC2 -.包含.-> UC3
+        UC3 -.扩展.-> UC4
+      end
+
+      subgraph Mission[外出任务与战斗]
+        direction TB
+        UC5([操控队长探索采集])
+        UC6([处理外族遭遇])
+        UC7([操控小队战斗])
+        UC8([组建军队并指挥战争])
+        UC5 -.包含.-> UC6
+        UC6 -.可能进入.-> UC7
+        UC8 -.复用规则.-> UC7
+      end
+
+      subgraph Diplomacy[外交、贸易与内政]
+        direction TB
+        UC9([外交 联姻 朝贡 条约])
+        UC10([以物易物与贝币贸易])
+        UC11([处理派系与内部稳定])
+        UC12([季节结算与自主外交])
+        UC9 -.影响.-> UC11
+        UC10 -.影响.-> UC11
+        UC12 -.更新.-> UC11
+      end
+
+      subgraph System[存档与结局]
+        direction TB
+        UC13([保存 读取与旧档转换])
+        UC14([查看独立结局与编年史])
+        UC15([结局后继续沙盒])
+        UC14 -.可选择.-> UC15
+      end
+    end
+
+    AI((其他部落AI))
+    Clock((季节系统))
+
+    Player --> UC1
+    Player --> UC2
+    Player --> UC3
+    Player --> UC5
+    Player --> UC8
+    Player --> UC9
+    Player --> UC10
+    Player --> UC11
+    Player --> UC13
+    Player --> UC14
+    AI --> UC6
+    AI --> UC9
+    AI --> UC10
+    AI --> UC12
+    Clock --> UC12
+    UC12 -.触发.-> UC14
+

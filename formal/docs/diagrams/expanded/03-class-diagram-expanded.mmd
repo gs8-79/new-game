@@ -1,0 +1,138 @@
+classDiagram
+    class GameEngine {
+      -CampaignState state
+      +execute(command) ActionResult
+      +startMission(squadId, locationId)
+      +endSeason()
+      +availableEndings()
+    }
+    class CampaignState {
+      +GameMode mode
+      +int season
+      +uint32 seed
+      +WorldState world
+      +vector~Character~ characters
+      +vector~Squad~ squads
+      +vector~TribeProfile~ tribes
+      +vector~ChronicleEntry~ chronicle
+    }
+    class Character {
+      +CharacterId id
+      +string name
+      +Profession profession
+      +Attributes attributes
+      +int level
+      +int experience
+      +int growthPoints
+      +int health
+      +int fatigue
+      +Equipment equipment
+    }
+    class Squad {
+      +SquadId id
+      +CharacterId captain
+      +vector~CharacterId~ members
+      +StandingTask standingTask
+      +Inventory inventory
+      +int cohesion
+    }
+    class Army {
+      +CharacterId commander
+      +int warriors
+      +int militia
+      +Formation formation
+      +Inventory supplies
+    }
+    class Item {
+      +ItemId id
+      +EquipmentSlot slot
+      +ItemQuality quality
+      +ItemCondition condition
+      +int weight
+      +int bagSlots
+      +AttributeBonus bonus
+    }
+    class Inventory {
+      +vector~Item~ items
+      +int maxWeight
+      +int maxSlots
+      +canAdd(item) bool
+    }
+    class MissionState {
+      +MissionType type
+      +LocationId location
+      +SquadId squad
+      +MissionPhase phase
+      +Encounter encounter
+    }
+    class CombatState {
+      +BattleMode mode
+      +Battlefield battlefield
+      +int round
+      +BattleOrder order
+      +resolveTurn(action)
+    }
+    class TribeProfile {
+      +TribeId id
+      +string name
+      +CharacterId leader
+      +optional~CharacterId~ actingLeader
+      +vector~Faction~ factions
+      +int stability
+    }
+    class Faction {
+      +string name
+      +int influence
+      +int approval
+      +string demand
+      +CharacterId candidate
+    }
+    class DiplomacyRelation {
+      +TribeId first
+      +TribeId second
+      +int relation
+      +int trust
+      +int fear
+      +int tradeDependence
+      +vector~Treaty~ treaties
+    }
+    class TradeSystem {
+      +quote(offer, demand, relation)
+      +completeTrade()
+      +canUnlockCurrency()
+    }
+    class EndingPresentation {
+      +buildSummary(state) EndingSummary
+      +play(ending, capabilities)
+      +renderChronicle(entries)
+    }
+    class SaveRepository {
+      +saveV2(state, slot)
+      +loadV2(slot, candidate)
+      +convertV1Copy(slot)
+      +recoverBackup(slot)
+    }
+    class ConsoleUI {
+      +renderPage(state, page)
+      +renderMission(mission)
+      +renderCombat(combat)
+      +renderEnding(summary)
+    }
+
+    GameEngine *-- CampaignState
+    CampaignState *-- Character
+    CampaignState *-- Squad
+    CampaignState *-- TribeProfile
+    CampaignState o-- MissionState
+    CampaignState o-- Army
+    Character *-- Item
+    Squad *-- Inventory
+    Army *-- Inventory
+    MissionState o-- CombatState
+    TribeProfile *-- Faction
+    CampaignState *-- DiplomacyRelation
+    GameEngine --> TradeSystem
+    GameEngine --> EndingPresentation
+    ConsoleUI --> CampaignState
+    SaveRepository --> CampaignState
+
