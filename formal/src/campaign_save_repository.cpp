@@ -25,6 +25,7 @@ constexpr std::size_t kMaximumSquadMembers = 8U;
 constexpr std::size_t kMaximumInventoryItems = 64U;
 constexpr std::size_t kMaximumLeadershipEntries = 256U;
 constexpr std::size_t kMaximumChronicleEntries = 200U;
+constexpr std::uint32_t kSquadBackpackExtension = 0x314B5053U; // "SPK1" in little endian.
 
 class BufferWriter {
 public:
@@ -555,6 +556,13 @@ void writeCampaignState(BufferWriter& writer, const CampaignState& state) {
     for (const std::string& entry : state.leadershipHistory) writer.writeString(entry);
     writer.writeU32(static_cast<std::uint32_t>(state.chronicle.size()));
     for (const ChronicleEntry& entry : state.chronicle) writeChronicle(writer, entry);
+
+    // Append-only extension: released V2 saves end after the chronicle. Keeping new
+    // fields at the tail lets the current reader load both the released layout and
+    // the extended layout without moving the public V2 tag or rewriting old files.
+    writer.writeU32(kSquadBackpackExtension);
+    writer.writeU32(static_cast<std::uint32_t>(state.squads.size()));
+    for (const PermanentSquad& squad : state.squads) writeInventory(writer, squad.backpack);
 }
 
 bool readCampaignState(BufferReader& reader, CampaignState& state, std::string& error) {
@@ -687,6 +695,25 @@ bool readCampaignState(BufferReader& reader, CampaignState& state, std::string& 
             return false;
         }
         state.chronicle.push_back(std::move(entry));
+    }
+
+    if (!reader.finished()) {
+        std::uint32_t extension = 0;
+        std::uint32_t backpackCount = 0;
+        if (!reader.readU32(extension) || extension != kSquadBackpackExtension) {
+            error = "V2存档包含无法识别的扩展字段。";
+            return false;
+        }
+        if (!reader.readU32(backpackCount) || backpackCount != state.squads.size()) {
+            error = "V2存档的小队背包数量无效。";
+            return false;
+        }
+        for (std::uint32_t index = 0; index < backpackCount; ++index) {
+            if (!readInventory(reader, state.squads[index].backpack)) {
+                error = "V2存档的小队背包字段损坏。";
+                return false;
+            }
+        }
     }
     if (!CampaignGame::validateState(state, error)) return false;
     error.clear();
@@ -943,6 +970,77 @@ bool CampaignSaveRepository::save(const CampaignState& state, const CampaignSave
 
     // Keep the previous committed primary as .bak. It is the recovery point if
     // the new primary is later truncated or damaged.
+    error.clear();
+    return true;
+}
+
+bool CampaignSaveRepository::saveNew(const CampaignState& state, const CampaignSaveSlot slot,
+    std::string& error) const {
+    if (!validSlot(slot) || slot == CampaignSaveSlot::Autosave) {
+        error = "V2新副本只能写入1至6号手动档。";
+        return false;
+    }
+    if (!CampaignGame::validateState(state, error)) return false;
+
+    const std::filesystem::path path = pathFor(slot);
+    std::error_code code;
+    std::filesystem::create_directories(path.parent_path(), code);
+    if (code) {
+        error = "无法创建V2存档目录：" + code.message();
+        return false;
+    }
+
+    std::filesystem::path lockDirectory = path;
+    lockDirectory += ".create-lock";
+    const bool lockCreated = std::filesystem::create_directory(lockDirectory, code);
+    if (code || !lockCreated) {
+        error = code ? "无法锁定V2目标档位：" + code.message()
+                     : "V2目标档位正在由另一个程序创建，请稍后重试或选择其他空档。";
+        return false;
+    }
+    struct LockCleanup {
+        std::filesystem::path path;
+        ~LockCleanup() {
+            std::error_code ignored;
+            std::filesystem::remove_all(path, ignored);
+        }
+    } cleanup{lockDirectory};
+
+    std::filesystem::path backup = path;
+    backup += ".bak";
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+    for (const auto& artifact : {path, backup, temporary}) {
+        const bool exists = std::filesystem::exists(artifact, code);
+        if (code) {
+            error = "无法检查V2目标档位：" + code.message();
+            return false;
+        }
+        if (exists) {
+            error = "V2目标档位已有存档或恢复文件，不会覆盖。";
+            return false;
+        }
+    }
+
+    CampaignSaveRepository staging(lockDirectory);
+    if (!staging.save(state, slot, error)) {
+        error = "无法准备V2新副本：" + error;
+        return false;
+    }
+
+    std::filesystem::create_hard_link(staging.pathFor(slot), path, code);
+    if (code) {
+        error = "无法原子创建V2新副本（目标可能已被占用）：" + code.message();
+        return false;
+    }
+
+    CampaignState verified;
+    std::string verifyError;
+    if (loadFile(path, verified, verifyError) != LoadFileStatus::Loaded) {
+        std::filesystem::remove(path, code);
+        error = "V2新副本落盘校验失败：" + verifyError;
+        return false;
+    }
     error.clear();
     return true;
 }

@@ -1,6 +1,7 @@
 #include "tribe/campaign.hpp"
 #include "test_harness.hpp"
 
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -35,6 +36,18 @@ tribe::CampaignState editableInitial(tribe::CampaignMode mode = tribe::CampaignM
 
 tribe::CampaignGame gameFrom(tribe::CampaignState state) {
     return tribe::CampaignGame{std::move(state)};
+}
+
+const tribe::Character& rosterCharacter(const tribe::CampaignState& state, const std::string& name) {
+    const auto found = std::find_if(state.roster.begin(), state.roster.end(),
+        [&](const tribe::Character& character) { return character.name == name; });
+    if (found == state.roster.end()) throw std::runtime_error("missing roster character: " + name);
+    return *found;
+}
+
+bool inventoryHas(const tribe::Inventory& inventory, const std::string& itemId) {
+    return std::any_of(inventory.items().begin(), inventory.items().end(),
+        [&](const tribe::Item& item) { return item.id == itemId; });
 }
 
 void prepareEndingChoice(tribe::CampaignState& state) {
@@ -143,6 +156,125 @@ TEST_CASE("campaign embeds the controllable forest mission into seasonal resourc
     requireSuccess(gathering, "return");
     REQUIRE(gathering.state().food > foodBefore);
     REQUIRE(gathering.state().food <= foodBefore + 30);
+}
+
+TEST_CASE("campaign forest missions preserve long term characters equipment and backpack") {
+    tribe::CampaignGame game{{tribe::CampaignMode::Course, 73U, "燧火", "炎角", "生存"}};
+    const int experienceBefore = rosterCharacter(game.state(), "青枝").experience;
+    const auto& initialWeapon = rosterCharacter(game.state(), "青枝")
+        .equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)];
+    REQUIRE(initialWeapon);
+    REQUIRE(initialWeapon->id == "leader_bow");
+    REQUIRE(inventoryHas(game.state().squads.front().backpack, "spare_knife"));
+
+    requireSuccess(game, "mission forest");
+    REQUIRE(game.state().activeMission);
+    REQUIRE(game.state().activeMission->squad.members.front().name == game.state().squads.front().captain);
+    REQUIRE(game.state().activeMission->squad.members.front().experience == experienceBefore);
+    REQUIRE(inventoryHas(game.state().activeMission->inventory, "spare_knife"));
+    requireSuccess(game, "equip mainhand spare_knife");
+    requireSuccess(game, "move forest");
+    requireSuccess(game, "return");
+
+    const tribe::Character& returned = rosterCharacter(game.state(), "青枝");
+    REQUIRE(returned.experience > experienceBefore);
+    REQUIRE(returned.equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)]);
+    REQUIRE(returned.equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)]->id == "spare_knife");
+    REQUIRE(inventoryHas(game.state().squads.front().backpack, "leader_bow"));
+
+    const int experienceAfterFirstMission = returned.experience;
+    requireSuccess(game, "mission forest");
+    const tribe::ExpansionState& secondMission = *game.state().activeMission;
+    const tribe::Character& secondLeader = secondMission.squad.members[secondMission.squad.leaderIndex];
+    REQUIRE(secondLeader.name == "青枝");
+    REQUIRE(secondLeader.experience == experienceAfterFirstMission);
+    REQUIRE(secondLeader.equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)]);
+    REQUIRE(secondLeader.equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)]->id == "spare_knife");
+    REQUIRE(inventoryHas(secondMission.inventory, "leader_bow"));
+}
+
+TEST_CASE("campaign mission casualties leave the roster and are replaced by living reserves") {
+    tribe::CampaignGame game{{tribe::CampaignMode::Course, 89U, "燧火", "炎角", "生存"}};
+    requireSuccess(game, "mission forest");
+    auto dangerous = game.state();
+    tribe::ExpansionState& mission = *dangerous.activeMission;
+    std::vector<std::string> deployedNames;
+    for (tribe::Character& member : mission.squad.members) {
+        deployedNames.push_back(member.name);
+        member.life = 0;
+    }
+    mission.squad.members[mission.squad.leaderIndex].life = 1;
+    mission.phase = tribe::ExpansionPhase::FrontlineCombat;
+    mission.location = tribe::ExpansionLocation::StrangerClearing;
+    mission.foreignStance = tribe::ForeignStance::Hostile;
+    mission.frontline = 1;
+    mission.enemyLife = 1000;
+    mission.enemySpeed = 1000;
+
+    std::string error;
+    REQUIRE(tribe::CampaignGame::validateState(dangerous, error));
+    tribe::CampaignGame fatal = gameFrom(std::move(dangerous));
+    const int populationBefore = fatal.state().population;
+    requireSuccess(fatal, "attack");
+
+    REQUIRE(fatal.state().phase == tribe::CampaignPhase::Managing);
+    REQUIRE(!fatal.state().activeMission);
+    REQUIRE(fatal.state().missionDeaths == static_cast<int>(deployedNames.size()));
+    REQUIRE(fatal.state().population == populationBefore - static_cast<int>(deployedNames.size()));
+    REQUIRE(fatal.state().roster.size() == 4U);
+    for (const std::string& name : deployedNames) {
+        REQUIRE(std::none_of(fatal.state().roster.begin(), fatal.state().roster.end(),
+            [&](const tribe::Character& character) { return character.name == name; }));
+    }
+    REQUIRE(fatal.state().squads.front().members.size() == 4U);
+    REQUIRE(fatal.state().squads.front().captain == fatal.state().squads.front().members.front());
+    REQUIRE(tribe::CampaignGame::validateState(fatal.state(), error));
+}
+
+TEST_CASE("campaign mission losses cannot be erased when no reserve can rebuild the squad") {
+    tribe::CampaignGame game{{tribe::CampaignMode::Course, 97U, "燧火", "炎角", "生存"}};
+    auto reduced = game.state();
+    const auto deployed = reduced.squads.front().members;
+    reduced.roster.erase(std::remove_if(reduced.roster.begin(), reduced.roster.end(),
+        [&](const tribe::Character& character) {
+            return std::find(deployed.begin(), deployed.end(), character.name) == deployed.end();
+        }), reduced.roster.end());
+
+    std::string error;
+    REQUIRE(tribe::CampaignGame::validateState(reduced, error));
+    tribe::CampaignGame fatal = gameFrom(std::move(reduced));
+    requireSuccess(fatal, "mission forest");
+
+    auto dangerous = fatal.state();
+    tribe::ExpansionState& mission = *dangerous.activeMission;
+    for (tribe::Character& member : mission.squad.members) member.life = 0;
+    mission.squad.members[mission.squad.leaderIndex].life = 1;
+    mission.phase = tribe::ExpansionPhase::FrontlineCombat;
+    mission.location = tribe::ExpansionLocation::StrangerClearing;
+    mission.foreignStance = tribe::ForeignStance::Hostile;
+    mission.frontline = 1;
+    mission.enemyLife = 1000;
+    mission.enemySpeed = 1000;
+    REQUIRE(tribe::CampaignGame::validateState(dangerous, error));
+
+    tribe::CampaignGame isolated = gameFrom(std::move(dangerous));
+    const int populationBefore = isolated.state().population;
+    const auto result = requireSuccess(isolated, "attack");
+    REQUIRE(result.endingReached);
+    REQUIRE(isolated.state().phase == tribe::CampaignPhase::Finished);
+    REQUIRE(isolated.state().ending == tribe::CampaignEnding::Extinction);
+    REQUIRE(isolated.state().missionDeaths == static_cast<int>(deployed.size()));
+    REQUIRE(isolated.state().population == populationBefore - static_cast<int>(deployed.size()));
+    REQUIRE(isolated.state().roster.empty());
+    REQUIRE(isolated.state().squads.empty());
+    REQUIRE(!isolated.state().activeMission);
+    REQUIRE(tribe::CampaignGame::validateState(isolated.state(), error));
+
+    const auto after = isolated.state();
+    const auto abort = isolated.execute("abort");
+    REQUIRE(!abort.stateChanged);
+    REQUIRE(isolated.state().missionDeaths == after.missionDeaths);
+    REQUIRE(isolated.state().population == after.population);
 }
 
 TEST_CASE("campaign diplomacy supports marriage tribute alliance war and truce") {

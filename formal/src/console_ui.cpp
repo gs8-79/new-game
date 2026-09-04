@@ -129,7 +129,7 @@ void ConsoleUI::renderExpansion(const ExpansionGame& game, const std::string_vie
 void ConsoleUI::renderCampaign(const CampaignGame& game, const std::string_view message) {
     clear();
     const CampaignState& state = game.state();
-    write(UiColor::Title, "================ 《燧火纪》V2长期战役 ================\n");
+    write(UiColor::Title, "================ 《燧火纪》V2部落战役 ================\n");
     output_ << CampaignGame::modeName(state.mode) << " | 季节 " << state.season << '/' << state.seasonLimit
             << " | " << CampaignGame::phaseName(state.phase) << " | 行动点 " << state.actionsLeft
             << " | 种子 " << state.seed << '\n'

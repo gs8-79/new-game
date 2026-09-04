@@ -104,6 +104,7 @@ struct PermanentSquad {
     int eliteExperience = 0;
     bool personallyDeployedThisSeason = false;
     bool refusingOrders = false;
+    Inventory backpack{80, 20};
 };
 
 struct WarState {

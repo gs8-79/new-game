@@ -23,11 +23,7 @@ $windowsRoot = Join-Path $stageRoot $windowsName
 $sourceRoot = Join-Path $stageRoot $sourceName
 New-Item -ItemType Directory -Path $windowsRoot, $sourceRoot -Force | Out-Null
 
-$formalExecutable = if ($SkipBuild) {
-    Join-Path $PSScriptRoot 'out\Release\tribe-dawn.exe'
-} else {
-    Join-Path $PSScriptRoot 'out\Formal-Release\tribe-dawn.exe'
-}
+$formalExecutable = Join-Path $PSScriptRoot 'out\Formal-Release\tribe-dawn.exe'
 if (-not (Test-Path -LiteralPath $formalExecutable)) {
     throw '找不到已通过测试的 Release 正式版程序。请先运行 build-formal.ps1 或 build.ps1。'
 }

@@ -1,5 +1,6 @@
 #include "tribe/console_ui.hpp"
 #include "tribe/campaign.hpp"
+#include "tribe/campaign_migration.hpp"
 #include "tribe/campaign_save_repository.hpp"
 #include "tribe/expansion_game.hpp"
 #include "tribe/ending_presentation.hpp"
@@ -439,7 +440,8 @@ int main() {
     std::string menuMessage;
     std::string line;
     for (;;) {
-        ui.renderMainMenu(menuMessage);
+        ui.renderMainMenu(menuMessage + (menuMessage.empty() ? "" : "\n")
+            + "旧正式版存档升级：migrate 1 4 / 升级存档 1 4（旧档不会被修改）");
         if (!std::getline(std::cin, line)) break;
         const Words command = words(line);
         if (verbIs(command, {"q", "quit", "退出"})) break;
@@ -447,6 +449,7 @@ int main() {
             tribe::GameEngine example({tribe::GameMode::Standard, 1U});
             ui.showStandalone("主菜单与新手帮助",
                 "V2战役：7快速8季、8课程16季、9长期32季；也可输入 campaign quick|course|long。\n"
+                "旧档升级副本：migrate <旧档1|2|3|auto> <V2空档1..6>，旧档不会被修改。\n"
                 "大型扩展V1：输入e；旧正式模式：输入1或2。\n\n旧正式模式命令：\n" + example.helpText());
             waitForEnter(ui);
             menuMessage.clear();
@@ -517,6 +520,35 @@ int main() {
             continue;
         }
 
+        if (verbIs(command, {"migrate", "升级存档"}) && command.args.size() == 2U) {
+            const auto legacySlot = tribe::SaveRepository::parseSlot(command.args[0]);
+            if (!legacySlot) {
+                menuMessage = "旧正式版源档位必须是1、2、3或auto。";
+                continue;
+            }
+            const auto destinationSlot = tribe::CampaignSaveRepository::parseSlot(command.args[1]);
+            if (!destinationSlot || *destinationSlot == tribe::CampaignSaveSlot::Autosave) {
+                menuMessage = "V2目标档位必须是1至6的手动空档，不能使用自动档。";
+                continue;
+            }
+
+            tribe::CampaignState converted;
+            std::string error;
+            if (!tribe::CampaignMigration::loadAndConvertReadOnly(
+                    saves.pathFor(*legacySlot), converted, error)) {
+                menuMessage = "旧档升级失败：" + error;
+                continue;
+            }
+            if (!campaignSaves.saveNew(converted, *destinationSlot, error)) {
+                menuMessage = "V2副本写入失败：" + error + "旧档仍保持不变。";
+                continue;
+            }
+            menuMessage = "升级成功：旧正式版存档未修改；已创建"
+                + tribe::CampaignSaveRepository::slotName(*destinationSlot)
+                + "的V2副本。输入 v2load " + command.args[1] + " 继续。";
+            continue;
+        }
+
         if (verbIs(command, {"v2load", "campaignload", "读取战役"}) && command.args.size() == 1U) {
             const auto slot = tribe::CampaignSaveRepository::parseSlot(command.args.front());
             if (!slot) {
@@ -570,7 +602,7 @@ int main() {
             if (!runGame(engine, saves, ui, false, menuMessage)) break;
             continue;
         }
-        menuMessage = "无效选择，请输入1至9、e、h或q。";
+        menuMessage = "无效选择，请输入1至9、e、h、migrate或q。";
     }
 
     std::cout << "\n燧火未熄，感谢游玩。\n";

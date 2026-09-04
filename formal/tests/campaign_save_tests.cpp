@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -112,7 +113,8 @@ bool samePermanentSquad(const tribe::PermanentSquad& left, const tribe::Permanen
         && left.residentMission == right.residentMission && left.fatigue == right.fatigue
         && left.eliteExperience == right.eliteExperience
         && left.personallyDeployedThisSeason == right.personallyDeployedThisSeason
-        && left.refusingOrders == right.refusingOrders;
+        && left.refusingOrders == right.refusingOrders
+        && sameInventory(left.backpack, right.backpack);
 }
 
 bool sameWar(const tribe::WarState& left, const tribe::WarState& right) {
@@ -297,6 +299,48 @@ std::string readBytes(const std::filesystem::path& path) {
     return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
+std::uint32_t readU32(const std::string& bytes, const std::size_t offset) {
+    REQUIRE(offset + 4U <= bytes.size());
+    std::uint32_t value = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+        value |= static_cast<std::uint32_t>(
+            static_cast<unsigned char>(bytes[offset + static_cast<std::size_t>(shift / 8)])) << shift;
+    }
+    return value;
+}
+
+void writeU32(std::string& bytes, const std::size_t offset, const std::uint32_t value) {
+    REQUIRE(offset + 4U <= bytes.size());
+    for (int shift = 0; shift < 32; shift += 8) {
+        bytes[offset + static_cast<std::size_t>(shift / 8)]
+            = static_cast<char>((value >> shift) & 0xFFU);
+    }
+}
+
+std::uint32_t payloadChecksum(const std::string_view payload) {
+    std::uint32_t value = 2166136261U;
+    for (const unsigned char byte : payload) {
+        value ^= byte;
+        value *= 16777619U;
+    }
+    return value;
+}
+
+std::string withoutSquadBackpackExtension(std::string bytes) {
+    constexpr std::size_t headerSize = 20U;
+    REQUIRE(bytes.size() >= headerSize);
+    REQUIRE(readU32(bytes, 12U) == bytes.size() - headerSize);
+    const std::size_t extension = bytes.rfind("SPK1");
+    REQUIRE(extension != std::string::npos);
+    REQUIRE(extension >= headerSize);
+    bytes.resize(extension);
+    const std::size_t payloadSize = bytes.size() - headerSize;
+    REQUIRE(payloadSize <= std::numeric_limits<std::uint32_t>::max());
+    writeU32(bytes, 12U, static_cast<std::uint32_t>(payloadSize));
+    writeU32(bytes, 16U, payloadChecksum(std::string_view(bytes).substr(headerSize)));
+    return bytes;
+}
+
 } // namespace
 
 TEST_CASE("campaign save repository exposes six manual slots and one autosave") {
@@ -311,6 +355,11 @@ TEST_CASE("campaign save repository exposes six manual slots and one autosave") 
     }};
     const tribe::CampaignState expected = richState();
     std::string error;
+    REQUIRE(repository.saveNew(expected, tribe::CampaignSaveSlot::Slot1, error));
+    const std::string firstCopy = readBytes(repository.pathFor(tribe::CampaignSaveSlot::Slot1));
+    REQUIRE(!repository.saveNew(expected, tribe::CampaignSaveSlot::Slot1, error));
+    REQUIRE(readBytes(repository.pathFor(tribe::CampaignSaveSlot::Slot1)) == firstCopy);
+    clean(root);
     for (const auto slot : slots) {
         REQUIRE(repository.save(expected, slot, error));
         REQUIRE(error.empty());
@@ -341,6 +390,26 @@ TEST_CASE("campaign save round trip preserves managing mission and war states co
         REQUIRE(repository.load(slots[index], loaded, error));
         REQUIRE(sameCampaign(loaded, states[index]));
     }
+    clean(root);
+}
+
+TEST_CASE("campaign save reads released V2 files without the optional squad backpack extension") {
+    const auto root = saveRoot("released-v2-compatibility");
+    clean(root);
+    tribe::CampaignSaveRepository repository(root);
+    tribe::CampaignState expected = richState();
+    std::string error;
+    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot1, error));
+    const auto path = repository.pathFor(tribe::CampaignSaveSlot::Slot1);
+    writeCorrupt(path, withoutSquadBackpackExtension(readBytes(path)));
+
+    for (tribe::PermanentSquad& squad : expected.squads) {
+        squad.backpack = tribe::Inventory{80, 20};
+    }
+    tribe::CampaignState loaded;
+    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot1, loaded, error));
+    REQUIRE(error.empty());
+    REQUIRE(sameCampaign(loaded, expected));
     clean(root);
 }
 
