@@ -9,7 +9,7 @@
 - `9` / `campaign long` / `战役 长期`：长期32季。
 - `campaignseed <quick|course|long> <种子>`：固定种子复现。
 
-当前本机 Visual Studio 2026 Debug、Release 均通过：旧 Demo `33/33`，正式版、V1与V2合计 `73/73`。V2已接入6个手动档、自动档、备份恢复和五种独立结局演出；完整证据边界见 [V2_VERSION_SUMMARY.md](docs/V2_VERSION_SUMMARY.md)。
+当前独立正式版仓库已在 Visual Studio 2026 Debug、Release 下通过：正式版、V1与V2合计 `94/94`。三个早期选题 Demo 已从活动开发代码和默认构建中移除。V2已接入6个手动档、自动档、旧正式档只读升级、备份恢复和五种可跳过的独立结局演出；完整证据边界见 [V2_VERSION_SUMMARY.md](docs/V2_VERSION_SUMMARY.md)。
 
 ## 大型扩展 V1 试玩
 
@@ -54,7 +54,7 @@ Windows 上在项目根目录运行：
 1. 安装 Visual Studio 2026 的“使用 C++ 的桌面开发”，并勾选 CMake 与 Ninja。
 2. 在 Visual Studio 中选择“打开本地文件夹”，打开包含 `CMakeLists.txt` 的项目根目录。
 3. 选择 `tribe-dawn.exe` 作为启动项；或直接在 Visual Studio 终端运行上面的 PowerShell 命令。
-4. 正式版单独构建在 `out/Formal-Debug` 或 `out/Formal-Release`，不会覆盖三个旧 Demo。
+4. 构建结果位于 `out/Formal-Debug` 或 `out/Formal-Release`。
 
 ## 游戏模式
 
@@ -77,6 +77,8 @@ Windows 上在项目根目录运行：
 - `back` / `返回`：自动保存并回主菜单。
 
 V2战役内同样支持数字、中英文命令：`1/status/状态`、`2/map/地图`、`3/gather food/采集 食物`、`5/mission forest/出任务 苍林`、`8/endturn/结束回合`、`9/help/帮助`。V2存档位为1至6和自动档，使用 `save 1` / `保存 1`、`load auto` / `读取 auto`；每季结算和正常返回/退出都会自动保存。主菜单可用 `v2load 1` 或 `读取战役 1` 继续。
+
+旧正式版存档可在主菜单输入 `migrate 1 4` 或 `升级存档 1 4`，把旧档位1转换为V2手动档位4。源档支持1、2、3和`auto`，目标必须是1至6中的空档；程序只读旧主档及其恢复候选，完整校验后另建V2副本，不会覆盖、恢复或修改任何旧档文件，也不会覆盖已有V2档。
 
 ## 课程资料
 

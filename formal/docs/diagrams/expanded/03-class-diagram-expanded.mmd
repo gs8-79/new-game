@@ -39,11 +39,22 @@ classDiagram
       +load(slot, candidate, error) bool
       +pathFor(slot) filesystem_path
     }
+    class CampaignMigration {
+      +loadLegacyReadOnly(path, candidate, error) bool
+      +convert(legacy, candidate, error) bool
+      +loadAndConvertReadOnly(path, candidate, error) bool
+    }
     class EndingPresentation {
       +framesFor(ending) vector
       +play(summary, output, options)
       +renderStatic(ending) string
       +formatSummary(summary) string
+    }
+    class EndingPresentationOptions {
+      +animated ansiEnabled clearBetweenFrames
+      +frameDelay
+      +wait
+      +skipRequested
     }
     class ExpansionGame {
       -ExpansionState state_
@@ -68,6 +79,7 @@ classDiagram
       +vector members
       +ResidentMission residentMission
       +fatigue eliteExperience
+      +Inventory backpack
     }
     class WarState {
       +string commander
@@ -98,17 +110,22 @@ classDiagram
     MainModule --> CampaignGame : 创建并驱动
     MainModule --> ConsoleUI : 刷新页面
     MainModule --> CampaignSaveRepository : 存取档
+    MainModule --> CampaignMigration : 旧档另存升级
     MainModule --> EndingPresentation : 播放结算
     ConsoleUI ..> CampaignGame : renderCampaign
     CampaignGame *-- CampaignState
     CampaignGame ..> EndingSummary : 生成
     CampaignSaveRepository ..> CampaignState : 原子保存读取
     CampaignSaveRepository ..> CampaignGame : 调用validateState
+    CampaignMigration ..> CampaignState : 生成完整候选副本
+    CampaignMigration ..> CampaignGame : 调用validateState
     EndingPresentation ..> EndingSummary : 只读显示
+    EndingPresentation ..> EndingPresentationOptions : 跳过与静态回退
     CampaignState *-- "0..1" ExpansionState
     ExpansionGame *-- ExpansionState
     CampaignState *-- "2..64" Character
     CampaignState *-- "1..8" PermanentSquad
+    PermanentSquad *-- Inventory
     CampaignState *-- WarState
     CampaignState *-- "6" TribeProfile
     CampaignState *-- "6" DiplomacyRelation
