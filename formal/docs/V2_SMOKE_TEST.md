@@ -1,5 +1,7 @@
 # V2 程序烟雾测试记录
 
+> 历史记录：下列路径与 `73/73`、`93/93` 结果来自 2026-09-01 的迁移前工作区。当前独立仓库的 Release 程序位于 `out/Formal-Release/tribe-dawn.exe`，最新 `94/94` 证据见 [TEST_REPORT.md](TEST_REPORT.md)。
+
 日期：2026-09-01
 程序：`out/Release/tribe-dawn.exe`
 环境：Windows，Visual Studio 2026 / MSVC 14.51，非交互管道模式（自动使用静态结局画面）。

@@ -25,7 +25,7 @@ New-Item -ItemType Directory -Path $windowsRoot, $sourceRoot -Force | Out-Null
 
 $formalExecutable = Join-Path $PSScriptRoot 'out\Formal-Release\tribe-dawn.exe'
 if (-not (Test-Path -LiteralPath $formalExecutable)) {
-    throw '找不到已通过测试的 Release 正式版程序。请先运行 build-formal.ps1 或 build.ps1。'
+    throw '找不到已通过测试的 Release 正式版程序。请先运行 build-formal.ps1 -Configuration Release。'
 }
 Copy-Item -LiteralPath $formalExecutable -Destination $windowsRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal\package\开始游戏.cmd') -Destination $windowsRoot
