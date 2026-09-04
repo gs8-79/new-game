@@ -59,12 +59,17 @@ TEST_CASE("ending presentation static fallback emits only the final frame") {
     const auto frames = tribe::EndingPresentation::framesFor(summary.ending);
 
     int waits = 0;
+    int skipChecks = 0;
     tribe::EndingPresentationOptions options;
     options.animated = false;
     options.ansiEnabled = true;
     options.clearBetweenFrames = true;
     options.frameDelay = std::chrono::milliseconds{500};
     options.wait = [&waits](const std::chrono::milliseconds) { ++waits; };
+    options.skipRequested = [&skipChecks]() {
+        ++skipChecks;
+        return true;
+    };
 
     std::ostringstream output;
     tribe::EndingPresentation::play(summary, output, options);
@@ -73,6 +78,7 @@ TEST_CASE("ending presentation static fallback emits only the final frame") {
     REQUIRE(rendered.find(frames.front()) == std::string::npos);
     REQUIRE(rendered.find("\x1b[") == std::string::npos);
     REQUIRE(waits == 0);
+    REQUIRE(skipChecks == 0);
 }
 
 TEST_CASE("ending presentation zero delay animation never waits") {
@@ -93,6 +99,58 @@ TEST_CASE("ending presentation zero delay animation never waits") {
     REQUIRE(rendered.find(frames.back()) != std::string::npos);
     REQUIRE(rendered.find("\x1b[") == std::string::npos);
     REQUIRE(waits == 0);
+}
+
+TEST_CASE("ending presentation skip immediately jumps from the first frame to the final frame") {
+    const auto summary = sampleSummary();
+    const auto frames = tribe::EndingPresentation::framesFor(summary.ending);
+    int waits = 0;
+    int skipChecks = 0;
+
+    tribe::EndingPresentationOptions options;
+    options.animated = true;
+    options.ansiEnabled = false;
+    options.frameDelay = std::chrono::milliseconds{100};
+    options.wait = [&waits](const std::chrono::milliseconds) { ++waits; };
+    options.skipRequested = [&skipChecks]() {
+        ++skipChecks;
+        return true;
+    };
+
+    std::ostringstream output;
+    tribe::EndingPresentation::play(summary, output, options);
+    const std::string rendered = output.str();
+    REQUIRE(rendered.find(frames.front()) != std::string::npos);
+    REQUIRE(rendered.find(frames[1]) == std::string::npos);
+    REQUIRE(rendered.find(frames.back()) != std::string::npos);
+    REQUIRE(rendered.find("结局：联盟共主") != std::string::npos);
+    REQUIRE(waits == 0);
+    REQUIRE(skipChecks == 1);
+}
+
+TEST_CASE("ending presentation polls for skip during a frame delay") {
+    const auto summary = sampleSummary();
+    const auto frames = tribe::EndingPresentation::framesFor(summary.ending);
+    int skipChecks = 0;
+    std::chrono::milliseconds waited{0};
+
+    tribe::EndingPresentationOptions options;
+    options.animated = true;
+    options.ansiEnabled = true;
+    options.clearBetweenFrames = true;
+    options.frameDelay = std::chrono::milliseconds{100};
+    options.wait = [&waited](const std::chrono::milliseconds duration) { waited += duration; };
+    options.skipRequested = [&skipChecks]() { return ++skipChecks >= 2; };
+
+    std::ostringstream output;
+    tribe::EndingPresentation::play(summary, output, options);
+    const std::string rendered = output.str();
+    REQUIRE(waited.count() > 0);
+    REQUIRE(waited < options.frameDelay);
+    REQUIRE(skipChecks == 2);
+    REQUIRE(rendered.find(frames[1]) == std::string::npos);
+    REQUIRE(rendered.find(frames.back()) != std::string::npos);
+    REQUIRE(occurrenceCount(rendered, "\x1b[2J\x1b[H") == 1U);
 }
 
 TEST_CASE("ending presentation applies distinct ANSI colors and honors the clear switch") {

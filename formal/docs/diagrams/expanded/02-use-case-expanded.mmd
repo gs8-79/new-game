@@ -3,6 +3,7 @@ flowchart LR
     TribeAI((其他部落AI))
     Season((季节系统))
     Storage[(版本2存档)]
+    Legacy[(旧正式版存档)]
 
     subgraph Campaign[V2长期战役用例]
       direction TB
@@ -18,6 +19,8 @@ flowchart LR
       UC10([选择并播放五种结局])
       UC11([查看结算 人物与编年史])
       UC12([长期模式继续沙盒])
+      UC13([只读升级旧档并另存V2副本])
+      UC14([动画中任意键跳到结算])
 
       UC1 --> UC2
       UC2 --> UC3
@@ -31,6 +34,8 @@ flowchart LR
       UC8 --> UC10 --> UC11
       UC11 --> UC12
       UC2 --> UC9
+      UC9 --> UC13
+      UC10 --> UC14 --> UC11
     end
 
     Player --> UC1
@@ -40,11 +45,14 @@ flowchart LR
     Player --> UC7
     Player --> UC9
     Player --> UC10
+    Player --> UC13
+    Player --> UC14
     TribeAI --> UC5
     TribeAI --> UC6
     Season --> UC3
     Season --> UC8
     Storage --> UC9
+    Legacy --> UC13
 
     classDef done fill:#e7f6ed,stroke:#238636,color:#173b22,stroke-width:2px
-    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10,UC11,UC12,TribeAI,Season,Storage done
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10,UC11,UC12,UC13,UC14,TribeAI,Season,Storage,Legacy done

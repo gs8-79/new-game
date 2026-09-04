@@ -18,7 +18,7 @@ if ! command -v cmake >/dev/null 2>&1; then
 fi
 
 build_dir="$script_dir/out/macos-formal-$configuration"
-cmake -S "$script_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE="$configuration" -DTRIBE_FORMAL_ONLY=ON
+cmake -S "$script_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE="$configuration"
 cmake --build "$build_dir" --parallel
 ctest --test-dir "$build_dir" --output-on-failure
 

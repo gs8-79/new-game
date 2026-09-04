@@ -1,5 +1,7 @@
 # 大型扩展 V1 程序烟雾测试记录
 
+> 历史记录：下列路径与结果来自 2026-09-01 的迁移前工作区。当前独立仓库的 Release 程序位于 `out/Formal-Release/tribe-dawn.exe`，最新自动测试证据见 [TEST_REPORT.md](TEST_REPORT.md)。
+
 测试日期：2026-09-01
 
 平台：Windows x64，Visual Studio 2026 / MSVC 14.51
@@ -66,4 +68,4 @@ q
 
 ## 3. 证据边界
 
-本记录证明当前 Windows Release 程序的两条纵切路线可运行。它不等于 macOS 实机验证、V1 ZIP 验证、交换小组试玩或课堂验收。
+本记录证明当时 Windows Release 程序的两条纵切路线可运行。它不等于 macOS 实机验证、V1 ZIP 验证、交换小组试玩或课堂验收。

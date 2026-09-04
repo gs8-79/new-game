@@ -16,6 +16,7 @@ public:
     explicit CampaignSaveRepository(std::filesystem::path root);
 
     bool save(const CampaignState& state, CampaignSaveSlot slot, std::string& error) const;
+    bool saveNew(const CampaignState& state, CampaignSaveSlot slot, std::string& error) const;
     bool load(CampaignSaveSlot slot, CampaignState& candidate, std::string& error) const;
     std::filesystem::path pathFor(CampaignSaveSlot slot) const;
 

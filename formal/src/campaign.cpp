@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cctype>
 #include <initializer_list>
+#include <iterator>
 #include <numeric>
 #include <set>
 #include <sstream>
@@ -194,8 +195,74 @@ Character makeCampaignCharacter(const std::string& name, const Occupation occupa
     return character;
 }
 
+Item makeCampaignLeaderBow() {
+    Item item;
+    item.id = "leader_bow";
+    item.name = "苍林短弓";
+    item.weight = 3;
+    item.equipmentSlot = EquipmentSlot::MainHand;
+    item.bonuses[Attribute::Perception] = 2;
+    return item;
+}
+
+Item makeCampaignSpareKnife() {
+    Item item;
+    item.id = "spare_knife";
+    item.name = "备用石刀";
+    item.weight = 2;
+    item.equipmentSlot = EquipmentSlot::MainHand;
+    item.bonuses[Attribute::Strength] = 1;
+    return item;
+}
+
+Character* findRosterCharacter(std::vector<Character>& roster, const std::string_view name) {
+    const auto found = std::find_if(roster.begin(), roster.end(),
+        [&](const Character& character) { return character.name == name; });
+    return found == roster.end() ? nullptr : &*found;
+}
+
+const Character* findRosterCharacter(const std::vector<Character>& roster, const std::string_view name) {
+    const auto found = std::find_if(roster.begin(), roster.end(),
+        [&](const Character& character) { return character.name == name; });
+    return found == roster.end() ? nullptr : &*found;
+}
+
+int permanentSquadFatigue(const PermanentSquad& squad, const std::vector<Character>& roster) {
+    int total = 0;
+    int count = 0;
+    for (const std::string& name : squad.members) {
+        const Character* member = findRosterCharacter(roster, name);
+        if (!member) continue;
+        total += member->fatigue;
+        ++count;
+    }
+    return count == 0 ? 0 : std::clamp(total / count, 0, 100);
+}
+
 int relationClamp(const int value) { return std::clamp(value, -100, 100); }
 int percentClamp(const int value) { return std::clamp(value, 0, 100); }
+
+bool containsAny(const std::string_view text, const std::initializer_list<std::string_view> keywords) {
+    return std::any_of(keywords.begin(), keywords.end(), [&](const std::string_view keyword) {
+        return text.find(keyword) != std::string_view::npos;
+    });
+}
+
+const FactionState& dominantFaction(const TribeProfile& profile) {
+    return *std::max_element(profile.factions.begin(), profile.factions.end(),
+        [](const FactionState& left, const FactionState& right) {
+            return left.influence < right.influence;
+        });
+}
+
+bool knowsFactionDemand(const DiplomacyRelation& relation) {
+    return relation.trust >= 20 || relation.tradeDependence >= 10 || relation.alliance || relation.marriage
+        || relation.tradeRoute;
+}
+
+bool knowsFullFactionNetwork(const DiplomacyRelation& relation) {
+    return relation.trust >= 45 || relation.tradeDependence >= 30 || relation.alliance || relation.marriage;
+}
 
 std::string warOrderName(const WarOrder order) {
     switch (order) {
@@ -312,8 +379,13 @@ CampaignGame::CampaignGame(CampaignConfig config) {
         makeCampaignCharacter("芦风", Occupation::Hunter),
         makeCampaignCharacter("河矛", Occupation::Warrior),
     };
+    const OperationResult equipped = equipItem(state_.roster.front(), EquipmentSlot::MainHand,
+        makeCampaignLeaderBow());
+    if (!equipped) throw std::logic_error("长期人物初始装备失败：" + equipped.message);
     state_.squads.push_back({"晨火队", "青枝", {"青枝", "石刃", "苍眼", "白榆"},
         ResidentMission::Gather, 0, 0, false, false});
+    const OperationResult stored = state_.squads.front().backpack.pickupFree(makeCampaignSpareKnife());
+    if (!stored) throw std::logic_error("长期小队初始背包失败：" + stored.message);
     state_.leadershipHistory.push_back(state_.leaderName + "（初代首领）");
     addChronicle(state_, 3, "燧火新议", state_.leaderName + "召集族人，决定走向更广阔的世界。");
 
@@ -621,7 +693,12 @@ CampaignActionResult CampaignGame::restSquad() {
     if (state_.squads.empty() || state_.squads.front().fatigue == 0) return rejected("小队当前无需休整。");
     CampaignState candidate = state_;
     const int recovery = candidate.buildings[indexOf(BuildingId::HealerHut)] ? 45 : 30;
-    candidate.squads.front().fatigue = std::max(0, candidate.squads.front().fatigue - recovery);
+    PermanentSquad& squad = candidate.squads.front();
+    for (const std::string& name : squad.members) {
+        Character* member = findRosterCharacter(candidate.roster, name);
+        if (member) member->fatigue = std::max(0, member->fatigue - recovery);
+    }
+    squad.fatigue = permanentSquadFatigue(squad, candidate.roster);
     spendAction(candidate);
     return commit(std::move(candidate), "小队在营地休整，疲劳下降。", true);
 }
@@ -635,11 +712,30 @@ CampaignActionResult CampaignGame::startMission() {
 
     CampaignState candidate = state_;
     const std::uint32_t missionSeed = candidate.seed + static_cast<std::uint32_t>(candidate.season * 97 + candidate.missionCount * 17);
-    ExpansionGame mission{missionSeed, candidate.squads.front().members.size()};
-    candidate.activeMission = mission.state();
+    PermanentSquad& permanent = candidate.squads.front();
+    ExpansionGame mission{missionSeed, permanent.members.size()};
+    ExpansionState missionState = mission.state();
+    missionState.squad.name = permanent.name;
+    missionState.squad.members.clear();
+    missionState.squad.members.reserve(permanent.members.size());
+    for (const std::string& name : permanent.members) {
+        const Character* character = findRosterCharacter(candidate.roster, name);
+        if (!character || character->life <= 0) return rejected("小队成员缺失或已阵亡，任务未开始。");
+        missionState.squad.members.push_back(*character);
+    }
+    const auto captain = std::find_if(missionState.squad.members.begin(), missionState.squad.members.end(),
+        [&](const Character& character) { return character.name == permanent.captain; });
+    if (captain == missionState.squad.members.end()) return rejected("长期小队的队长不在出发名单中。");
+    missionState.squad.leaderIndex = static_cast<std::size_t>(
+        std::distance(missionState.squad.members.begin(), captain));
+    missionState.squad.residentMission = permanent.residentMission;
+    missionState.inventory = permanent.backpack;
+    const OperationResult missionValid = ExpansionGame::validateState(missionState);
+    if (!missionValid) return rejected("长期小队无法进入任务：" + missionValid.message);
+    candidate.activeMission = std::move(missionState);
     candidate.phase = CampaignPhase::Mission;
     candidate.missionRewardClaimed = false;
-    candidate.squads.front().personallyDeployedThisSeason = true;
+    permanent.personallyDeployedThisSeason = true;
     spendAction(candidate);
     return commit(std::move(candidate), "晨火队进入苍林任务。现在可直接操控队长移动、采集、交谈和战斗。", true);
 }
@@ -658,18 +754,83 @@ CampaignActionResult CampaignGame::executeMission(const std::string_view input) 
         const ExpansionState settled = mission.state();
         ++candidate.missionCount;
         PermanentSquad& squad = candidate.squads.front();
-        const int fatigueTotal = std::accumulate(settled.squad.members.begin(), settled.squad.members.end(), 0,
-            [](const int value, const Character& member) { return value + member.fatigue; });
-        squad.fatigue = std::clamp(fatigueTotal / static_cast<int>(settled.squad.members.size()), 0, 100);
+        const std::vector<std::size_t> originalSquadSizes = [&candidate] {
+            std::vector<std::size_t> sizes;
+            sizes.reserve(candidate.squads.size());
+            for (const PermanentSquad& permanent : candidate.squads) sizes.push_back(permanent.members.size());
+            return sizes;
+        }();
+
+        std::unordered_set<std::string> deployedNames;
+        std::unordered_set<std::string> deadNames;
+        for (const Character& member : settled.squad.members) {
+            Character* permanent = findRosterCharacter(candidate.roster, member.name);
+            if (!permanent || !deployedNames.insert(member.name).second) {
+                return rejected("任务成员与长期角色名单不一致，回营结算已原子取消。");
+            }
+            if (member.life <= 0) deadNames.insert(member.name);
+            else *permanent = member;
+        }
+        squad.backpack = settled.inventory;
         squad.eliteExperience += settled.battleWon ? 35 : settled.traded ? 20 : 10;
-        if (settled.missionFailed) {
-            ++candidate.missionDeaths;
-            candidate.population = std::max(0, candidate.population - 1);
-            candidate.warriors = std::min(candidate.warriors, candidate.population);
+
+        bool coreSquadLost = false;
+        if (!deadNames.empty()) {
+            candidate.roster.erase(std::remove_if(candidate.roster.begin(), candidate.roster.end(),
+                [&](const Character& character) { return deadNames.count(character.name) != 0U; }),
+                candidate.roster.end());
+
+            const int deaths = static_cast<int>(deadNames.size());
+            candidate.missionDeaths += deaths;
+            candidate.population = std::max(0, candidate.population - deaths);
             candidate.warriors = std::min(candidate.warriors, candidate.population);
             candidate.stability = std::max(0, candidate.stability - 8);
-            message += " 部落失去一名队长，人口-1、稳定-8。";
-            addChronicle(candidate, 3, "苍林失队长", "任务失败，幸存者带回了沉重消息。");
+            message += " 本次共阵亡" + std::to_string(deaths) + "人，长期名单与小队编制已同步。";
+            addChronicle(candidate, 3, "苍林伤亡", "本次任务阵亡" + std::to_string(deaths) + "人。");
+
+            for (std::size_t index = 0; index < candidate.squads.size(); ++index) {
+                PermanentSquad& permanent = candidate.squads[index];
+                permanent.members.erase(std::remove_if(permanent.members.begin(), permanent.members.end(),
+                    [&](const std::string& name) {
+                        const Character* character = findRosterCharacter(candidate.roster, name);
+                        return !character || character->life <= 0;
+                    }), permanent.members.end());
+
+                const std::size_t targetSize = std::min(originalSquadSizes[index], kMaximumSquadSize);
+                for (const Character& reserve : candidate.roster) {
+                    if (permanent.members.size() >= targetSize) break;
+                    if (reserve.life > 0
+                        && std::find(permanent.members.begin(), permanent.members.end(), reserve.name)
+                            == permanent.members.end()) {
+                        permanent.members.push_back(reserve.name);
+                    }
+                }
+                if (permanent.members.size() < kMinimumSquadSize) {
+                    coreSquadLost = true;
+                    permanent.members.clear();
+                    permanent.captain.clear();
+                    continue;
+                }
+                if (std::find(permanent.members.begin(), permanent.members.end(), permanent.captain)
+                    == permanent.members.end()) {
+                    permanent.captain = permanent.members.front();
+                }
+            }
+            candidate.squads.erase(std::remove_if(candidate.squads.begin(), candidate.squads.end(),
+                [](const PermanentSquad& permanent) { return permanent.members.empty(); }),
+                candidate.squads.end());
+        }
+
+        for (PermanentSquad& permanent : candidate.squads) {
+            permanent.fatigue = permanentSquadFatigue(permanent, candidate.roster);
+        }
+        candidate.highestLevel = 1;
+        for (const Character& member : candidate.roster) {
+            candidate.highestLevel = std::max(candidate.highestLevel, member.level);
+        }
+
+        if (settled.missionFailed) {
+            addChronicle(candidate, 3, "苍林任务失败", "队长阵亡，幸存者带回了沉重消息。");
         } else {
             candidate.food += std::max(0, settled.supplies - 8) + settled.hides;
             candidate.herbs += settled.herbs;
@@ -683,10 +844,20 @@ CampaignActionResult CampaignGame::executeMission(const std::string_view input) 
             addChronicle(candidate, 2, "苍林任务归来", settled.battleWon ? "晨火队突破三段战线并带回装备。"
                                                                       : "晨火队完成采集与和平接触。");
         }
-        for (const Character& member : settled.squad.members) candidate.highestLevel = std::max(candidate.highestLevel, member.level);
         candidate.activeMission.reset();
         candidate.missionRewardClaimed = true;
-        candidate.phase = CampaignPhase::Managing;
+        if (coreSquadLost && candidate.squads.empty()) {
+            candidate.campDurability = 0;
+            candidate.actionsLeft = 0;
+            candidate.phase = CampaignPhase::Finished;
+            candidate.ending = CampaignEnding::Extinction;
+            message += " 没有足够的存活骨干重建小队，营地在混乱中瓦解，进入部落覆灭结算。";
+            addChronicle(candidate, 5, "部落覆灭", "苍林重创后已无足够存活骨干维持营地。早先发生的伤亡不会被回滚。");
+        } else {
+            candidate.phase = CampaignPhase::Managing;
+        }
+        const bool endingReached = coreSquadLost && candidate.squads.empty();
+        return commit(std::move(candidate), std::move(message), false, false, endingReached);
     }
     return commit(std::move(candidate), std::move(message), false);
 }
@@ -993,7 +1164,6 @@ CampaignActionResult CampaignGame::warAttack() {
         candidate.war.militia -= militiaLost;
         candidate.population = std::max(0, candidate.population - militiaLost);
         candidate.warriors = std::min(candidate.warriors, candidate.population);
-        candidate.warriors = std::min(candidate.warriors, candidate.population);
         remaining -= militiaLost;
         const int warriorsLost = std::min(candidate.war.warriors, remaining);
         candidate.war.warriors -= warriorsLost;
@@ -1097,7 +1267,11 @@ void CampaignGame::settleResidentSquads(CampaignState& candidate, std::string& m
         case ResidentMission::None: break;
         }
         squad.eliteExperience += 8;
-        squad.fatigue = std::min(100, squad.fatigue + 15);
+        for (const std::string& name : squad.members) {
+            Character* member = findRosterCharacter(candidate.roster, name);
+            if (member) member->fatigue = std::min(100, member->fatigue + 15);
+        }
+        squad.fatigue = permanentSquadFatigue(squad, candidate.roster);
     }
 }
 
@@ -1118,7 +1292,6 @@ void CampaignGame::settleFoodAndTribute(CampaignState& candidate, std::string& m
         const int loss = std::min(candidate.population, 1 + shortage / 4);
         candidate.population -= loss;
         candidate.warriors = std::min(candidate.warriors, candidate.population);
-        candidate.warriors = std::min(candidate.warriors, candidate.population);
         candidate.morale = std::max(0, candidate.morale - 12);
         candidate.stability = std::max(0, candidate.stability - 15);
         message += " 食物不足，人口-" + std::to_string(loss) + "、士气-12、稳定-15。";
@@ -1128,30 +1301,50 @@ void CampaignGame::settleFoodAndTribute(CampaignState& candidate, std::string& m
 void CampaignGame::settleAutonomousTribes(CampaignState& candidate, std::string& message) const {
     const std::size_t index = 1U + static_cast<std::size_t>((candidate.seed + static_cast<std::uint32_t>(candidate.season * 13)) % 5U);
     auto& relation = candidate.relations[index];
+    TribeProfile& profile = candidate.tribes[index];
     const TribeIdV2 tribe = static_cast<TribeIdV2>(index);
+    const FactionState& faction = dominantFaction(profile);
     const int choice = static_cast<int>((candidate.seed * 3U + static_cast<std::uint32_t>(candidate.season * 7 + index)) % 4U);
+
+    const bool tradeDriven = containsAny(profile.personality, {"农业", "航运", "工艺", "精明", "务实"})
+        || containsAny(faction.demand, {"粮食", "贸易", "航路", "盐价", "换取", "矿路", "装备"});
+    const bool conciliatory = containsAny(profile.personality, {"谨慎", "救助", "温和"})
+        || containsAny(faction.demand, {"救助", "伤者", "共享", "情报", "停战", "谈判"});
+    const bool aggressive = containsAny(profile.personality, {"强硬", "好战", "武勇"})
+        || containsAny(faction.demand, {"战利品", "控制", "征服", "复仇"});
+
+    const bool contacted = locationDiscovered(candidate, contactLocation(tribe));
+    const std::string reason = contacted
+        ? " " + profile.name + "首领" + profile.leader + "秉持“" + profile.personality
+            + "”，主导派系" + faction.name + "要求“" + faction.demand + "”；"
+        : " 一个尚未正式接触的部落受其首领取向和内部派系诉求推动；";
     if (relation.atWar) {
         relation.fear = percentClamp(relation.fear + 2);
-        message += " " + tribeName(tribe) + "在战争中集结兵力，恐惧+2。";
-    } else if (choice == 0) {
-        relation.relation = relationClamp(relation.relation + 3);
-        relation.trust = percentClamp(relation.trust + 2);
-        message += " " + tribeName(tribe) + "派来使者，关系+3、信任+2。";
-    } else if (choice == 1 && relation.tradeRoute) {
+        message += reason + "双方仍处战争，因此优先集结兵力，恐惧+2。";
+    } else if (relation.tradeRoute && (tradeDriven || choice <= 1)) {
         candidate.food += 2;
         relation.tradeDependence = percentClamp(relation.tradeDependence + 2);
-        message += " " + tribeName(tribe) + "商队沿固定路线送来2食物。";
-    } else if (choice == 2 && relation.relation < -30) {
+        message += reason + "双方关系" + std::to_string(relation.relation)
+            + "且固定商路畅通，因此商队送来2食物，贸易依赖+2。";
+    } else if (relation.relation < 0 && (aggressive || choice == 2)) {
         relation.fear = percentClamp(relation.fear + 4);
         candidate.campDurability = std::max(0, candidate.campDurability - 2);
-        message += " " + tribeName(tribe) + "边境骚扰使营地耐久-2。";
+        message += reason + "双方关系仅" + std::to_string(relation.relation)
+            + "且尚无固定商路，因此发动边境骚扰，恐惧+4、营地耐久-2。";
+    } else if (conciliatory || tradeDriven || relation.relation >= 15 || relation.trust >= 20 || choice == 0) {
+        const int relationBefore = relation.relation;
+        const int trustBefore = relation.trust;
+        relation.relation = relationClamp(relation.relation + 3);
+        relation.trust = percentClamp(relation.trust + 2);
+        message += reason + "考虑当前关系" + std::to_string(relationBefore) + "、信任"
+            + std::to_string(trustBefore) + "且尚无固定商路，因此派来使者，关系+3、信任+2。";
     } else {
         relation.relation = relationClamp(relation.relation - 2);
-        message += " " + tribeName(tribe) + "因内部派系施压而疏远，关系-2。";
+        message += reason + "当前信任" + std::to_string(relation.trust)
+            + "且尚无固定商路，因此暂时疏远，关系-2。";
     }
 
     if (candidate.season % 8 == 0 && index != indexOf(TribeIdV2::Player)) {
-        TribeProfile& profile = candidate.tribes[index];
         profile.actingLeader = profile.successor;
         profile.leader = profile.successor;
         message += " " + profile.name + "首领更替为" + profile.leader + "。";
@@ -1201,7 +1394,6 @@ void CampaignGame::settleEvent(CampaignState& candidate, std::string& message) c
         if (candidate.buildings[indexOf(BuildingId::HealerHut)]) message += " 医者小屋控制了疾病。";
         else {
             candidate.population = std::max(0, candidate.population - 1);
-            candidate.warriors = std::min(candidate.warriors, candidate.population);
             candidate.warriors = std::min(candidate.warriors, candidate.population);
             candidate.stability = std::max(0, candidate.stability - 4);
             message += " 疾病使人口-1、稳定-4。";
@@ -1421,7 +1613,9 @@ bool CampaignGame::validateState(const CampaignState& candidate, std::string& er
             return false;
         }
     }
-    if (candidate.roster.size() < 2U || candidate.roster.size() > 64U) {
+    const bool extinct = candidate.phase == CampaignPhase::Finished
+        && candidate.ending == CampaignEnding::Extinction;
+    if ((!extinct && candidate.roster.size() < 2U) || candidate.roster.size() > 64U) {
         error = "角色名单人数无效。";
         return false;
     }
@@ -1446,20 +1640,35 @@ bool CampaignGame::validateState(const CampaignState& candidate, std::string& er
             return false;
         }
     }
-    if (candidate.squads.empty() || candidate.squads.size() > 8U) {
+    if ((!extinct && candidate.squads.empty()) || candidate.squads.size() > 8U) {
         error = "永久小队数量无效。";
         return false;
     }
     for (const PermanentSquad& squad : candidate.squads) {
         if (squad.name.empty() || squad.captain.empty() || squad.members.size() < 2U || squad.members.size() > 8U
-            || squad.fatigue < 0 || squad.fatigue > 100 || squad.eliteExperience < 0) {
+            || squad.fatigue < 0 || squad.fatigue > 100 || squad.eliteExperience < 0
+            || squad.backpack.usedWeight() > squad.backpack.weightLimit()
+            || squad.backpack.usedSlots() > squad.backpack.slotLimit()) {
             error = "永久小队字段无效。";
             return false;
         }
+        std::unordered_set<std::string> backpackItemIds;
+        for (const Item& item : squad.backpack.items()) {
+            if (item.id.empty() || item.name.empty() || item.weight < 0 || item.slotCount <= 0
+                || !backpackItemIds.insert(item.id).second
+                || !enumInRange(item.quality, ItemQuality::Crude, ItemQuality::Legendary)
+                || !enumInRange(item.condition, ItemCondition::Intact, ItemCondition::Scrapped)
+                || (item.equipmentSlot
+                    && !enumInRange(*item.equipmentSlot, EquipmentSlot::MainHand, EquipmentSlot::Accessory))) {
+                error = "永久小队背包物品字段无效。";
+                return false;
+            }
+        }
         std::unordered_set<std::string> members;
         for (const std::string& member : squad.members) {
-            if (!rosterNames.count(member) || !members.insert(member).second) {
-                error = "小队成员不在角色名单或重复。";
+            const Character* character = findRosterCharacter(candidate.roster, member);
+            if (!character || character->life <= 0 || !members.insert(member).second) {
+                error = "小队成员不在角色名单、已阵亡或重复。";
                 return false;
             }
         }
@@ -1507,7 +1716,7 @@ bool CampaignGame::validateState(const CampaignState& candidate, std::string& er
 
 std::string CampaignGame::statusText() const {
     std::ostringstream output;
-    output << "V2长期战役  模式：" << modeName(state_.mode) << "  季节：" << state_.season << "/" << state_.seasonLimit
+    output << "V2部落战役  模式：" << modeName(state_.mode) << "  季节：" << state_.season << "/" << state_.seasonLimit
            << "  阶段：" << phaseName(state_.phase) << "  行动点：" << state_.actionsLeft << "\n"
            << "部落：" << state_.tribeName << "  首领：" << state_.leaderName;
     if (!state_.actingLeaderName.empty()) output << "（代理/继任：" << state_.actingLeaderName << "）";
@@ -1539,8 +1748,9 @@ std::string CampaignGame::diplomacyText() const {
     for (std::size_t index = 1; index < kTribeV2Count; ++index) {
         const auto& profile = state_.tribes[index];
         const auto& relation = state_.relations[index];
-        output << profile.name << "  首领" << profile.leader << "  " << relation.relation << '/' << relation.trust
-               << '/' << relation.fear << '/' << relation.tradeDependence;
+        const TribeIdV2 tribe = static_cast<TribeIdV2>(index);
+        output << profile.name << "  " << relation.relation << '/' << relation.trust << '/' << relation.fear << '/'
+               << relation.tradeDependence;
         if (relation.atWar) output << " [战争]";
         if (relation.truce) output << " [停战]";
         if (relation.alliance) output << " [联盟]";
@@ -1548,6 +1758,25 @@ std::string CampaignGame::diplomacyText() const {
         if (relation.playerPaysTribute) output << " [我方朝贡]";
         if (relation.otherPaysTribute) output << " [对方进贡]";
         if (relation.tradeRoute) output << " [固定商路]";
+        if (!locationDiscovered(state_, contactLocation(tribe))) {
+            output << " [尚未充分接触]";
+        } else {
+            output << "  首领" << profile.leader << " 性格：" << profile.personality;
+            const FactionState& faction = dominantFaction(profile);
+            output << "  主导派系：" << faction.name;
+            if (knowsFactionDemand(relation)) output << " 诉求：" << faction.demand;
+            else output << " [诉求待查]";
+            if (knowsFullFactionNetwork(relation) && profile.factions.size() > 1U) {
+                output << "  其他派系：";
+                bool first = true;
+                for (const FactionState& other : profile.factions) {
+                    if (&other == &faction) continue;
+                    if (!first) output << "、";
+                    output << other.name << "（" << other.demand << "）";
+                    first = false;
+                }
+            }
+        }
         output << '\n';
     }
     return output.str();

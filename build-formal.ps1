@@ -48,7 +48,7 @@ foreach ($line in $environmentLines) {
 }
 
 $buildPath = Join-Path $PSScriptRoot "out\Formal-$Configuration"
-& $cmakePath -S $PSScriptRoot -B $buildPath -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" '-DTRIBE_FORMAL_ONLY=ON' "-DCMAKE_MAKE_PROGRAM=$ninjaPath"
+& $cmakePath -S $PSScriptRoot -B $buildPath -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_MAKE_PROGRAM=$ninjaPath"
 if ($LASTEXITCODE -ne 0) { throw '正式版 CMake 配置失败。' }
 
 & $cmakePath --build $buildPath

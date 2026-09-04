@@ -1,56 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(mud_demos VERSION 2.0.0 LANGUAGES CXX)
+project(tribe_dawn VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-option(TRIBE_FORMAL_ONLY "Build only the formal Tribe Dawn game" OFF)
 enable_testing()
 
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
-if(NOT TRIBE_FORMAL_ONLY)
-add_library(mud_lib
-    src/core.cpp
-    src/starport.cpp
-    src/island.cpp
-    src/tribe.cpp
-)
-target_include_directories(mud_lib PUBLIC src)
-
-if(MSVC)
-    target_compile_options(mud_lib PRIVATE /W4 /permissive- /utf-8)
-else()
-    target_compile_options(mud_lib PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-add_executable(mud-demos src/main.cpp)
-target_link_libraries(mud-demos PRIVATE mud_lib)
-
-if(MSVC)
-    target_compile_options(mud-demos PRIVATE /W4 /permissive- /utf-8)
-endif()
-
-add_executable(mud-tests
-    tests/test_main.cpp
-    tests/core_tests.cpp
-    tests/starport_tests.cpp
-    tests/island_tests.cpp
-    tests/tribe_tests.cpp
-)
-target_link_libraries(mud-tests PRIVATE mud_lib)
-target_include_directories(mud-tests PRIVATE tests)
-
-if(MSVC)
-    target_compile_options(mud-tests PRIVATE /W4 /permissive- /utf-8)
-else()
-    target_compile_options(mud-tests PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-add_test(NAME mud-tests COMMAND mud-tests)
 endif()
 
 add_library(tribe_formal_lib
@@ -58,6 +16,7 @@ add_library(tribe_formal_lib
     formal/src/expansion_types.cpp
     formal/src/expansion_game.cpp
     formal/src/campaign.cpp
+    formal/src/campaign_migration.cpp
     formal/src/campaign_save_repository.cpp
     formal/src/ending_presentation.cpp
     formal/src/content.cpp
@@ -91,6 +50,9 @@ add_executable(tribe-formal-tests
     formal/tests/expansion_domain_tests.cpp
     formal/tests/expansion_game_tests.cpp
     formal/tests/campaign_tests.cpp
+    formal/tests/campaign_autonomy_tests.cpp
+    formal/tests/campaign_migration_tests.cpp
+    formal/tests/campaign_route_tests.cpp
     formal/tests/campaign_save_tests.cpp
     formal/tests/ending_presentation_tests.cpp
 )
