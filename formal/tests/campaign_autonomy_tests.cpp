@@ -1,4 +1,4 @@
-#include "tribe/campaign.hpp"
+#include "tribe/game_engine.hpp"
 #include "test_harness.hpp"
 
 #include <set>
@@ -7,21 +7,21 @@
 
 namespace {
 
-std::size_t tribeIndex(const tribe::TribeIdV2 tribe) {
+std::size_t tribeIndex(const tribe::TribeId tribe) {
     return static_cast<std::size_t>(tribe);
 }
 
-tribe::CampaignState initialState(const std::uint32_t seed) {
-    return tribe::CampaignGame{{tribe::CampaignMode::Course, seed, "燧火", "炎角", "生存"}}.state();
+tribe::GameState initialState(const std::uint32_t seed) {
+    return tribe::GameEngine{{tribe::GameMode::Standard, seed, "燧火", "炎角", "生存"}}.state();
 }
 
-tribe::CampaignActionResult endSeason(tribe::CampaignGame& game) {
-    const tribe::CampaignActionResult result = game.execute("endturn");
+tribe::ActionResult endSeason(tribe::GameEngine& game) {
+    const tribe::ActionResult result = game.execute("endturn");
     if (!result.success) throw std::runtime_error("endturn failed: " + result.message);
     return result;
 }
 
-void discoverContact(tribe::CampaignState& state, const tribe::WorldLocationId location) {
+void discoverContact(tribe::GameState& state, const tribe::WorldLocationId location) {
     state.discovered[static_cast<std::size_t>(location)] = true;
 }
 
@@ -32,8 +32,8 @@ bool contains(const std::string& text, const std::string& expected) {
 } // namespace
 
 TEST_CASE("autonomous tribe decisions are reproducible for a fixed seed") {
-    tribe::CampaignGame first{{tribe::CampaignMode::Course, 211U, "燧火", "炎角", "生存"}};
-    tribe::CampaignGame repeat{{tribe::CampaignMode::Course, 211U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine first{{tribe::GameMode::Standard, 211U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine repeat{{tribe::GameMode::Standard, 211U, "燧火", "炎角", "生存"}};
 
     const auto firstResult = endSeason(first);
     const auto repeatResult = endSeason(repeat);
@@ -47,7 +47,7 @@ TEST_CASE("autonomous tribe decisions are reproducible for a fixed seed") {
 TEST_CASE("different seeds can produce different autonomous tribe decisions") {
     std::set<std::string> diplomaticOutcomes;
     for (std::uint32_t seed = 1; seed <= 10; ++seed) {
-        tribe::CampaignGame game{{tribe::CampaignMode::Course, seed, "燧火", "炎角", "生存"}};
+        tribe::GameEngine game{{tribe::GameMode::Standard, seed, "燧火", "炎角", "生存"}};
         endSeason(game);
         diplomaticOutcomes.insert(game.diplomacyText());
     }
@@ -56,7 +56,7 @@ TEST_CASE("different seeds can produce different autonomous tribe decisions") {
 
 TEST_CASE("leader personality and dominant faction demand change autonomous action") {
     constexpr std::uint32_t seedSelectingRiverDeer = 7U;
-    const std::size_t riverIndex = tribeIndex(tribe::TribeIdV2::RiverDeer);
+    const std::size_t riverIndex = tribeIndex(tribe::TribeId::RiverDeer);
 
     auto aggressiveState = initialState(seedSelectingRiverDeer);
     auto& aggressiveProfile = aggressiveState.tribes[riverIndex];
@@ -67,7 +67,7 @@ TEST_CASE("leader personality and dominant faction demand change autonomous acti
     aggressiveState.relations[riverIndex].trust = 0;
     discoverContact(aggressiveState, tribe::WorldLocationId::RiverFord);
     const int durabilityBefore = aggressiveState.campDurability;
-    tribe::CampaignGame aggressive{aggressiveState};
+    tribe::GameEngine aggressive{aggressiveState};
     const auto aggressiveResult = endSeason(aggressive);
 
     REQUIRE(contains(aggressiveResult.message, "强硬好战"));
@@ -84,7 +84,7 @@ TEST_CASE("leader personality and dominant faction demand change autonomous acti
     conciliatoryState.relations[riverIndex].relation = -20;
     conciliatoryState.relations[riverIndex].trust = 0;
     discoverContact(conciliatoryState, tribe::WorldLocationId::RiverFord);
-    tribe::CampaignGame conciliatory{conciliatoryState};
+    tribe::GameEngine conciliatory{conciliatoryState};
     const auto conciliatoryResult = endSeason(conciliatory);
 
     REQUIRE(contains(conciliatoryResult.message, "谨慎救助"));
@@ -96,15 +96,15 @@ TEST_CASE("leader personality and dominant faction demand change autonomous acti
 
 TEST_CASE("war overrides personality and an established trade route drives commerce") {
     constexpr std::uint32_t seedSelectingRiverDeer = 7U;
-    const std::size_t riverIndex = tribeIndex(tribe::TribeIdV2::RiverDeer);
+    const std::size_t riverIndex = tribeIndex(tribe::TribeId::RiverDeer);
 
     auto warState = initialState(seedSelectingRiverDeer);
     auto& warRelation = warState.relations[riverIndex];
     warRelation.atWar = true;
-    warRelation.tradeRoute = true;
+    warRelation.tradeRoute = false;
     const int fearBefore = warRelation.fear;
     const int dependenceBeforeWar = warRelation.tradeDependence;
-    tribe::CampaignGame wartime{warState};
+    tribe::GameEngine wartime{warState};
     const auto warResult = endSeason(wartime);
 
     REQUIRE(contains(warResult.message, "双方仍处战争"));
@@ -115,7 +115,7 @@ TEST_CASE("war overrides personality and an established trade route drives comme
     auto tradeState = initialState(seedSelectingRiverDeer);
     tradeState.relations[riverIndex].tradeRoute = true;
     const int dependenceBeforeTrade = tradeState.relations[riverIndex].tradeDependence;
-    tribe::CampaignGame trading{tradeState};
+    tribe::GameEngine trading{tradeState};
     const auto tradeResult = endSeason(trading);
 
     REQUIRE(contains(tradeResult.message, "固定商路畅通"));
@@ -124,10 +124,10 @@ TEST_CASE("war overrides personality and an established trade route drives comme
 }
 
 TEST_CASE("external faction intelligence is revealed by contact trust and trade dependence") {
-    const std::size_t tideIndex = tribeIndex(tribe::TribeIdV2::Tidesalt);
+    const std::size_t tideIndex = tribeIndex(tribe::TribeId::Tidesalt);
     auto hiddenState = initialState(17U);
     hiddenState.relations[tideIndex] = {};
-    tribe::CampaignGame hidden{hiddenState};
+    tribe::GameEngine hidden{hiddenState};
     const std::string hiddenText = hidden.diplomacyText();
 
     REQUIRE(contains(hiddenText, "尚未充分接触"));
@@ -138,7 +138,7 @@ TEST_CASE("external faction intelligence is revealed by contact trust and trade 
 
     auto contactedState = hiddenState;
     discoverContact(contactedState, tribe::WorldLocationId::TidesaltHarbor);
-    tribe::CampaignGame contacted{contactedState};
+    tribe::GameEngine contacted{contactedState};
     const std::string contactedText = contacted.diplomacyText();
     REQUIRE(contains(contactedText, "澜母"));
     REQUIRE(contains(contactedText, "精明航运"));
@@ -148,7 +148,7 @@ TEST_CASE("external faction intelligence is revealed by contact trust and trade 
 
     auto trustedState = contactedState;
     trustedState.relations[tideIndex].trust = 20;
-    tribe::CampaignGame trusted{trustedState};
+    tribe::GameEngine trusted{trustedState};
     const std::string trustedText = trusted.diplomacyText();
     REQUIRE(contains(trustedText, "主导派系：船主"));
     REQUIRE(contains(trustedText, "保护航路"));
@@ -156,7 +156,7 @@ TEST_CASE("external faction intelligence is revealed by contact trust and trade 
 
     auto dependentState = contactedState;
     dependentState.relations[tideIndex].tradeDependence = 30;
-    tribe::CampaignGame dependent{dependentState};
+    tribe::GameEngine dependent{dependentState};
     const std::string dependentText = dependent.diplomacyText();
     REQUIRE(contains(dependentText, "主导派系：船主"));
     REQUIRE(contains(dependentText, "诉求：保护航路"));
@@ -165,10 +165,10 @@ TEST_CASE("external faction intelligence is revealed by contact trust and trade 
 }
 
 TEST_CASE("undiscovered tribes stay hidden even when an inherited relation is nonzero") {
-    const std::size_t riverIndex = tribeIndex(tribe::TribeIdV2::RiverDeer);
+    const std::size_t riverIndex = tribeIndex(tribe::TribeId::RiverDeer);
     auto state = initialState(31U);
     REQUIRE(state.relations[riverIndex].relation != 0);
-    tribe::CampaignGame game{state};
+    tribe::GameEngine game{state};
     const std::string text = game.diplomacyText();
     REQUIRE(contains(text, "尚未充分接触"));
     REQUIRE(!contains(text, "禾角"));

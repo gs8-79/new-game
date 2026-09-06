@@ -1,6 +1,6 @@
 #include "test_harness.hpp"
 
-#include "tribe/campaign_save_repository.hpp"
+#include "tribe/save_repository.hpp"
 
 #include <array>
 #include <cstdint>
@@ -79,7 +79,14 @@ bool sameExpansion(const tribe::ExpansionState& left, const tribe::ExpansionStat
         && left.lastEnemyInitiative == right.lastEnemyInitiative && left.traded == right.traded
         && left.battleWon == right.battleWon && left.retreated == right.retreated
         && left.missionFailed == right.missionFailed && left.lootAvailable == right.lootAvailable
-        && left.settled == right.settled;
+        && left.settled == right.settled && left.worldMode == right.worldMode
+        && left.worldLocation == right.worldLocation && left.worldDiscovered == right.worldDiscovered
+        && left.outposts == right.outposts && left.cargoFood == right.cargoFood
+        && left.cargoWood == right.cargoWood && left.cargoStone == right.cargoStone
+        && left.cargoHerbs == right.cargoHerbs && left.harvestActions == right.harvestActions
+        && left.cargoCapacity == right.cargoCapacity && left.foodGatherBonus == right.foodGatherBonus
+        && left.herbGatherBonus == right.herbGatherBonus
+        && left.rockfangFortCleared == right.rockfangFortCleared;
 }
 
 bool sameFaction(const tribe::FactionState& left, const tribe::FactionState& right) {
@@ -114,6 +121,7 @@ bool samePermanentSquad(const tribe::PermanentSquad& left, const tribe::Permanen
         && left.eliteExperience == right.eliteExperience
         && left.personallyDeployedThisSeason == right.personallyDeployedThisSeason
         && left.refusingOrders == right.refusingOrders
+        && left.station == right.station
         && sameInventory(left.backpack, right.backpack);
 }
 
@@ -130,7 +138,7 @@ bool sameChronicle(const tribe::ChronicleEntry& left, const tribe::ChronicleEntr
         && left.title == right.title && left.detail == right.detail;
 }
 
-bool sameCampaign(const tribe::CampaignState& left, const tribe::CampaignState& right) {
+bool sameCampaign(const tribe::GameState& left, const tribe::GameState& right) {
     if (left.mode != right.mode || left.phase != right.phase || left.seed != right.seed
         || left.season != right.season || left.seasonLimit != right.seasonLimit
         || left.actionsLeft != right.actionsLeft || left.population != right.population
@@ -144,6 +152,7 @@ bool sameCampaign(const tribe::CampaignState& left, const tribe::CampaignState& 
         || left.rockfangStrength != right.rockfangStrength || left.tribeName != right.tribeName
         || left.leaderName != right.leaderName || left.actingLeaderName != right.actingLeaderName
         || left.leaderFocus != right.leaderFocus || left.discovered != right.discovered
+        || left.outposts != right.outposts
         || left.buildings != right.buildings || left.technologies != right.technologies
         || left.tradePartners != right.tradePartners || left.missionRewardClaimed != right.missionRewardClaimed
         || left.currencyUnlocked != right.currencyUnlocked
@@ -177,10 +186,10 @@ bool sameCampaign(const tribe::CampaignState& left, const tribe::CampaignState& 
     return true;
 }
 
-tribe::CampaignState richState() {
-    tribe::CampaignGame game({tribe::CampaignMode::Long, 0xC0FFEEU,
+tribe::GameState richState() {
+    tribe::GameEngine game({tribe::GameMode::Long, 0xC0FFEEU,
         "燧=火\n长名部落", "炎角·二世", "贸易与生存"});
-    tribe::CampaignState state = game.state();
+    tribe::GameState state = game.state();
     state.season = 7;
     state.actionsLeft = 2;
     state.population = 27;
@@ -202,6 +211,7 @@ tribe::CampaignState richState() {
     state.rockfangStrength = 17;
     state.actingLeaderName = "青枝（代理）";
     state.discovered[static_cast<std::size_t>(tribe::WorldLocationId::TidesaltHarbor)] = true;
+    state.outposts[static_cast<std::size_t>(tribe::WorldLocationId::RedPlain)] = true;
     state.buildings[static_cast<std::size_t>(tribe::BuildingId::Granary)] = true;
     state.technologies[static_cast<std::size_t>(tribe::TechnologyId::FoodPreservation)] = true;
 
@@ -246,7 +256,8 @@ tribe::CampaignState richState() {
     state.squads.front().eliteExperience = 87;
     state.squads.front().personallyDeployedThisSeason = true;
     state.squads.front().refusingOrders = true;
-    state.war = {false, tribe::TribeIdV2::Tidesalt, "石刃=统帅", 7, 5, 31, 19, 2,
+    state.squads.front().station = tribe::WorldLocationId::RedPlain;
+    state.war = {false, tribe::TribeId::Tidesalt, "石刃=统帅", 7, 5, 31, 19, 2,
         tribe::WarOrder::Flank, true};
     state.currencyUnlocked = true;
     state.rockfangFortCaptured = false;
@@ -255,34 +266,33 @@ tribe::CampaignState richState() {
     state.chronicle.push_back({7, 5, "海路=开通", "潮盐来船。\n玄石送来工具。"});
 
     std::string error;
-    REQUIRE(tribe::CampaignGame::validateState(state, error));
+    REQUIRE(tribe::GameEngine::validateState(state, error));
     return state;
 }
 
-tribe::CampaignState missionState() {
-    tribe::CampaignGame game({tribe::CampaignMode::Course, 307U, "任务部落", "任务首领", "侦察"});
+tribe::GameState missionState() {
+    tribe::GameEngine game({tribe::GameMode::Standard, 307U, "任务部落", "任务首领", "侦察"});
     REQUIRE(game.execute("mission forest").success);
     REQUIRE(game.execute("equip mainhand spare_knife").success);
     REQUIRE(game.execute("move forest").success);
-    REQUIRE(game.execute("move deep").success);
     REQUIRE(game.execute("gather herbs").success);
-    REQUIRE(game.state().phase == tribe::CampaignPhase::Mission);
+    REQUIRE(game.state().phase == tribe::GamePhase::Mission);
     REQUIRE(game.state().activeMission.has_value());
     return game.state();
 }
 
-tribe::CampaignState warState() {
-    tribe::CampaignGame game({tribe::CampaignMode::Course, 401U, "战役部落", "石刃", "战争"});
-    tribe::CampaignState state = game.state();
-    state.phase = tribe::CampaignPhase::War;
-    auto& relation = state.relations[static_cast<std::size_t>(tribe::TribeIdV2::Rockfang)];
+tribe::GameState warState() {
+    tribe::GameEngine game({tribe::GameMode::Standard, 401U, "战役部落", "石刃", "战争"});
+    tribe::GameState state = game.state();
+    state.phase = tribe::GamePhase::War;
+    auto& relation = state.relations[static_cast<std::size_t>(tribe::TribeId::Rockfang)];
     relation.atWar = true;
     relation.alliance = false;
     relation.truce = false;
-    state.war = {true, tribe::TribeIdV2::Rockfang, "石刃", 3, 4, 21, 20, 2,
+    state.war = {true, tribe::TribeId::Rockfang, "石刃", 3, 4, 21, 20, 2,
         tribe::WarOrder::Focus, true};
     std::string error;
-    REQUIRE(tribe::CampaignGame::validateState(state, error));
+    REQUIRE(tribe::GameEngine::validateState(state, error));
     return state;
 }
 
@@ -346,69 +356,61 @@ std::string withoutSquadBackpackExtension(std::string bytes) {
 TEST_CASE("campaign save repository exposes six manual slots and one autosave") {
     const auto root = saveRoot("slots");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const std::array<tribe::CampaignSaveSlot, 7> slots{{
-        tribe::CampaignSaveSlot::Slot1, tribe::CampaignSaveSlot::Slot2,
-        tribe::CampaignSaveSlot::Slot3, tribe::CampaignSaveSlot::Slot4,
-        tribe::CampaignSaveSlot::Slot5, tribe::CampaignSaveSlot::Slot6,
-        tribe::CampaignSaveSlot::Autosave,
+    tribe::SaveRepository repository(root);
+    const std::array<tribe::SaveSlot, 7> slots{{
+        tribe::SaveSlot::Slot1, tribe::SaveSlot::Slot2,
+        tribe::SaveSlot::Slot3, tribe::SaveSlot::Slot4,
+        tribe::SaveSlot::Slot5, tribe::SaveSlot::Slot6,
+        tribe::SaveSlot::Autosave,
     }};
-    const tribe::CampaignState expected = richState();
+    const tribe::GameState expected = richState();
     std::string error;
-    REQUIRE(repository.saveNew(expected, tribe::CampaignSaveSlot::Slot1, error));
-    const std::string firstCopy = readBytes(repository.pathFor(tribe::CampaignSaveSlot::Slot1));
-    REQUIRE(!repository.saveNew(expected, tribe::CampaignSaveSlot::Slot1, error));
-    REQUIRE(readBytes(repository.pathFor(tribe::CampaignSaveSlot::Slot1)) == firstCopy);
-    clean(root);
     for (const auto slot : slots) {
         REQUIRE(repository.save(expected, slot, error));
         REQUIRE(error.empty());
         REQUIRE(std::filesystem::is_regular_file(repository.pathFor(slot)));
-        tribe::CampaignState loaded;
+        tribe::GameState loaded;
         REQUIRE(repository.load(slot, loaded, error));
         REQUIRE(error.empty());
         REQUIRE(sameCampaign(loaded, expected));
     }
-    REQUIRE(tribe::CampaignSaveRepository::parseSlot("1") == tribe::CampaignSaveSlot::Slot1);
-    REQUIRE(tribe::CampaignSaveRepository::parseSlot("slot6") == tribe::CampaignSaveSlot::Slot6);
-    REQUIRE(tribe::CampaignSaveRepository::parseSlot("自动档") == tribe::CampaignSaveSlot::Autosave);
-    REQUIRE(!tribe::CampaignSaveRepository::parseSlot("7"));
+    REQUIRE(tribe::SaveRepository::parseSlot("1") == tribe::SaveSlot::Slot1);
+    REQUIRE(tribe::SaveRepository::parseSlot("slot6") == tribe::SaveSlot::Slot6);
+    REQUIRE(tribe::SaveRepository::parseSlot("自动档") == tribe::SaveSlot::Autosave);
+    REQUIRE(!tribe::SaveRepository::parseSlot("7"));
     clean(root);
 }
 
 TEST_CASE("campaign save round trip preserves managing mission and war states completely") {
     const auto root = saveRoot("complete");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const std::array<tribe::CampaignState, 3> states{{richState(), missionState(), warState()}};
-    const std::array<tribe::CampaignSaveSlot, 3> slots{{
-        tribe::CampaignSaveSlot::Slot1, tribe::CampaignSaveSlot::Slot2, tribe::CampaignSaveSlot::Slot3}};
+    tribe::SaveRepository repository(root);
+    const std::array<tribe::GameState, 3> states{{richState(), missionState(), warState()}};
+    const std::array<tribe::SaveSlot, 3> slots{{
+        tribe::SaveSlot::Slot1, tribe::SaveSlot::Slot2, tribe::SaveSlot::Slot3}};
     std::string error;
     for (std::size_t index = 0; index < states.size(); ++index) {
         REQUIRE(repository.save(states[index], slots[index], error));
-        tribe::CampaignState loaded;
+        tribe::GameState loaded;
         REQUIRE(repository.load(slots[index], loaded, error));
         REQUIRE(sameCampaign(loaded, states[index]));
     }
     clean(root);
 }
 
-TEST_CASE("campaign save reads released V2 files without the optional squad backpack extension") {
-    const auto root = saveRoot("released-v2-compatibility");
+TEST_CASE("save rejects a missing squad backpack block atomically") {
+    const auto root = saveRoot("missing-backpack");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    tribe::CampaignState expected = richState();
+    tribe::SaveRepository repository(root);
+    tribe::GameState expected = richState();
     std::string error;
-    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot1, error));
-    const auto path = repository.pathFor(tribe::CampaignSaveSlot::Slot1);
+    REQUIRE(repository.save(expected, tribe::SaveSlot::Slot1, error));
+    const auto path = repository.pathFor(tribe::SaveSlot::Slot1);
     writeCorrupt(path, withoutSquadBackpackExtension(readBytes(path)));
 
-    for (tribe::PermanentSquad& squad : expected.squads) {
-        squad.backpack = tribe::Inventory{80, 20};
-    }
-    tribe::CampaignState loaded;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot1, loaded, error));
-    REQUIRE(error.empty());
+    tribe::GameState loaded = expected;
+    REQUIRE(!repository.load(tribe::SaveSlot::Slot1, loaded, error));
+    REQUIRE(!error.empty());
     REQUIRE(sameCampaign(loaded, expected));
     clean(root);
 }
@@ -416,27 +418,27 @@ TEST_CASE("campaign save reads released V2 files without the optional squad back
 TEST_CASE("campaign save recovers the last committed backup when primary is corrupt") {
     const auto root = saveRoot("backup");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const tribe::CampaignState previous = richState();
-    tribe::CampaignState current = previous;
+    tribe::SaveRepository repository(root);
+    const tribe::GameState previous = richState();
+    tribe::GameState current = previous;
     ++current.food;
     current.chronicle.push_back({current.season, 2, "第二次保存", "这是新的正式主档。"});
     std::string error;
-    REQUIRE(repository.save(previous, tribe::CampaignSaveSlot::Slot4, error));
-    REQUIRE(repository.save(current, tribe::CampaignSaveSlot::Slot4, error));
+    REQUIRE(repository.save(previous, tribe::SaveSlot::Slot4, error));
+    REQUIRE(repository.save(current, tribe::SaveSlot::Slot4, error));
 
-    const auto primary = repository.pathFor(tribe::CampaignSaveSlot::Slot4);
+    const auto primary = repository.pathFor(tribe::SaveSlot::Slot4);
     auto backup = primary;
     backup += ".bak";
     REQUIRE(std::filesystem::is_regular_file(backup));
     writeCorrupt(primary, "damaged campaign primary");
 
-    tribe::CampaignState recovered = current;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot4, recovered, error));
+    tribe::GameState recovered = current;
+    REQUIRE(repository.load(tribe::SaveSlot::Slot4, recovered, error));
     REQUIRE(sameCampaign(recovered, previous));
     REQUIRE(std::filesystem::is_regular_file(primary));
-    tribe::CampaignState reloaded;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot4, reloaded, error));
+    tribe::GameState reloaded;
+    REQUIRE(repository.load(tribe::SaveSlot::Slot4, reloaded, error));
     REQUIRE(sameCampaign(reloaded, previous));
     clean(root);
 }
@@ -444,19 +446,19 @@ TEST_CASE("campaign save recovers the last committed backup when primary is corr
 TEST_CASE("campaign save recovers a validated temporary file after interrupted replacement") {
     const auto root = saveRoot("temporary");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const tribe::CampaignState expected = missionState();
+    tribe::SaveRepository repository(root);
+    const tribe::GameState expected = missionState();
     std::string error;
-    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot5, error));
-    const auto primary = repository.pathFor(tribe::CampaignSaveSlot::Slot5);
+    REQUIRE(repository.save(expected, tribe::SaveSlot::Slot5, error));
+    const auto primary = repository.pathFor(tribe::SaveSlot::Slot5);
     auto temporary = primary;
     temporary += ".tmp";
     std::error_code code;
     std::filesystem::rename(primary, temporary, code);
     REQUIRE(!code);
 
-    tribe::CampaignState recovered;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot5, recovered, error));
+    tribe::GameState recovered;
+    REQUIRE(repository.load(tribe::SaveSlot::Slot5, recovered, error));
     REQUIRE(sameCampaign(recovered, expected));
     REQUIRE(std::filesystem::is_regular_file(primary));
     clean(root);
@@ -465,23 +467,23 @@ TEST_CASE("campaign save recovers a validated temporary file after interrupted r
 TEST_CASE("campaign invalid save and corrupt load are atomic") {
     const auto root = saveRoot("atomic");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const tribe::CampaignState expected = warState();
+    tribe::SaveRepository repository(root);
+    const tribe::GameState expected = warState();
     std::string error;
-    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot6, error));
+    REQUIRE(repository.save(expected, tribe::SaveSlot::Slot6, error));
 
-    tribe::CampaignState invalid = expected;
+    tribe::GameState invalid = expected;
     invalid.actionsLeft = 99;
-    REQUIRE(!repository.save(invalid, tribe::CampaignSaveSlot::Slot6, error));
-    tribe::CampaignState loaded;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot6, loaded, error));
+    REQUIRE(!repository.save(invalid, tribe::SaveSlot::Slot6, error));
+    tribe::GameState loaded;
+    REQUIRE(repository.load(tribe::SaveSlot::Slot6, loaded, error));
     REQUIRE(sameCampaign(loaded, expected));
 
-    const auto primary = repository.pathFor(tribe::CampaignSaveSlot::Slot6);
+    const auto primary = repository.pathFor(tribe::SaveSlot::Slot6);
     writeCorrupt(primary, "wrong-version-or-checksum");
-    tribe::CampaignState destination = richState();
-    const tribe::CampaignState before = destination;
-    REQUIRE(!repository.load(tribe::CampaignSaveSlot::Slot6, destination, error));
+    tribe::GameState destination = richState();
+    const tribe::GameState before = destination;
+    REQUIRE(!repository.load(tribe::SaveSlot::Slot6, destination, error));
     REQUIRE(!error.empty());
     REQUIRE(sameCampaign(destination, before));
     clean(root);
@@ -490,30 +492,31 @@ TEST_CASE("campaign invalid save and corrupt load are atomic") {
 TEST_CASE("campaign save rejects a wrong version and checksum without mutating destination") {
     const auto root = saveRoot("format-validation");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const tribe::CampaignState expected = richState();
+    tribe::SaveRepository repository(root);
+    const tribe::GameState expected = richState();
     std::string error;
-    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot3, error));
-    const auto primary = repository.pathFor(tribe::CampaignSaveSlot::Slot3);
+    REQUIRE(repository.save(expected, tribe::SaveSlot::Slot3, error));
+    const auto primary = repository.pathFor(tribe::SaveSlot::Slot3);
     const std::string validBytes = readBytes(primary);
     REQUIRE(validBytes.size() > 20U);
 
     std::string wrongVersion = validBytes;
-    wrongVersion[8] = 3;
+    wrongVersion[8] = 2;
     wrongVersion[9] = 0;
     wrongVersion[10] = 0;
     wrongVersion[11] = 0;
     writeCorrupt(primary, wrongVersion);
-    tribe::CampaignState destination = warState();
-    const tribe::CampaignState before = destination;
-    REQUIRE(!repository.load(tribe::CampaignSaveSlot::Slot3, destination, error));
+    tribe::GameState destination = warState();
+    const tribe::GameState before = destination;
+    REQUIRE(!repository.load(tribe::SaveSlot::Slot3, destination, error));
     REQUIRE(error.find("版本") != std::string::npos);
+    REQUIRE(error.find("新开局") != std::string::npos);
     REQUIRE(sameCampaign(destination, before));
 
     std::string wrongChecksum = validBytes;
     wrongChecksum.back() = static_cast<char>(wrongChecksum.back() ^ 0x01);
     writeCorrupt(primary, wrongChecksum);
-    REQUIRE(!repository.load(tribe::CampaignSaveSlot::Slot3, destination, error));
+    REQUIRE(!repository.load(tribe::SaveSlot::Slot3, destination, error));
     REQUIRE(error.find("校验和") != std::string::npos);
     REQUIRE(sameCampaign(destination, before));
     clean(root);
@@ -522,12 +525,12 @@ TEST_CASE("campaign save rejects a wrong version and checksum without mutating d
 TEST_CASE("campaign failed temporary replacement leaves committed primary unchanged") {
     const auto root = saveRoot("temporary-failure");
     clean(root);
-    tribe::CampaignSaveRepository repository(root);
-    const tribe::CampaignState expected = richState();
+    tribe::SaveRepository repository(root);
+    const tribe::GameState expected = richState();
     std::string error;
-    REQUIRE(repository.save(expected, tribe::CampaignSaveSlot::Slot2, error));
+    REQUIRE(repository.save(expected, tribe::SaveSlot::Slot2, error));
 
-    const auto primary = repository.pathFor(tribe::CampaignSaveSlot::Slot2);
+    const auto primary = repository.pathFor(tribe::SaveSlot::Slot2);
     auto temporary = primary;
     temporary += ".tmp";
     std::error_code code;
@@ -537,11 +540,11 @@ TEST_CASE("campaign failed temporary replacement leaves committed primary unchan
         std::ofstream guard(temporary / "keep.txt", std::ios::binary | std::ios::trunc);
         guard << "prevent removal";
     }
-    tribe::CampaignState replacement = expected;
+    tribe::GameState replacement = expected;
     ++replacement.wood;
-    REQUIRE(!repository.save(replacement, tribe::CampaignSaveSlot::Slot2, error));
-    tribe::CampaignState loaded;
-    REQUIRE(repository.load(tribe::CampaignSaveSlot::Slot2, loaded, error));
+    REQUIRE(!repository.save(replacement, tribe::SaveSlot::Slot2, error));
+    tribe::GameState loaded;
+    REQUIRE(repository.load(tribe::SaveSlot::Slot2, loaded, error));
     REQUIRE(sameCampaign(loaded, expected));
     clean(root);
 }

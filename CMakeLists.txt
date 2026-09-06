@@ -12,18 +12,13 @@ if(MSVC)
 endif()
 
 add_library(tribe_formal_lib
-    formal/src/formal_types.cpp
     formal/src/expansion_types.cpp
     formal/src/expansion_game.cpp
-    formal/src/campaign.cpp
-    formal/src/campaign_migration.cpp
-    formal/src/campaign_save_repository.cpp
-    formal/src/ending_presentation.cpp
-    formal/src/content.cpp
-    formal/src/battle.cpp
     formal/src/game_engine.cpp
     formal/src/save_repository.cpp
+    formal/src/ending_presentation.cpp
     formal/src/console_ui.cpp
+    formal/src/application.cpp
 )
 target_include_directories(tribe_formal_lib PUBLIC formal/include)
 
@@ -44,17 +39,14 @@ endif()
 
 add_executable(tribe-formal-tests
     tests/test_main.cpp
-    formal/tests/formal_tests.cpp
-    formal/tests/baseline_gameplay_tests.cpp
-    formal/tests/save_reliability_tests.cpp
     formal/tests/expansion_domain_tests.cpp
     formal/tests/expansion_game_tests.cpp
     formal/tests/campaign_tests.cpp
     formal/tests/campaign_autonomy_tests.cpp
-    formal/tests/campaign_migration_tests.cpp
     formal/tests/campaign_route_tests.cpp
     formal/tests/campaign_save_tests.cpp
     formal/tests/ending_presentation_tests.cpp
+    formal/tests/interface_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
 target_include_directories(tribe-formal-tests PRIVATE tests)

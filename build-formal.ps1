@@ -1,6 +1,8 @@
+﻿# Keep UTF-8 BOM: Windows PowerShell 5.1 otherwise misreads Chinese strings.
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +53,8 @@ $buildPath = Join-Path $PSScriptRoot "out\Formal-$Configuration"
 & $cmakePath -S $PSScriptRoot -B $buildPath -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_MAKE_PROGRAM=$ninjaPath"
 if ($LASTEXITCODE -ne 0) { throw '正式版 CMake 配置失败。' }
 
-& $cmakePath --build $buildPath
+if ($Clean) { & $cmakePath --build $buildPath --clean-first }
+else { & $cmakePath --build $buildPath }
 if ($LASTEXITCODE -ne 0) { throw '正式版 C++ 编译失败。' }
 
 & $ctestPath --test-dir $buildPath --output-on-failure

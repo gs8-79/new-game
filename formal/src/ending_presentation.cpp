@@ -19,26 +19,26 @@
 namespace tribe {
 namespace {
 
-std::string endingTitle(const CampaignEnding ending) {
+std::string endingTitle(const GameEnding ending) {
     switch (ending) {
-    case CampaignEnding::Alliance: return "联盟共主";
-    case CampaignEnding::Conquest: return "山河征服者";
-    case CampaignEnding::Prosperity: return "燧火繁荣";
-    case CampaignEnding::Migration: return "迁徙新生";
-    case CampaignEnding::Extinction: return "部落覆灭";
-    case CampaignEnding::None: break;
+    case GameEnding::Alliance: return "联盟共主";
+    case GameEnding::Conquest: return "山河征服者";
+    case GameEnding::Prosperity: return "燧火繁荣";
+    case GameEnding::Migration: return "迁徙新生";
+    case GameEnding::Extinction: return "部落覆灭";
+    case GameEnding::None: break;
     }
     return "尚未结算";
 }
 
-const char* endingColor(const CampaignEnding ending) {
+const char* endingColor(const GameEnding ending) {
     switch (ending) {
-    case CampaignEnding::Alliance: return "\x1b[32m";
-    case CampaignEnding::Conquest: return "\x1b[31m";
-    case CampaignEnding::Prosperity: return "\x1b[33m";
-    case CampaignEnding::Migration: return "\x1b[36m";
-    case CampaignEnding::Extinction: return "\x1b[90m";
-    case CampaignEnding::None: break;
+    case GameEnding::Alliance: return "\x1b[32m";
+    case GameEnding::Conquest: return "\x1b[31m";
+    case GameEnding::Prosperity: return "\x1b[33m";
+    case GameEnding::Migration: return "\x1b[36m";
+    case GameEnding::Extinction: return "\x1b[90m";
+    case GameEnding::None: break;
     }
     return "\x1b[37m";
 }
@@ -146,9 +146,9 @@ void writeFrame(const EndingSummary& summary, const std::string& frame, std::ost
 
 } // namespace
 
-std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding ending) {
+std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) {
     switch (ending) {
-    case CampaignEnding::Alliance:
+    case GameEnding::Alliance:
         return {
             "  o                 o\n"
             " /|\\               /|\\\n"
@@ -168,7 +168,7 @@ std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding endi
             "  /|\\     /\\     /|\\\n"
             "  / \\    /  \\    / \\"};
 
-    case CampaignEnding::Conquest:
+    case GameEnding::Conquest:
         return {
             "                 /\\\n"
             "            /\\  /  \\\n"
@@ -190,7 +190,7 @@ std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding endi
             "       /\\  /  \\ | /  \\",
         };
 
-    case CampaignEnding::Prosperity:
+    case GameEnding::Prosperity:
         return {
             "          .\n"
             "         / \\\n"
@@ -210,7 +210,7 @@ std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding endi
             " \\|/ \\|/ \\|/ \\|/ \\|/\n"
             "  |   |   |   |   |"};
 
-    case CampaignEnding::Migration:
+    case GameEnding::Migration:
         return {
             "   ______________\n"
             " _/[] [] [] [] []\\_\n"
@@ -233,7 +233,7 @@ std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding endi
             "_______________________/____\\___\n"
             "             *    *    *    *"};
 
-    case CampaignEnding::Extinction:
+    case GameEnding::Extinction:
         return {
             "       (  )\n"
             "      ( /\\ )\n"
@@ -256,13 +256,13 @@ std::vector<std::string> EndingPresentation::framesFor(const CampaignEnding endi
             "       _.._\n"
             "______.______.________"};
 
-    case CampaignEnding::None:
+    case GameEnding::None:
         break;
     }
     return {".-----------------------.\n|    ENDING PENDING     |\n'-----------------------'"};
 }
 
-std::string EndingPresentation::renderStatic(const CampaignEnding ending) {
+std::string EndingPresentation::renderStatic(const GameEnding ending) {
     const auto frames = framesFor(ending);
     return frames.empty() ? std::string{} : frames.back();
 }

@@ -4,8 +4,11 @@
 #include <iostream>
 
 int main() {
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
     int failures = 0;
     for (const auto& [name, function] : test::registry()) {
+        std::cout << "[RUN ] " << name << '\n';
         try {
             function();
             std::cout << "[PASS] " << name << '\n';
@@ -22,4 +25,3 @@ int main() {
               << '/' << test::registry().size() << " tests passed\n";
     return failures == 0 ? 0 : 1;
 }
-

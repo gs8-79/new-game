@@ -1,155 +1,70 @@
 # 《燧火纪：部落黎明》
 
-《燧火纪：部落黎明》是一款使用 C++17 编写的单机控制台文字策略 MUD。玩家作为燧火部落首领，在季节推进中经营资源、建设营地、探索地图、组织小队，并处理外交、贸易、派系和战争，最终决定部落的去向。
+C++17 单机控制台策略游戏。领导燧火部落经营资源、组织小队沿道路探索16处地点并在营地或前哨结算，处理六部落外交与战争，在季节结束时决定部落的去向。
 
-本仓库现在只维护正式课程作品、V1任务扩展和V2长期战役。星港、荒岛及早期部落三个选题 Demo 已从活动代码和默认构建中移除。
+## 开始游玩
 
-## 主要内容
+Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试，再进入封面。首次启动需安装 Visual Studio 的 C++ 桌面开发、CMake 和 Ninja 组件。
 
-- 三种V2战役长度：快速8季、课程16季、长期32季。
-- 16个地点、六个部落、动态关系、贸易路线、联姻、联盟与战争。
-- 具名人物、八项属性、装备、背包、永久小队、疲劳、经验和伤亡继承。
-- 苍林任务和三段战线战斗，支持固定种子复现。
-- 三个内部派系、首领更替、部落自主行动和最多200条编年史。
-- 联盟、征服、繁荣、迁徙、覆灭五类结局及ASCII演出。
-- 数字、中文和英文命令并存。
-- 六个V2手动档、自动档、备份恢复，以及旧正式版存档只读迁移。
+封面采用居中篝火封面，输入数字后按 Enter：
 
-## 游戏模式
+| 封面选项 | 功能 |
+| --- | --- |
+| 1 开始游戏 | 再选择1快速、2正式、3长期 |
+| 2 读取存档 | A自动档，1至6手动档，B返回 |
+| 3 游戏帮助 | 1至6查看分类，B或Enter逐级返回 |
+| 4 退出游戏 | 关闭游戏 |
 
-| 入口 | 模式 | 季节数 | 用途 |
-| --- | --- | ---: | --- |
-| `7` / `campaign quick` / `战役 快速` | 快速战役 | 8 | 课堂演示和短流程验证 |
-| `8` / `campaign course` / `战役 课程` | 课程战役 | 16 | 标准课程体验 |
-| `9` / `campaign long` / `战役 长期` | 长期战役 | 32 | 完整经营与结局后沙盒 |
-| `e` / `expanded` | V1苍林任务 | 单次任务 | 展示人物、装备、小队和战术战斗 |
+快速游戏从第9季到第16季，共8个可玩季节；正式游戏从第1季到第16季；长期游戏从第1季到第32季，非覆灭结局后可继续沙盒。
+推荐至少80列、30行的终端窗口；更窄时文本会按显示列数换行。需要使用支持中文的等宽字体。
 
-使用 `campaignseed <quick|course|long> <种子>` 可以复现指定战役。
+## 操作与存档
 
-## Windows构建与运行
+游戏内：`1`状态、`2`地图、`5`小队地图任务、`6`外交、`7`小队、`8`结束季节、`9`帮助。`3`、`4`、经营界面的`gather`和`scout`已移除；进入小队地图后使用`move`、`gather`、`build outpost`、`settle`，并可在部落接触点外交、在岩牙要塞进行小队遭遇。
+完整参数、资源名称和注意事项在游戏帮助分类中。
 
-环境要求：
+`save 1` / `保存 1` 写入手动档，覆盖前需输入 `y` 或 `是`；`load 1` / `读取 1` 读取手动档，`load auto` 读取自动档。
+新局、季节结算、结局以及正常返回或退出时自动保存。`back` / `返回主菜单` 返回封面，`quit` / `退出` 保存后退出。失败时游戏继续等待操作；`forcequit` / `强制退出` 放弃未保存进度。
 
-- Windows 10或更高版本。
-- Visual Studio 2026 Community。
-- 安装“使用C++的桌面开发”、CMake与Ninja组件。
+启动脚本以项目目录运行，存档在 `saves/game`，包含 `slot1.sav` 至 `slot6.sav` 和 `autosave.sav`。存档页显示文件本地修改时间、模式、季节、首领和资源摘要，支持备份及中断保存恢复。直接运行可执行文件时，存档相对于当前工作目录。
 
-在项目根目录执行：
+需要复现时在封面输入 `seed quick 7`、`seed standard 123` 或 `seed long 123`。文件格式与目录已统一，不提供历史格式迁移。
+
+## 构建和测试
+
+Windows PowerShell：
 
 ```powershell
-.\build-formal.ps1 -Configuration Debug
-.\build-formal.ps1 -Configuration Release
-```
-
-脚本会完成配置、编译和自动测试。运行Release版本：
-
-```powershell
+.\build-formal.ps1 -Configuration Debug -Clean
+.\build-formal.ps1 -Configuration Release -Clean
 .\run-formal.ps1 -Configuration Release -SkipBuild
 ```
 
-也可以直接双击 `开始正式版.cmd`。
+`-Clean` 会重新编译生成物。常规开发可以省略。构建结果在 `out/Formal-Debug` 或 `out/Formal-Release`，自动测试由 CTest 调用 `tribe-formal-tests` 执行。
 
-## macOS构建
-
-安装Xcode Command Line Tools与CMake后执行：
+macOS 安装 CMake 和 Xcode Command Line Tools 后：
 
 ```bash
 bash build-formal-macos.sh Release
 bash run-formal-macos.sh Release
 ```
 
-macOS脚本和源码已经提供，但仍需要在真实Mac设备上完成验证。
+macOS 实机验证仍待完成。
 
-## 常用命令
+## 代码结构
 
-进入战役后可以使用数字、中文或英文命令：
+- `formal/src/main.cpp`：终端初始化与启动。
+- `application`：注入输入输出流的页面导航、保存与游戏循环。
+- `console_ui`：篝火主题、中文宽度、折行、帮助和状态面板。
+- `game_engine`：唯一主游戏的状态与规则。
+- `expansion_game/expansion_types`：主游戏使用的16地点地图任务、人物、装备、小队、前哨和背包。
+- `save_repository`：严格文件校验、只读摘要、原子保存与恢复。
+- `ending_presentation`：五种结局的演出与结算。
 
-```text
-1 / status / 状态
-2 / map / 地图
-3 / gather food / 采集 食物
-5 / mission forest / 出任务 苍林
-8 / endturn / 结束回合
-9 / help / 帮助
-save 1 / 保存 1
-load auto / 读取 自动
-back / 返回
-quit / 退出
-```
+## 交付与文档
 
-## 存档与迁移
+`package-formal.ps1` 默认构建测试后生成 Windows 试玩包和源码包。可用 `-Destination <目录>` 指定输出位置。
 
-V2提供1至6号手动档和一个自动档。每季结算以及正常返回或退出时都会自动保存，主菜单可以使用 `v2load 1` 继续游戏。
+[源码目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
 
-旧正式版存档可以只读转换为V2副本：
-
-```text
-migrate 1 4
-升级存档 1 4
-```
-
-转换会先校验旧主档及恢复候选，再创建新的V2目标档；不会覆盖旧存档，也不会覆盖已有V2档。
-
-## 项目结构
-
-```text
-.
-├─ formal/
-│  ├─ include/tribe/     模块接口和领域类型
-│  ├─ src/               游戏、战役、存档、迁移和界面实现
-│  ├─ tests/             正式版、V1和V2测试
-│  ├─ docs/              需求、设计、测试与课程报告
-│  └─ package/           Windows试玩包入口文件
-├─ tests/                轻量测试框架和统一入口
-├─ CMakeLists.txt
-├─ build-formal.ps1
-├─ run-formal.ps1
-└─ package-formal.ps1
-```
-
-核心运行关系：
-
-```text
-main / ConsoleUI
-├─ GameEngine               旧正式模式
-├─ ExpansionGame            V1苍林任务
-└─ CampaignGame             V2长期战役
-   ├─ BattleSystem
-   ├─ CampaignSaveRepository
-   ├─ CampaignMigration
-   └─ EndingPresentation
-```
-
-游戏操作采用“复制候选状态 → 完整校验 → 一次提交”。非法命令、资源不足、损坏存档或迁移失败不会留下半次状态修改。
-
-## 当前验证状态
-
-迁移到独立正式版仓库后，已于2026-09-04重新执行：
-
-| 验证项 | 结果 |
-| --- | --- |
-| Visual Studio 2026 Debug构建 | 通过 |
-| Visual Studio 2026 Release构建 | 通过 |
-| Debug自动测试 | `94/94`通过 |
-| Release自动测试 | `94/94`通过 |
-| macOS实机构建 | 待验证 |
-| 交换小组试玩 | 待验证 |
-| 课堂验收 | 待验证 |
-
-上述结果代表代码存在和本机测试通过，不代表Mac兼容性、外部试玩或课堂验收已经完成。
-
-## 课程与设计资料
-
-- [正式版玩法说明](formal/README.md)
-- [需求、WBS与用例](formal/docs/REQUIREMENTS.md)
-- [系统设计与UML](formal/docs/DESIGN.md)
-- [大型扩展课程报告](formal/docs/EXPANSION_REPORT.md)
-- [存档格式](formal/docs/SAVE_FORMAT.md)
-- [测试计划](formal/docs/TEST_PLAN.md)
-- [测试报告](formal/docs/TEST_REPORT.md)
-- [演示路线](formal/docs/SHOWCASE_ROUTES.md)
-- [版本与证据边界](formal/docs/V2_VERSION_SUMMARY.md)
-
-## Git协作
-
-`main` 是受保护分支：禁止强制推送和删除，修改应通过功能分支与Pull Request合并。提交前请至少运行一次Debug或Release完整构建和测试。
+本轮改动在 `qianduan1` 分支开发，后续通过 Pull Request 合并。

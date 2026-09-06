@@ -2,12 +2,15 @@
 
 #include "tribe/expansion_types.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace tribe {
+
+constexpr std::size_t kExpeditionWorldLocationCount = 16U;
 
 enum class ExpansionPhase {
     CampPreparation = 0,
@@ -66,6 +69,22 @@ struct ExpansionState {
     bool missionFailed = false;
     bool lootAvailable = false;
     bool settled = false;
+
+    // The standalone forest scenario keeps the fields above. Main-game expeditions
+    // use this world block so the tactical component does not depend on GameEngine.
+    bool worldMode = false;
+    int worldLocation = 0;
+    std::array<bool, kExpeditionWorldLocationCount> worldDiscovered{};
+    std::array<bool, kExpeditionWorldLocationCount> outposts{};
+    int cargoFood = 0;
+    int cargoWood = 0;
+    int cargoStone = 0;
+    int cargoHerbs = 0;
+    int harvestActions = 0;
+    int cargoCapacity = 24;
+    int foodGatherBonus = 0;
+    int herbGatherBonus = 0;
+    bool rockfangFortCleared = false;
 };
 
 class ExpansionGame {
@@ -85,6 +104,15 @@ public:
     static std::string orderName(SquadOrder order);
 
 private:
+    ExpansionCommandResult executeWorld(const std::string& verb, const std::vector<std::string>& args);
+    ExpansionCommandResult moveWorld(std::string_view target);
+    ExpansionCommandResult gatherWorld(std::string_view resource);
+    ExpansionCommandResult buildOutpost();
+    ExpansionCommandResult settleWorld();
+    ExpansionCommandResult attackWorldEncounter();
+    ExpansionCommandResult defendWorldEncounter();
+    ExpansionCommandResult retreatWorldEncounter();
+    std::string worldLookText() const;
     ExpansionCommandResult move(std::string_view target);
     ExpansionCommandResult gather(std::string_view resource);
     ExpansionCommandResult talk();

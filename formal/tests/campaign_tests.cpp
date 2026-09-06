@@ -1,4 +1,4 @@
-#include "tribe/campaign.hpp"
+#include "tribe/game_engine.hpp"
 #include "test_harness.hpp"
 
 #include <algorithm>
@@ -8,7 +8,7 @@
 
 namespace {
 
-std::size_t tribeIndex(const tribe::TribeIdV2 value) {
+std::size_t tribeIndex(const tribe::TribeId value) {
     return static_cast<std::size_t>(value);
 }
 
@@ -24,21 +24,21 @@ std::size_t buildingIndex(const tribe::BuildingId value) {
     return static_cast<std::size_t>(value);
 }
 
-tribe::CampaignActionResult requireSuccess(tribe::CampaignGame& game, const std::string& command) {
+tribe::ActionResult requireSuccess(tribe::GameEngine& game, const std::string& command) {
     const auto result = game.execute(command);
     if (!result.success) throw std::runtime_error(command + " failed: " + result.message);
     return result;
 }
 
-tribe::CampaignState editableInitial(tribe::CampaignMode mode = tribe::CampaignMode::Course) {
-    return tribe::CampaignGame{{mode, 17U, "燧火", "炎角", "生存"}}.state();
+tribe::GameState editableInitial(tribe::GameMode mode = tribe::GameMode::Standard) {
+    return tribe::GameEngine{{mode, 17U, "燧火", "炎角", "生存"}}.state();
 }
 
-tribe::CampaignGame gameFrom(tribe::CampaignState state) {
-    return tribe::CampaignGame{std::move(state)};
+tribe::GameEngine gameFrom(tribe::GameState state) {
+    return tribe::GameEngine{std::move(state)};
 }
 
-const tribe::Character& rosterCharacter(const tribe::CampaignState& state, const std::string& name) {
+const tribe::Character& rosterCharacter(const tribe::GameState& state, const std::string& name) {
     const auto found = std::find_if(state.roster.begin(), state.roster.end(),
         [&](const tribe::Character& character) { return character.name == name; });
     if (found == state.roster.end()) throw std::runtime_error("missing roster character: " + name);
@@ -50,21 +50,21 @@ bool inventoryHas(const tribe::Inventory& inventory, const std::string& itemId) 
         [&](const tribe::Item& item) { return item.id == itemId; });
 }
 
-void prepareEndingChoice(tribe::CampaignState& state) {
-    state.phase = tribe::CampaignPhase::EndingChoice;
+void prepareEndingChoice(tribe::GameState& state) {
+    state.phase = tribe::GamePhase::EndingChoice;
     state.season = state.seasonLimit;
     state.actionsLeft = 0;
     state.activeMission.reset();
     state.war.active = false;
-    state.ending = tribe::CampaignEnding::None;
+    state.ending = tribe::GameEnding::None;
 }
 
 } // namespace
 
 TEST_CASE("campaign initializes three modes, sixteen locations and six tribes") {
-    tribe::CampaignGame quick{{tribe::CampaignMode::Quick, 3U, "新火", "星鹿", "外交"}};
-    tribe::CampaignGame course{{tribe::CampaignMode::Course, 3U, "燧火", "炎角", "生存"}};
-    tribe::CampaignGame longGame{{tribe::CampaignMode::Long, 3U, "燧火", "炎角", "战争"}};
+    tribe::GameEngine quick{{tribe::GameMode::Quick, 3U, "新火", "星鹿", "外交"}};
+    tribe::GameEngine course{{tribe::GameMode::Standard, 3U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine longGame{{tribe::GameMode::Long, 3U, "燧火", "炎角", "战争"}};
 
     REQUIRE(quick.state().season == 9);
     REQUIRE(quick.state().seasonLimit == 16);
@@ -73,93 +73,118 @@ TEST_CASE("campaign initializes three modes, sixteen locations and six tribes") 
     REQUIRE(longGame.state().seasonLimit == 32);
     REQUIRE(quick.state().tribeName == "新火");
     REQUIRE(quick.state().leaderName == "星鹿");
-    REQUIRE(tribe::CampaignGame::worldLocations().size() == 16U);
+    REQUIRE(tribe::GameEngine::worldLocations().size() == 16U);
     REQUIRE(course.state().tribes.size() == 6U);
     REQUIRE(course.state().discovered[locationIndex(tribe::WorldLocationId::Camp)]);
     REQUIRE(course.state().discovered[locationIndex(tribe::WorldLocationId::Forest)]);
     REQUIRE(course.state().discovered[locationIndex(tribe::WorldLocationId::RedPlain)]);
     std::string error;
-    REQUIRE(tribe::CampaignGame::validateState(course.state(), error));
+    REQUIRE(tribe::GameEngine::validateState(course.state(), error));
 }
 
-TEST_CASE("campaign scouting follows adjacency and failed actions are atomic") {
-    tribe::CampaignGame game;
+TEST_CASE("campaign has no direct gathering or scouting commands outside map missions") {
+    const std::array<tribe::GameMode, 3> modes{{
+        tribe::GameMode::Quick, tribe::GameMode::Standard, tribe::GameMode::Long}};
+    for (const auto mode : modes) {
+        tribe::GameEngine game{{mode, 17U, "燧火", "炎角", "生存"}};
+        const auto before = game.state();
+        for (const std::string command : {"gather food", "采集 木材", "scout marsh", "侦察 燧石矿场", "3", "4"}) {
+            const auto result = game.execute(command);
+            REQUIRE(!result.recognized);
+            REQUIRE(!result.success);
+            REQUIRE(!result.stateChanged);
+            REQUIRE(game.state().food == before.food);
+            REQUIRE(game.state().wood == before.wood);
+            REQUIRE(game.state().stone == before.stone);
+            REQUIRE(game.state().herbs == before.herbs);
+            REQUIRE(game.state().actionsLeft == before.actionsLeft);
+            REQUIRE(game.state().discovered == before.discovered);
+        }
+    }
+
+    tribe::GameEngine game;
     const auto before = game.state();
-    const auto remote = game.execute("scout harbor");
+    requireSuccess(game, "mission");
+    const auto remote = game.execute("move harbor");
     REQUIRE(remote.recognized);
     REQUIRE(!remote.success);
-    REQUIRE(game.state().actionsLeft == before.actionsLeft);
-    REQUIRE(!game.state().discovered[locationIndex(tribe::WorldLocationId::TidesaltHarbor)]);
-
-    const auto marsh = requireSuccess(game, "侦察 芦苇沼泽");
-    REQUIRE(marsh.consumesAction);
     REQUIRE(game.state().actionsLeft == before.actionsLeft - 1);
-    REQUIRE(game.state().discovered[locationIndex(tribe::WorldLocationId::Marsh)]);
-
-    const int food = game.state().food;
-    const int wood = game.state().wood;
-    const int actions = game.state().actionsLeft;
-    const auto impossible = game.execute("build workshop");
-    REQUIRE(!impossible.success);
-    REQUIRE(game.state().food == food);
-    REQUIRE(game.state().wood == wood);
-    REQUIRE(game.state().actionsLeft == actions);
-
-    const auto undiscoveredTrade = game.execute("trade tide food wood");
-    REQUIRE(undiscoveredTrade.recognized);
-    REQUIRE(!undiscoveredTrade.success);
-    REQUIRE(game.state().actionsLeft == actions);
-
-    auto blockedWar = editableInitial();
-    blockedWar.relations[tribeIndex(tribe::TribeIdV2::Rockfang)].atWar = true;
-    blockedWar.war = {false, tribe::TribeIdV2::Rockfang, "石刃", 1, 0, 8, 0, 0,
-        tribe::WarOrder::Hold, false};
-    tribe::CampaignGame army = gameFrom(blockedWar);
-    const auto remoteWar = army.execute("war rockfang");
-    REQUIRE(remoteWar.recognized);
-    REQUIRE(!remoteWar.success);
-    REQUIRE(army.state().phase == tribe::CampaignPhase::Managing);
+    REQUIRE(!game.state().discovered[locationIndex(tribe::WorldLocationId::TidesaltHarbor)]);
+    requireSuccess(game, "移动 苍林");
+    requireSuccess(game, "移动 芦苇沼泽");
+    REQUIRE(game.state().activeMission->worldDiscovered[locationIndex(tribe::WorldLocationId::Marsh)]);
+    REQUIRE(!game.state().discovered[locationIndex(tribe::WorldLocationId::Marsh)]);
 }
 
-TEST_CASE("campaign embeds the controllable forest mission into seasonal resources") {
-    tribe::CampaignGame game{{tribe::CampaignMode::Course, 73U, "燧火", "炎角", "生存"}};
+TEST_CASE("campaign map missions gather cargo and settle only at camp or outposts") {
+    tribe::GameEngine game{{tribe::GameMode::Standard, 73U, "燧火", "炎角", "生存"}};
     const int actionBefore = game.state().actionsLeft;
-    requireSuccess(game, "mission forest");
-    REQUIRE(game.state().phase == tribe::CampaignPhase::Mission);
+    const int foodBefore = game.state().food;
+    const int woodBefore = game.state().wood;
+    requireSuccess(game, "mission");
+    REQUIRE(game.state().phase == tribe::GamePhase::Mission);
     REQUIRE(game.state().actionsLeft == actionBefore - 1);
     requireSuccess(game, "move forest");
-    requireSuccess(game, "move deep");
-    requireSuccess(game, "move clearing");
-    requireSuccess(game, "talk");
-    requireSuccess(game, "trade");
-    requireSuccess(game, "return");
-    REQUIRE(game.state().phase == tribe::CampaignPhase::Managing);
+    requireSuccess(game, "gather food");
+    requireSuccess(game, "采集 木材");
+    const auto away = game.execute("settle");
+    REQUIRE(!away.success);
+    REQUIRE(game.state().food == foodBefore);
+    REQUIRE(game.state().wood == woodBefore);
+    requireSuccess(game, "move camp");
+    requireSuccess(game, "settle");
+    REQUIRE(game.state().phase == tribe::GamePhase::Managing);
     REQUIRE(!game.state().activeMission);
     REQUIRE(game.state().missionCount == 1);
     REQUIRE(game.state().squads.front().eliteExperience >= 20);
-    REQUIRE(game.state().relations[tribeIndex(tribe::TribeIdV2::WhiteFeather)].relation > 5);
+    REQUIRE(game.state().food > foodBefore);
+    REQUIRE(game.state().wood > woodBefore);
+    REQUIRE(game.state().discovered[locationIndex(tribe::WorldLocationId::Forest)]);
+}
 
-    tribe::CampaignGame gathering{{tribe::CampaignMode::Course, 73U, "燧火", "炎角", "生存"}};
-    const int foodBefore = gathering.state().food;
-    requireSuccess(gathering, "mission forest");
-    requireSuccess(gathering, "move forest");
-    requireSuccess(gathering, "move deep");
-    requireSuccess(gathering, "move hunting");
-    int gathers = 0;
-    while (gathering.execute("gather food").success) ++gathers;
-    REQUIRE(gathers == 3);
-    const std::string boundedMission = tribe::ExpansionGame{*gathering.state().activeMission}.stateFingerprint();
-    const auto exhausted = gathering.execute("采集 食物");
-    REQUIRE(exhausted.recognized);
-    REQUIRE(!exhausted.success);
-    REQUIRE(tribe::ExpansionGame{*gathering.state().activeMission}.stateFingerprint() == boundedMission);
-    requireSuccess(gathering, "return");
-    REQUIRE(gathering.state().food > foodBefore);
-    REQUIRE(gathering.state().food <= foodBefore + 30);
+TEST_CASE("campaign map diplomacy shares seasonal limits with the tribe screen") {
+    auto state = editableInitial();
+    state.food = 100;
+    state.discovered[locationIndex(tribe::WorldLocationId::RiverFord)] = true;
+    tribe::GameEngine game = gameFrom(state);
+    const int actionsBefore = game.state().actionsLeft;
+    requireSuccess(game, "mission");
+    requireSuccess(game, "move plain");
+    requireSuccess(game, "move ford");
+    const int relationBefore = game.state().relations[tribeIndex(tribe::TribeId::RiverDeer)].relation;
+    requireSuccess(game, "talk");
+    REQUIRE(game.state().actionsLeft == actionsBefore - 1);
+    REQUIRE(game.state().relations[tribeIndex(tribe::TribeId::RiverDeer)].relation > relationBefore);
+    REQUIRE(!game.execute("gift").success);
+    requireSuccess(game, "move plain");
+    requireSuccess(game, "move camp");
+    requireSuccess(game, "settle");
+    REQUIRE(!game.execute("gift river").success);
+    requireSuccess(game, "endturn");
+    requireSuccess(game, "gift river");
+}
+
+TEST_CASE("campaign rockfang encounter uses equipment but does not occupy the fort") {
+    auto state = editableInitial();
+    state.discovered[locationIndex(tribe::WorldLocationId::OldPass)] = true;
+    tribe::GameEngine game = gameFrom(state);
+    requireSuccess(game, "mission");
+    for (const std::string command : {"move plain", "move quarry", "move valley", "move workshop", "move road", "move pass", "move fort"}) {
+        requireSuccess(game, command);
+    }
+    requireSuccess(game, "equip mainhand spare_knife");
+    requireSuccess(game, "attack");
+    REQUIRE(game.state().activeMission->enemyLife < 14);
+    while (game.state().activeMission->enemyLife > 0) requireSuccess(game, "attack");
+    REQUIRE(game.state().activeMission->battleWon);
+    REQUIRE(!game.state().rockfangFortCaptured);
+    REQUIRE(!game.state().activeMission->rockfangFortCleared);
+    REQUIRE(inventoryHas(game.state().activeMission->inventory, "rockfang_badge"));
+    REQUIRE(!game.execute("build outpost").success);
 }
 
 TEST_CASE("campaign forest missions preserve long term characters equipment and backpack") {
-    tribe::CampaignGame game{{tribe::CampaignMode::Course, 73U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine game{{tribe::GameMode::Standard, 73U, "燧火", "炎角", "生存"}};
     const int experienceBefore = rosterCharacter(game.state(), "青枝").experience;
     const auto& initialWeapon = rosterCharacter(game.state(), "青枝")
         .equipment[static_cast<std::size_t>(tribe::EquipmentSlot::MainHand)];
@@ -174,7 +199,8 @@ TEST_CASE("campaign forest missions preserve long term characters equipment and 
     REQUIRE(inventoryHas(game.state().activeMission->inventory, "spare_knife"));
     requireSuccess(game, "equip mainhand spare_knife");
     requireSuccess(game, "move forest");
-    requireSuccess(game, "return");
+    requireSuccess(game, "move camp");
+    requireSuccess(game, "settle");
 
     const tribe::Character& returned = rosterCharacter(game.state(), "青枝");
     REQUIRE(returned.experience > experienceBefore);
@@ -193,117 +219,107 @@ TEST_CASE("campaign forest missions preserve long term characters equipment and 
     REQUIRE(inventoryHas(secondMission.inventory, "leader_bow"));
 }
 
-TEST_CASE("campaign mission casualties leave the roster and are replaced by living reserves") {
-    tribe::CampaignGame game{{tribe::CampaignMode::Course, 89U, "燧火", "炎角", "生存"}};
-    requireSuccess(game, "mission forest");
-    auto dangerous = game.state();
-    tribe::ExpansionState& mission = *dangerous.activeMission;
-    std::vector<std::string> deployedNames;
-    for (tribe::Character& member : mission.squad.members) {
-        deployedNames.push_back(member.name);
-        member.life = 0;
+TEST_CASE("campaign map covers all sixteen locations and enforces resource sites and cargo cap") {
+    tribe::GameEngine game{{tribe::GameMode::Standard, 89U, "燧火", "炎角", "生存"}};
+    requireSuccess(game, "mission");
+    const std::array<std::string, 18> route{{
+        "move forest", "move marsh", "move whitecamp", "move marsh", "move coast", "move beach",
+        "move harbor", "move beach", "move coast", "move marsh", "move forest", "move camp",
+        "move plain", "move quarry", "move valley", "move workshop", "move road", "move pass"}};
+    for (const auto& command : route) requireSuccess(game, command);
+    requireSuccess(game, "move fort");
+    requireSuccess(game, "move pass");
+    requireSuccess(game, "move road");
+    requireSuccess(game, "move market");
+    requireSuccess(game, "move ford");
+    const auto& discovered = game.state().activeMission->worldDiscovered;
+    for (std::size_t index = 0; index < discovered.size(); ++index) {
+        if (!discovered[index]) throw std::runtime_error("world location not reached: " + std::to_string(index + 1));
     }
-    mission.squad.members[mission.squad.leaderIndex].life = 1;
-    mission.phase = tribe::ExpansionPhase::FrontlineCombat;
-    mission.location = tribe::ExpansionLocation::StrangerClearing;
-    mission.foreignStance = tribe::ForeignStance::Hostile;
-    mission.frontline = 1;
-    mission.enemyLife = 1000;
-    mission.enemySpeed = 1000;
 
-    std::string error;
-    REQUIRE(tribe::CampaignGame::validateState(dangerous, error));
-    tribe::CampaignGame fatal = gameFrom(std::move(dangerous));
-    const int populationBefore = fatal.state().population;
-    requireSuccess(fatal, "attack");
+    const std::string before = tribe::ExpansionGame{*game.state().activeMission}.stateFingerprint();
+    const auto wrongSite = game.execute("gather wood");
+    REQUIRE(!wrongSite.success);
+    REQUIRE(tribe::ExpansionGame{*game.state().activeMission}.stateFingerprint() == before);
 
-    REQUIRE(fatal.state().phase == tribe::CampaignPhase::Managing);
-    REQUIRE(!fatal.state().activeMission);
-    REQUIRE(fatal.state().missionDeaths == static_cast<int>(deployedNames.size()));
-    REQUIRE(fatal.state().population == populationBefore - static_cast<int>(deployedNames.size()));
-    REQUIRE(fatal.state().roster.size() == 4U);
-    for (const std::string& name : deployedNames) {
-        REQUIRE(std::none_of(fatal.state().roster.begin(), fatal.state().roster.end(),
-            [&](const tribe::Character& character) { return character.name == name; }));
-    }
-    REQUIRE(fatal.state().squads.front().members.size() == 4U);
-    REQUIRE(fatal.state().squads.front().captain == fatal.state().squads.front().members.front());
-    REQUIRE(tribe::CampaignGame::validateState(fatal.state(), error));
+    for (int count = 0; count < 4; ++count) requireSuccess(game, "gather food");
+    REQUIRE(game.state().activeMission->cargoFood == game.state().activeMission->cargoCapacity);
+    const auto full = game.execute("gather food");
+    REQUIRE(!full.success);
+    REQUIRE(game.state().activeMission->harvestActions == 4);
 }
 
-TEST_CASE("campaign mission losses cannot be erased when no reserve can rebuild the squad") {
-    tribe::CampaignGame game{{tribe::CampaignMode::Course, 97U, "燧火", "炎角", "生存"}};
-    auto reduced = game.state();
-    const auto deployed = reduced.squads.front().members;
-    reduced.roster.erase(std::remove_if(reduced.roster.begin(), reduced.roster.end(),
-        [&](const tribe::Character& character) {
-            return std::find(deployed.begin(), deployed.end(), character.name) == deployed.end();
-        }), reduced.roster.end());
+TEST_CASE("campaign outposts cost carried materials persist as stations and reject invalid ownership") {
+    tribe::GameEngine game{{tribe::GameMode::Standard, 97U, "燧火", "炎角", "生存"}};
+    requireSuccess(game, "mission");
+    requireSuccess(game, "move forest");
+    requireSuccess(game, "gather wood");
+    requireSuccess(game, "move camp");
+    requireSuccess(game, "move plain");
+    requireSuccess(game, "move quarry");
+    requireSuccess(game, "gather stone");
+    requireSuccess(game, "move plain");
+    requireSuccess(game, "build outpost");
+    REQUIRE(game.state().activeMission->cargoWood == 0);
+    REQUIRE(game.state().activeMission->cargoStone == 1);
+    REQUIRE(!game.execute("build outpost").success);
+    requireSuccess(game, "settle");
+    REQUIRE(game.state().outposts[locationIndex(tribe::WorldLocationId::RedPlain)]);
+    REQUIRE(game.state().squads.front().station == tribe::WorldLocationId::RedPlain);
 
+    requireSuccess(game, "mission");
+    REQUIRE(game.state().activeMission->worldLocation == static_cast<int>(tribe::WorldLocationId::RedPlain));
+    requireSuccess(game, "move quarry");
+    requireSuccess(game, "move valley");
+    requireSuccess(game, "move workshop");
+    requireSuccess(game, "move road");
+    requireSuccess(game, "move pass");
+    requireSuccess(game, "move fort");
+    auto hostile = game.state();
+    hostile.activeMission->cargoWood = 6;
+    hostile.activeMission->cargoStone = 4;
     std::string error;
-    REQUIRE(tribe::CampaignGame::validateState(reduced, error));
-    tribe::CampaignGame fatal = gameFrom(std::move(reduced));
-    requireSuccess(fatal, "mission forest");
+    REQUIRE(tribe::GameEngine::validateState(hostile, error));
+    tribe::GameEngine blocked = gameFrom(std::move(hostile));
+    const auto rejected = blocked.execute("build outpost");
+    REQUIRE(!rejected.success);
+    REQUIRE(!rejected.stateChanged);
 
-    auto dangerous = fatal.state();
-    tribe::ExpansionState& mission = *dangerous.activeMission;
-    for (tribe::Character& member : mission.squad.members) member.life = 0;
-    mission.squad.members[mission.squad.leaderIndex].life = 1;
-    mission.phase = tribe::ExpansionPhase::FrontlineCombat;
-    mission.location = tribe::ExpansionLocation::StrangerClearing;
-    mission.foreignStance = tribe::ForeignStance::Hostile;
-    mission.frontline = 1;
-    mission.enemyLife = 1000;
-    mission.enemySpeed = 1000;
-    REQUIRE(tribe::CampaignGame::validateState(dangerous, error));
-
-    tribe::CampaignGame isolated = gameFrom(std::move(dangerous));
-    const int populationBefore = isolated.state().population;
-    const auto result = requireSuccess(isolated, "attack");
-    REQUIRE(result.endingReached);
-    REQUIRE(isolated.state().phase == tribe::CampaignPhase::Finished);
-    REQUIRE(isolated.state().ending == tribe::CampaignEnding::Extinction);
-    REQUIRE(isolated.state().missionDeaths == static_cast<int>(deployed.size()));
-    REQUIRE(isolated.state().population == populationBefore - static_cast<int>(deployed.size()));
-    REQUIRE(isolated.state().roster.empty());
-    REQUIRE(isolated.state().squads.empty());
-    REQUIRE(!isolated.state().activeMission);
-    REQUIRE(tribe::CampaignGame::validateState(isolated.state(), error));
-
-    const auto after = isolated.state();
-    const auto abort = isolated.execute("abort");
-    REQUIRE(!abort.stateChanged);
-    REQUIRE(isolated.state().missionDeaths == after.missionDeaths);
-    REQUIRE(isolated.state().population == after.population);
+    auto duplicate = editableInitial();
+    duplicate.squads.push_back(duplicate.squads.front());
+    REQUIRE(!tribe::GameEngine::validateState(duplicate, error));
 }
 
 TEST_CASE("campaign diplomacy supports marriage tribute alliance war and truce") {
     auto diplomatic = editableInitial();
-    auto& river = diplomatic.relations[tribeIndex(tribe::TribeIdV2::RiverDeer)];
+    auto& river = diplomatic.relations[tribeIndex(tribe::TribeId::RiverDeer)];
     river.relation = 80;
     river.trust = 70;
+    diplomatic.discovered[locationIndex(tribe::WorldLocationId::RiverFord)] = true;
     diplomatic.technologies[technologyIndex(tribe::TechnologyId::Confederation)] = true;
     diplomatic.food = 100;
-    tribe::CampaignGame diplomacy = gameFrom(diplomatic);
+    tribe::GameEngine diplomacy = gameFrom(diplomatic);
     requireSuccess(diplomacy, "marry river");
+    requireSuccess(diplomacy, "endturn");
     requireSuccess(diplomacy, "ally river");
-    requireSuccess(diplomacy, "tribute river");
-    REQUIRE(diplomacy.state().relations[tribeIndex(tribe::TribeIdV2::RiverDeer)].marriage);
-    REQUIRE(diplomacy.state().relations[tribeIndex(tribe::TribeIdV2::RiverDeer)].alliance);
-    REQUIRE(diplomacy.state().relations[tribeIndex(tribe::TribeIdV2::RiverDeer)].playerPaysTribute);
+    REQUIRE(diplomacy.state().relations[tribeIndex(tribe::TribeId::RiverDeer)].marriage);
+    REQUIRE(diplomacy.state().relations[tribeIndex(tribe::TribeId::RiverDeer)].alliance);
 
     auto coercive = editableInitial();
     coercive.warriors = 8;
-    auto& blackstone = coercive.relations[tribeIndex(tribe::TribeIdV2::Blackstone)];
+    coercive.discovered[locationIndex(tribe::WorldLocationId::BlackstoneWorkshop)] = true;
+    coercive.discovered[locationIndex(tribe::WorldLocationId::OldPass)] = true;
+    auto& blackstone = coercive.relations[tribeIndex(tribe::TribeId::Blackstone)];
     blackstone.fear = 70;
     coercive.food = 100;
-    tribe::CampaignGame pressure = gameFrom(coercive);
+    tribe::GameEngine pressure = gameFrom(coercive);
     requireSuccess(pressure, "demand blackstone");
     requireSuccess(pressure, "declare rockfang");
+    requireSuccess(pressure, "endturn");
     requireSuccess(pressure, "truce rockfang");
-    REQUIRE(pressure.state().relations[tribeIndex(tribe::TribeIdV2::Blackstone)].otherPaysTribute);
-    REQUIRE(!pressure.state().relations[tribeIndex(tribe::TribeIdV2::Rockfang)].atWar);
-    REQUIRE(pressure.state().relations[tribeIndex(tribe::TribeIdV2::Rockfang)].truce);
+    REQUIRE(pressure.state().relations[tribeIndex(tribe::TribeId::Blackstone)].otherPaysTribute);
+    REQUIRE(!pressure.state().relations[tribeIndex(tribe::TribeId::Rockfang)].atWar);
+    REQUIRE(pressure.state().relations[tribeIndex(tribe::TribeId::Rockfang)].truce);
 }
 
 TEST_CASE("campaign trade uses supply prices and unlocks shell currency") {
@@ -312,11 +328,11 @@ TEST_CASE("campaign trade uses supply prices and unlocks shell currency") {
     state.wood = 2;
     state.tradeCount = 7;
     state.technologies[technologyIndex(tribe::TechnologyId::SharedLanguage)] = true;
-    state.tradePartners[tribeIndex(tribe::TribeIdV2::RiverDeer)] = true;
-    state.tradePartners[tribeIndex(tribe::TribeIdV2::WhiteFeather)] = true;
-    state.tradePartners[tribeIndex(tribe::TribeIdV2::Blackstone)] = true;
+    state.tradePartners[tribeIndex(tribe::TribeId::RiverDeer)] = true;
+    state.tradePartners[tribeIndex(tribe::TribeId::WhiteFeather)] = true;
+    state.tradePartners[tribeIndex(tribe::TribeId::Blackstone)] = true;
     state.discovered[locationIndex(tribe::WorldLocationId::RiverFord)] = true;
-    tribe::CampaignGame game = gameFrom(state);
+    tribe::GameEngine game = gameFrom(state);
     const int woodBefore = game.state().wood;
     const auto result = requireSuccess(game, "trade river food wood");
     REQUIRE(result.message.find("价格受稀缺") != std::string::npos);
@@ -326,26 +342,26 @@ TEST_CASE("campaign trade uses supply prices and unlocks shell currency") {
     REQUIRE(game.state().shells == 20);
 }
 
-TEST_CASE("campaign resident squads gain resources experience and fatigue") {
+TEST_CASE("campaign obsolete resident gathering produces no passive resources") {
     auto state = editableInitial();
     state.food = 100;
     state.squads.front().residentMission = tribe::ResidentMission::Gather;
     const int eliteBefore = state.squads.front().eliteExperience;
-    tribe::CampaignGame game = gameFrom(state);
+    const int foodBefore = state.food;
+    tribe::GameEngine game = gameFrom(state);
     requireSuccess(game, "endturn");
     REQUIRE(game.state().season == 2);
-    REQUIRE(game.state().squads.front().eliteExperience == eliteBefore + 8);
-    REQUIRE(game.state().squads.front().fatigue == 15);
-    const int fatigue = game.state().squads.front().fatigue;
-    requireSuccess(game, "squadrest");
-    REQUIRE(game.state().squads.front().fatigue < fatigue);
+    REQUIRE(game.state().squads.front().eliteExperience == eliteBefore);
+    REQUIRE(game.state().squads.front().fatigue == 0);
+    REQUIRE(game.state().squads.front().residentMission == tribe::ResidentMission::None);
+    REQUIRE(game.state().food <= foodBefore);
 
     auto capped = editableInitial();
     capped.population = 5;
     capped.warriors = 5;
     capped.food = 100;
     capped.squads.front().residentMission = tribe::ResidentMission::Train;
-    tribe::CampaignGame cappedTraining = gameFrom(capped);
+    tribe::GameEngine cappedTraining = gameFrom(capped);
     requireSuccess(cappedTraining, "endturn");
     REQUIRE(cappedTraining.state().warriors == cappedTraining.state().population);
 
@@ -363,7 +379,7 @@ TEST_CASE("campaign faction crisis can reach coup and appoint a new leader") {
     state.playerFactions[0].satisfaction = 0;
     state.playerFactions[0].crisis = tribe::FactionCrisis::Deposition;
     const std::string successor = state.playerFactions[0].candidate;
-    tribe::CampaignGame game = gameFrom(state);
+    tribe::GameEngine game = gameFrom(state);
     const auto result = requireSuccess(game, "结束回合");
     REQUIRE(result.message.find("政变") != std::string::npos);
     REQUIRE(game.state().leaderName == successor);
@@ -371,15 +387,53 @@ TEST_CASE("campaign faction crisis can reach coup and appoint a new leader") {
     REQUIRE(game.state().leadershipHistory.size() == 2U);
 }
 
+TEST_CASE("campaign faction refusal is recomputed across all factions") {
+    auto state = editableInitial();
+    state.food = 100;
+    state.playerFactions[0].crisis = tribe::FactionCrisis::Refusal;
+    state.playerFactions[1].crisis = tribe::FactionCrisis::Refusal;
+    state.squads.front().refusingOrders = true;
+    tribe::GameEngine game = gameFrom(state);
+    requireSuccess(game, "appease 1");
+    REQUIRE(game.state().squads.front().refusingOrders);
+    requireSuccess(game, "appease 2");
+    REQUIRE(!game.state().squads.front().refusingOrders);
+}
+
+TEST_CASE("campaign diplomacy rejects conflicts and war clears incompatible relations") {
+    auto state = editableInitial();
+    const auto index = tribeIndex(tribe::TribeId::RiverDeer);
+    state.food = 100;
+    state.warriors = 8;
+    state.discovered[locationIndex(tribe::WorldLocationId::RiverFord)] = true;
+    state.relations[index].relation = 80;
+    state.relations[index].trust = 70;
+    state.relations[index].fear = 70;
+    state.relations[index].alliance = true;
+    state.relations[index].marriage = true;
+    state.relations[index].tradeRoute = true;
+    tribe::GameEngine game = gameFrom(state);
+    REQUIRE(!game.execute("tribute river").success);
+    REQUIRE(!game.execute("demand river").success);
+    requireSuccess(game, "declare river");
+    const auto& relation = game.state().relations[index];
+    REQUIRE(relation.atWar);
+    REQUIRE(!relation.alliance);
+    REQUIRE(!relation.marriage);
+    REQUIRE(!relation.tradeRoute);
+    REQUIRE(!relation.playerPaysTribute);
+    REQUIRE(!relation.otherPaysTribute);
+}
+
 TEST_CASE("campaign war defense cannot conquer and militia deaths reduce population") {
     auto defending = editableInitial();
-    defending.phase = tribe::CampaignPhase::War;
-    defending.relations[tribeIndex(tribe::TribeIdV2::Rockfang)].atWar = true;
-    defending.war = {true, tribe::TribeIdV2::Rockfang, "石刃", 3, 0, 12, 1, 1,
+    defending.phase = tribe::GamePhase::War;
+    defending.relations[tribeIndex(tribe::TribeId::Rockfang)].atWar = true;
+    defending.war = {true, tribe::TribeId::Rockfang, "石刃", 3, 0, 12, 2, 1,
         tribe::WarOrder::Hold, true};
-    tribe::CampaignGame defense = gameFrom(defending);
+    tribe::GameEngine defense = gameFrom(defending);
     requireSuccess(defense, "defend");
-    REQUIRE(defense.state().phase == tribe::CampaignPhase::War);
+    REQUIRE(defense.state().phase == tribe::GamePhase::War);
     REQUIRE(defense.state().war.front == 1);
     REQUIRE(defense.state().war.enemyPower == 1);
     REQUIRE(defense.state().warsWon == 0);
@@ -390,46 +444,61 @@ TEST_CASE("campaign war defense cannot conquer and militia deaths reduce populat
     auto finalFront = defense.state();
     finalFront.war.front = 3;
     finalFront.war.enemyPower = 1;
-    tribe::CampaignGame victory = gameFrom(finalFront);
-    requireSuccess(victory, "防御");
-    REQUIRE(victory.state().phase == tribe::CampaignPhase::War);
+    tribe::GameEngine victory = gameFrom(finalFront);
+    const auto noOpDefense = victory.execute("防御");
+    REQUIRE(!noOpDefense.success);
+    REQUIRE(!noOpDefense.stateChanged);
+    REQUIRE(victory.state().phase == tribe::GamePhase::War);
     REQUIRE(victory.state().warsWon == 0);
     requireSuccess(victory, "攻击");
-    REQUIRE(victory.state().phase == tribe::CampaignPhase::Managing);
+    REQUIRE(victory.state().phase == tribe::GamePhase::Managing);
     REQUIRE(victory.state().warsWon == 1);
     REQUIRE(victory.state().rockfangFortCaptured);
 
     auto dangerous = editableInitial();
-    dangerous.phase = tribe::CampaignPhase::War;
-    dangerous.relations[tribeIndex(tribe::TribeIdV2::Rockfang)].atWar = true;
-    dangerous.war = {true, tribe::TribeIdV2::Rockfang, "石刃", 1, 2, 4, 30, 1,
+    dangerous.phase = tribe::GamePhase::War;
+    dangerous.relations[tribeIndex(tribe::TribeId::Rockfang)].atWar = true;
+    dangerous.war = {true, tribe::TribeId::Rockfang, "石刃", 1, 2, 4, 30, 1,
         tribe::WarOrder::Advance, true};
     const int populationBefore = dangerous.population;
-    tribe::CampaignGame battle = gameFrom(dangerous);
+    tribe::GameEngine battle = gameFrom(dangerous);
     requireSuccess(battle, "attack");
     REQUIRE(battle.state().population < populationBefore);
     REQUIRE(battle.state().warsLost == 1);
+
+    auto formalLoss = editableInitial();
+    formalLoss.phase = tribe::GamePhase::War;
+    formalLoss.relations[tribeIndex(tribe::TribeId::Rockfang)].atWar = true;
+    formalLoss.war = {true, tribe::TribeId::Rockfang, "石刃", 2, 0, 4, 30, 1,
+        tribe::WarOrder::Advance, true};
+    const int formalPopulation = formalLoss.population;
+    const int formalWarriors = formalLoss.warriors;
+    tribe::GameEngine formalBattle = gameFrom(formalLoss);
+    const auto loss = requireSuccess(formalBattle, "attack");
+    REQUIRE(formalBattle.state().population == formalPopulation - 2);
+    REQUIRE(formalBattle.state().warriors == formalWarriors - 2);
+    REQUIRE(loss.message.find("2人伤亡") != std::string::npos);
 }
 
 TEST_CASE("campaign modes reach their season limits deterministically") {
-    const std::array<std::pair<tribe::CampaignMode, int>, 3> modes{{
-        {tribe::CampaignMode::Quick, 8},
-        {tribe::CampaignMode::Course, 16},
-        {tribe::CampaignMode::Long, 32},
+    const std::array<std::pair<tribe::GameMode, int>, 3> modes{{
+        {tribe::GameMode::Quick, 8},
+        {tribe::GameMode::Standard, 16},
+        {tribe::GameMode::Long, 32},
     }};
     for (const auto& [mode, turns] : modes) {
         auto state = editableInitial(mode);
         state.food = 5000;
         state.campDurability = 100;
         state.buildings[buildingIndex(tribe::BuildingId::Wall)] = true;
-        tribe::CampaignGame game = gameFrom(state);
+        tribe::GameEngine game = gameFrom(state);
         for (int turn = 0; turn < turns; ++turn) requireSuccess(game, "endturn");
-        REQUIRE(game.state().phase == tribe::CampaignPhase::EndingChoice);
+        REQUIRE(game.state().phase == tribe::GamePhase::EndingChoice);
         REQUIRE(game.state().season == game.state().seasonLimit);
     }
 
-    tribe::CampaignGame first{{tribe::CampaignMode::Course, 211U, "燧火", "炎角", "生存"}};
-    tribe::CampaignGame repeat{{tribe::CampaignMode::Course, 211U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine first{{tribe::GameMode::Standard, 211U, "燧火", "炎角", "生存"}};
+    tribe::GameEngine repeat{{tribe::GameMode::Standard, 211U, "燧火", "炎角", "生存"}};
     for (int index = 0; index < 4; ++index) {
         const auto left = requireSuccess(first, "endturn");
         const auto right = requireSuccess(repeat, "结束回合");
@@ -444,14 +513,14 @@ TEST_CASE("campaign exposes five endings and long mode can continue sandbox") {
     auto allianceState = editableInitial();
     prepareEndingChoice(allianceState);
     allianceState.technologies[technologyIndex(tribe::TechnologyId::Confederation)] = true;
-    for (const auto id : {tribe::TribeIdV2::RiverDeer, tribe::TribeIdV2::WhiteFeather}) {
+    for (const auto id : {tribe::TribeId::RiverDeer, tribe::TribeId::WhiteFeather}) {
         allianceState.relations[tribeIndex(id)].relation = 80;
         allianceState.relations[tribeIndex(id)].trust = 70;
         allianceState.relations[tribeIndex(id)].alliance = true;
     }
-    tribe::CampaignGame alliance = gameFrom(allianceState);
+    tribe::GameEngine alliance = gameFrom(allianceState);
     requireSuccess(alliance, "choose alliance");
-    REQUIRE(alliance.state().ending == tribe::CampaignEnding::Alliance);
+    REQUIRE(alliance.state().ending == tribe::GameEnding::Alliance);
     REQUIRE(!alliance.endingSummary().epilogue.empty());
 
     auto conquestState = editableInitial();
@@ -460,9 +529,9 @@ TEST_CASE("campaign exposes five endings and long mode can continue sandbox") {
     conquestState.rockfangStrength = 0;
     conquestState.warriors = 6;
     conquestState.morale = 70;
-    tribe::CampaignGame conquest = gameFrom(conquestState);
+    tribe::GameEngine conquest = gameFrom(conquestState);
     requireSuccess(conquest, "choose conquest");
-    REQUIRE(conquest.state().ending == tribe::CampaignEnding::Conquest);
+    REQUIRE(conquest.state().ending == tribe::GameEnding::Conquest);
 
     auto prosperityState = editableInitial();
     prepareEndingChoice(prosperityState);
@@ -472,24 +541,24 @@ TEST_CASE("campaign exposes five endings and long mode can continue sandbox") {
         prosperityState.buildings[index] = true;
         prosperityState.technologies[index] = true;
     }
-    tribe::CampaignGame prosperity = gameFrom(prosperityState);
+    tribe::GameEngine prosperity = gameFrom(prosperityState);
     requireSuccess(prosperity, "choose prosperity");
-    REQUIRE(prosperity.state().ending == tribe::CampaignEnding::Prosperity);
+    REQUIRE(prosperity.state().ending == tribe::GameEnding::Prosperity);
 
-    auto migrationState = editableInitial(tribe::CampaignMode::Long);
+    auto migrationState = editableInitial(tribe::GameMode::Long);
     prepareEndingChoice(migrationState);
-    tribe::CampaignGame migration = gameFrom(migrationState);
+    tribe::GameEngine migration = gameFrom(migrationState);
     requireSuccess(migration, "choose migration");
-    REQUIRE(migration.state().ending == tribe::CampaignEnding::Migration);
+    REQUIRE(migration.state().ending == tribe::GameEnding::Migration);
     requireSuccess(migration, "sandbox");
-    REQUIRE(migration.state().phase == tribe::CampaignPhase::Sandbox);
+    REQUIRE(migration.state().phase == tribe::GamePhase::Sandbox);
 
     auto extinctionState = editableInitial();
     extinctionState.population = 0;
     extinctionState.warriors = 0;
-    extinctionState.phase = tribe::CampaignPhase::Finished;
-    extinctionState.ending = tribe::CampaignEnding::Extinction;
-    tribe::CampaignGame extinction = gameFrom(extinctionState);
-    REQUIRE(extinction.endingSummary().ending == tribe::CampaignEnding::Extinction);
+    extinctionState.phase = tribe::GamePhase::Finished;
+    extinctionState.ending = tribe::GameEnding::Extinction;
+    tribe::GameEngine extinction = gameFrom(extinctionState);
+    REQUIRE(extinction.endingSummary().ending == tribe::GameEnding::Extinction);
     REQUIRE(extinction.endingSummary().title == "部落覆灭");
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cctype>
 #include <initializer_list>
 #include <sstream>
@@ -131,6 +132,45 @@ std::optional<EquipmentSlot> parseSlot(const std::string_view value) {
     return std::nullopt;
 }
 
+const std::array<std::string_view, kExpeditionWorldLocationCount> kWorldNames{{
+    "燧火营地", "苍林", "红土原", "芦苇沼泽", "河鹿渡口", "白羽营地", "燧石矿场", "古老山隘",
+    "岩牙要塞", "盐风海岸", "潮盐港", "贝壳滩", "玄石谷", "玄石工坊", "山前集市", "断崖商道"}};
+
+const std::array<std::vector<int>, kExpeditionWorldLocationCount> kWorldRoads{{
+    {1, 2}, {0, 3}, {0, 4, 6}, {1, 5, 9}, {2, 14}, {3}, {2, 12}, {15, 8},
+    {7}, {3, 11}, {11, 14}, {9, 10}, {6, 13}, {12, 15}, {4, 10, 15}, {13, 14, 7}}};
+
+std::optional<int> parseWorldLocation(const std::string_view value) {
+    int number = 0;
+    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+    if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size()
+        && number >= 1 && number <= static_cast<int>(kExpeditionWorldLocationCount)) return number - 1;
+    static const std::array<std::vector<std::string_view>, kExpeditionWorldLocationCount> aliases{{
+        {"camp", "营地", "燧火营地"}, {"forest", "苍林"}, {"plain", "redplain", "红土原"},
+        {"marsh", "沼泽", "芦苇沼泽"}, {"ford", "riverford", "河鹿渡口"}, {"whitecamp", "白羽营地"},
+        {"quarry", "矿场", "燧石矿场"}, {"pass", "oldpass", "古老山隘"}, {"fort", "rockfort", "岩牙要塞"},
+        {"coast", "saltwind", "盐风海岸"}, {"harbor", "tidesaltharbor", "潮盐港"},
+        {"beach", "shellbeach", "贝壳滩"}, {"valley", "blackstonevalley", "玄石谷"},
+        {"workshop", "blackstoneworkshop", "玄石工坊"}, {"market", "mountainmarket", "山前集市"},
+        {"road", "cliffroad", "断崖商道"}}};
+    for (std::size_t index = 0; index < aliases.size(); ++index) {
+        if (std::find(aliases[index].begin(), aliases[index].end(), value) != aliases[index].end()) {
+            return static_cast<int>(index);
+        }
+    }
+    return std::nullopt;
+}
+
+int cargoTotal(const ExpansionState& state) {
+    return state.cargoFood + state.cargoWood + state.cargoStone + state.cargoHerbs;
+}
+
+bool worldRoadExists(const int from, const int to) {
+    if (from < 0 || from >= static_cast<int>(kWorldRoads.size())) return false;
+    const auto& roads = kWorldRoads[static_cast<std::size_t>(from)];
+    return std::find(roads.begin(), roads.end(), to) != roads.end();
+}
+
 } // namespace
 
 ExpansionGame::ExpansionGame(const std::uint32_t seed, const std::size_t squadSize) {
@@ -186,6 +226,7 @@ ExpansionGame::ExpansionGame(ExpansionState state) : state_(std::move(state)) {
 ExpansionCommandResult ExpansionGame::execute(const std::string_view input) {
     const ParsedCommand command = parseCommand(input);
     if (command.verb.empty()) return {};
+    if (state_.worldMode) return executeWorld(command.verb, command.args);
 
     if (verbIs(command, {"look", "查看"})) {
         return command.args.empty()
@@ -233,6 +274,260 @@ ExpansionCommandResult ExpansionGame::execute(const std::string_view input) {
                                          : rejected("用法：equip <装备栏> <物品编号> / 装备 <装备栏> <物品编号>");
     }
     return {};
+}
+
+ExpansionCommandResult ExpansionGame::executeWorld(const std::string& verb,
+    const std::vector<std::string>& args) {
+    if (equalsAny(verb, {"look", "查看", "map", "地图"})) {
+        return args.empty() ? ExpansionCommandResult{true, true, false, false, worldLookText()}
+                            : rejected("用法：look / 查看");
+    }
+    if (state_.enemyLife > 0) {
+        if (equalsAny(verb, {"attack", "攻击"})) {
+            return args.empty() ? attackWorldEncounter() : rejected("用法：attack / 攻击");
+        }
+        if (equalsAny(verb, {"defend", "防御"})) {
+            return args.empty() ? defendWorldEncounter() : rejected("用法：defend / 防御");
+        }
+        if (equalsAny(verb, {"retreat", "撤退"})) {
+            return args.empty() ? retreatWorldEncounter() : rejected("用法：retreat / 撤退");
+        }
+        if (equalsAny(verb, {"equip", "装备"})) {
+            return args.size() == 2U ? equip(args[0], args[1])
+                                     : rejected("用法：equip <装备栏> <物品编号> / 装备 <装备栏> <物品编号>");
+        }
+        return rejected("岩牙巡逻正在逼近；可用：攻击、防御、撤退、装备、查看。");
+    }
+    if (equalsAny(verb, {"attack", "攻击"})) {
+        return args.empty() ? attackWorldEncounter() : rejected("用法：attack / 攻击");
+    }
+    if (equalsAny(verb, {"move", "移动"})) {
+        return args.size() == 1U ? moveWorld(args.front()) : rejected("用法：move <相邻地点> / 移动 <相邻地点>");
+    }
+    if (equalsAny(verb, {"gather", "采集"})) {
+        return args.size() == 1U ? gatherWorld(args.front()) : rejected("用法：gather <资源> / 采集 <资源>");
+    }
+    if (equalsAny(verb, {"buildoutpost", "outpost", "建造前哨"})
+        || (equalsAny(verb, {"build", "建造"}) && args.size() == 1U
+            && equalsAny(args.front(), {"outpost", "前哨"}))) {
+        return (args.empty() || (args.size() == 1U && equalsAny(args.front(), {"outpost", "前哨"})))
+            ? buildOutpost() : rejected("用法：build outpost / 建造 前哨");
+    }
+    if (equalsAny(verb, {"settle", "结算", "return", "回营"})) {
+        return args.empty() ? settleWorld() : rejected("用法：settle / 结算");
+    }
+    if (equalsAny(verb, {"equip", "装备"})) {
+        return args.size() == 2U ? equip(args[0], args[1])
+                                 : rejected("用法：equip <装备栏> <物品编号> / 装备 <装备栏> <物品编号>");
+    }
+    return {};
+}
+
+ExpansionCommandResult ExpansionGame::moveWorld(const std::string_view target) {
+    if (state_.phase != ExpansionPhase::ForestExploration) return rejected("本次地图任务已经结算。");
+    if (state_.enemyLife > 0) return rejected("遭遇战尚未结束，不能离开；请攻击、防御或撤退。");
+    const auto destination = parseWorldLocation(target);
+    if (!destination) return rejected("未知地点，可输入地图查看1至16号地点。");
+    if (*destination == state_.worldLocation) return rejected("小队已经在该地点。");
+    if (!worldRoadExists(state_.worldLocation, *destination)) return rejected("两地不相邻，不能跨越道路移动。");
+    ExpansionState candidate = state_;
+    candidate.worldLocation = *destination;
+    const bool discoveredNow = !candidate.worldDiscovered[static_cast<std::size_t>(*destination)];
+    candidate.worldDiscovered[static_cast<std::size_t>(*destination)] = true;
+    recordSquadTurn(candidate, 2, 1);
+    std::string message = "小队沿道路抵达" + std::string(kWorldNames[static_cast<std::size_t>(*destination)]) + "。";
+    if (discoveredNow) message += " 新地点已记录到部落地图。";
+    if (*destination == 8 && !candidate.rockfangFortCleared) {
+        message += " 岩牙巡逻正在要塞外戒备；输入攻击可发起遭遇战，装备会影响战斗。";
+    }
+    return commit(std::move(candidate), std::move(message), true);
+}
+
+ExpansionCommandResult ExpansionGame::gatherWorld(const std::string_view resource) {
+    if (state_.phase != ExpansionPhase::ForestExploration) return rejected("本次地图任务已经结算。");
+    if (state_.harvestActions >= 4) return rejected("本次任务的采集时段已经结束，请前往营地或前哨结算。");
+    const int location = state_.worldLocation;
+    enum class CargoKind { Food, Wood, Stone, Herbs };
+    std::optional<CargoKind> kind;
+    int baseGain = 0;
+    if (equalsAny(resource, {"food", "食物", "粮食"})
+        && (location == 1 || location == 2 || location == 4 || location == 9)) {
+        kind = CargoKind::Food; baseGain = 6 + state_.foodGatherBonus;
+    } else if (equalsAny(resource, {"wood", "木材"}) && (location == 1 || location == 3)) {
+        kind = CargoKind::Wood; baseGain = 6;
+    } else if (equalsAny(resource, {"stone", "石料", "石头"})
+        && (location == 6 || location == 7 || location == 12)) {
+        kind = CargoKind::Stone; baseGain = 5;
+    } else if (equalsAny(resource, {"herbs", "herb", "草药"})
+        && (location == 1 || location == 3 || location == 5)) {
+        kind = CargoKind::Herbs; baseGain = 4 + state_.herbGatherBonus;
+    } else {
+        return rejected("当前地点没有这种资源，或该资源不能由小队直接采集。");
+    }
+    const int room = state_.cargoCapacity - cargoTotal(state_);
+    if (room <= 0) return rejected("小队载货已经达到上限，请先到营地或前哨结算。");
+    ExpansionState candidate = state_;
+    const int gain = std::min(baseGain, room);
+    switch (*kind) {
+    case CargoKind::Food: candidate.cargoFood += gain; break;
+    case CargoKind::Wood: candidate.cargoWood += gain; break;
+    case CargoKind::Stone: candidate.cargoStone += gain; break;
+    case CargoKind::Herbs: candidate.cargoHerbs += gain; break;
+    }
+    ++candidate.harvestActions;
+    recordSquadTurn(candidate, 4, 2);
+    return commit(std::move(candidate), "小队采集" + std::string(resource) + "，装载" + std::to_string(gain) + "单位。", true);
+}
+
+ExpansionCommandResult ExpansionGame::buildOutpost() {
+    if (state_.phase != ExpansionPhase::ForestExploration) return rejected("本次地图任务已经结算。");
+    if (state_.worldLocation == 0) return rejected("燧火营地无需重复建造前哨。");
+    const std::size_t location = static_cast<std::size_t>(state_.worldLocation);
+    if (state_.outposts[location]) return rejected("该地点已经建有前哨。");
+    if (state_.worldLocation == 8 && !state_.rockfangFortCleared) return rejected("岩牙要塞仍由敌军控制，不能建造前哨。");
+    if (state_.cargoWood < 6 || state_.cargoStone < 4) return rejected("现场建造前哨需要携带木材6、石料4。");
+    ExpansionState candidate = state_;
+    candidate.cargoWood -= 6;
+    candidate.cargoStone -= 4;
+    candidate.outposts[location] = true;
+    recordSquadTurn(candidate, 5, 3);
+    return commit(std::move(candidate), "小队现场建成前哨，现在可以在此结算并驻留。", true);
+}
+
+ExpansionCommandResult ExpansionGame::settleWorld() {
+    if (state_.phase != ExpansionPhase::ForestExploration) return rejected("本次地图任务已经结算。");
+    const std::size_t location = static_cast<std::size_t>(state_.worldLocation);
+    if (location != 0U && !state_.outposts[location]) return rejected("这里只能临时停留；必须返回营地或已建前哨才能结算。");
+    ExpansionState candidate = state_;
+    candidate.phase = ExpansionPhase::ReturnSettlement;
+    candidate.settled = true;
+    recordSquadTurn(candidate, 1, 1);
+    const int experience = 15 + candidate.harvestActions * 10;
+    for (Character& member : candidate.squad.members) {
+        const OperationResult gained = gainExperience(member, experience);
+        if (!gained) return rejected("地图任务经验结算失败，状态未改变：" + gained.message);
+    }
+    candidate.squad.cohesion = std::min(100, candidate.squad.cohesion + 2);
+    return commit(std::move(candidate), location == 0U ? "小队回到燧火营地并完成资源结算。"
+                                                       : "小队在前哨卸下资源并驻留。", true);
+}
+
+ExpansionCommandResult ExpansionGame::attackWorldEncounter() {
+    if (state_.worldLocation != 8 || state_.rockfangFortCleared || state_.battleWon) {
+        return rejected("当前没有可攻击的地图遭遇。 ");
+    }
+    ExpansionState candidate = state_;
+    if (candidate.enemyLife <= 0) candidate.enemyLife = 14;
+    Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
+    const Attributes attributes = effectiveAttributes(leader);
+    const int damage = std::max(2, attributes[Attribute::Strength] / 2 + attributes[Attribute::Agility] / 4);
+    candidate.enemyLife = std::max(0, candidate.enemyLife - damage);
+    recordSquadTurn(candidate, 4, 2);
+    if (candidate.enemyLife == 0) {
+        candidate.battleWon = true;
+        Item trophy;
+        trophy.id = "rockfang_badge";
+        trophy.name = "岩牙巡逻徽记";
+        trophy.weight = 1;
+        trophy.equipmentSlot = EquipmentSlot::Accessory;
+        trophy.bonuses[Attribute::Willpower] = 1;
+        const OperationResult stored = candidate.inventory.pickupFree(std::move(trophy));
+        std::string message = "小队击退岩牙巡逻，尚未占领要塞。";
+        if (stored) message += " 获得可装备的岩牙巡逻徽记。";
+        else message += " 背包已满，战利品未能带走。";
+        return commit(std::move(candidate), std::move(message), true);
+    }
+    const int retaliation = std::max(1, 5 - attributes[Attribute::Endurance] / 4);
+    leader.life = std::max(1, leader.life - retaliation);
+    return commit(std::move(candidate), "小队攻击岩牙巡逻，敌军生命-" + std::to_string(damage)
+        + "；反击使队长生命-" + std::to_string(retaliation) + "。", true);
+}
+
+ExpansionCommandResult ExpansionGame::defendWorldEncounter() {
+    if (state_.enemyLife <= 0 || state_.worldLocation != 8) return rejected("当前没有可防御的地图遭遇。 ");
+    ExpansionState candidate = state_;
+    Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
+    const Attributes attributes = effectiveAttributes(leader);
+    const int retaliation = std::max(1, 3 - attributes[Attribute::Endurance] / 5);
+    leader.life = std::max(1, leader.life - retaliation);
+    recordSquadTurn(candidate, 2, 1);
+    return commit(std::move(candidate), "小队结阵防御，岩牙巡逻的攻势被化解；队长生命-"
+        + std::to_string(retaliation) + "。", true);
+}
+
+ExpansionCommandResult ExpansionGame::retreatWorldEncounter() {
+    if (state_.enemyLife <= 0 || state_.worldLocation != 8) return rejected("当前没有可撤离的地图遭遇。 ");
+    ExpansionState candidate = state_;
+    candidate.enemyLife = 0;
+    candidate.battleWon = false;
+    candidate.retreated = true;
+    candidate.worldLocation = 7;
+    recordSquadTurn(candidate, 2, 1);
+    return commit(std::move(candidate), "小队撤回古老山隘；岩牙要塞仍未被占领。", true);
+}
+
+std::string ExpansionGame::worldLookText() const {
+    std::ostringstream output;
+    const std::size_t location = static_cast<std::size_t>(state_.worldLocation);
+    output << "地点：" << kWorldNames[location] << "  相邻：";
+    for (const int neighbor : kWorldRoads[static_cast<std::size_t>(state_.worldLocation)]) {
+        output << (neighbor + 1) << '.' << kWorldNames[static_cast<std::size_t>(neighbor)] << ' ';
+    }
+    output << "\n载货 " << cargoTotal(state_) << '/' << state_.cargoCapacity << "：食物" << state_.cargoFood
+           << " 木材" << state_.cargoWood << " 石料" << state_.cargoStone << " 草药" << state_.cargoHerbs
+           << "  采集次数" << state_.harvestActions << "/4";
+    output << "\n可采资源：";
+    bool hasResource = false;
+    const auto addResource = [&](const std::string_view name) {
+        if (hasResource) output << "、";
+        output << name;
+        hasResource = true;
+    };
+    if (location == 1U || location == 2U || location == 4U || location == 9U) addResource("食物");
+    if (location == 1U || location == 3U) addResource("木材");
+    if (location == 6U || location == 7U || location == 12U) addResource("石料");
+    if (location == 1U || location == 3U || location == 5U) addResource("草药");
+    if (!hasResource) output << "无";
+
+    std::array<int, kExpeditionWorldLocationCount> distance{};
+    distance.fill(-1);
+    std::vector<int> frontier{state_.worldLocation};
+    distance[location] = 0;
+    int nearest = -1;
+    for (std::size_t cursor = 0; cursor < frontier.size() && nearest < 0; ++cursor) {
+        const int current = frontier[cursor];
+        if (state_.outposts[static_cast<std::size_t>(current)]) {
+            nearest = current;
+            break;
+        }
+        for (const int neighbor : kWorldRoads[static_cast<std::size_t>(current)]) {
+            if (distance[static_cast<std::size_t>(neighbor)] >= 0) continue;
+            distance[static_cast<std::size_t>(neighbor)] = distance[static_cast<std::size_t>(current)] + 1;
+            frontier.push_back(neighbor);
+        }
+    }
+    if (nearest >= 0) {
+        output << "\n最近结算点：" << kWorldNames[static_cast<std::size_t>(nearest)]
+               << "（" << distance[static_cast<std::size_t>(nearest)] << "段道路）";
+    }
+    if (state_.outposts[location]) output << "  [当前可结算]";
+    const Character& leader = state_.squad.members[state_.squad.leaderIndex];
+    output << "\n队长装备：";
+    bool hasEquipment = false;
+    for (const auto& item : leader.equipment) {
+        if (!item) continue;
+        if (hasEquipment) output << "、";
+        output << item->name;
+        hasEquipment = true;
+    }
+    if (!hasEquipment) output << "无";
+    if (state_.enemyLife > 0) {
+        output << "\n遭遇：岩牙巡逻，敌军生命" << state_.enemyLife
+               << "。可用 攻击、防御、撤退、装备。";
+    } else if (state_.battleWon && location == 8U) {
+        output << "\n遭遇：岩牙巡逻已被击退；要塞仍需由部落军队占领。";
+    }
+    return output.str();
 }
 
 ExpansionCommandResult ExpansionGame::move(const std::string_view target) {
@@ -712,6 +1007,7 @@ Item ExpansionGame::victoryLoot() const {
 }
 
 std::string ExpansionGame::lookText() const {
+    if (state_.worldMode) return worldLookText();
     const Character& leader = state_.squad.members[state_.squad.leaderIndex];
     std::ostringstream output;
     output << "阶段：" << phaseName(state_.phase) << "  地点：" << locationName(state_.location)
@@ -760,6 +1056,12 @@ std::string ExpansionGame::stateFingerprint() const {
                << (item.equipmentSlot ? static_cast<int>(*item.equipmentSlot) : -1);
         for (const int value : item.bonuses.values) output << ':' << value;
     }
+    output << "|W:" << state_.worldMode << ':' << state_.worldLocation << ':' << state_.cargoFood << ':'
+           << state_.cargoWood << ':' << state_.cargoStone << ':' << state_.cargoHerbs << ':'
+           << state_.harvestActions << ':' << state_.cargoCapacity << ':' << state_.foodGatherBonus << ':'
+           << state_.herbGatherBonus << ':' << state_.rockfangFortCleared;
+    for (const bool value : state_.worldDiscovered) output << value;
+    for (const bool value : state_.outposts) output << value;
     return output.str();
 }
 
@@ -801,6 +1103,29 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         if (item.id.empty() || item.name.empty() || !itemIds.insert(item.id).second) {
             return rejectedOperation("背包物品编号为空或重复。");
         }
+    }
+
+    if (state.worldMode) {
+        if (state.worldLocation < 0 || state.worldLocation >= static_cast<int>(kExpeditionWorldLocationCount)
+            || !state.worldDiscovered[static_cast<std::size_t>(state.worldLocation)]
+            || !state.worldDiscovered[0] || !state.outposts[0]
+            || state.cargoFood < 0 || state.cargoWood < 0 || state.cargoStone < 0 || state.cargoHerbs < 0
+            || state.harvestActions < 0 || state.harvestActions > 4 || state.cargoCapacity <= 0
+            || cargoTotal(state) > state.cargoCapacity || state.foodGatherBonus < 0 || state.herbGatherBonus < 0) {
+            return rejectedOperation("世界任务的位置、发现状态、前哨或载货字段无效。");
+        }
+        if (state.phase != ExpansionPhase::ForestExploration
+            && state.phase != ExpansionPhase::ReturnSettlement) {
+            return rejectedOperation("世界任务阶段无效。");
+        }
+        if (state.settled != (state.phase == ExpansionPhase::ReturnSettlement)) {
+            return rejectedOperation("世界任务结算标记与阶段不一致。");
+        }
+        if (state.phase == ExpansionPhase::ReturnSettlement) {
+            const std::size_t location = static_cast<std::size_t>(state.worldLocation);
+            if (location != 0U && !state.outposts[location]) return rejectedOperation("世界任务只能在营地或前哨结算。");
+        }
+        return accepted("世界地图任务状态合法。");
     }
 
     if ((state.phase == ExpansionPhase::CampPreparation

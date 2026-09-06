@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tribe/campaign.hpp"
+#include "tribe/game_engine.hpp"
 
 #include <chrono>
 #include <functional>
@@ -23,8 +23,8 @@ struct EndingPresentationOptions {
 
 class EndingPresentation {
 public:
-    static std::vector<std::string> framesFor(CampaignEnding ending);
-    static std::string renderStatic(CampaignEnding ending);
+    static std::vector<std::string> framesFor(GameEnding ending);
+    static std::string renderStatic(GameEnding ending);
     static std::string formatChronicle(const std::vector<ChronicleEntry>& entries);
     static std::string formatSummary(const EndingSummary& summary);
 
