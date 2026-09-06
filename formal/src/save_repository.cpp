@@ -347,6 +347,19 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeBool(state.missionFailed);
     writer.writeBool(state.lootAvailable);
     writer.writeBool(state.settled);
+    writer.writeBool(state.worldMode);
+    writer.writeInt(state.worldLocation);
+    writeBoolArray(writer, state.worldDiscovered);
+    writeBoolArray(writer, state.outposts);
+    writer.writeInt(state.cargoFood);
+    writer.writeInt(state.cargoWood);
+    writer.writeInt(state.cargoStone);
+    writer.writeInt(state.cargoHerbs);
+    writer.writeInt(state.harvestActions);
+    writer.writeInt(state.cargoCapacity);
+    writer.writeInt(state.foodGatherBonus);
+    writer.writeInt(state.herbGatherBonus);
+    writer.writeBool(state.rockfangFortCleared);
 }
 
 bool readExpansionState(BufferReader& reader, ExpansionState& state) {
@@ -365,7 +378,13 @@ bool readExpansionState(BufferReader& reader, ExpansionState& state) {
         || !reader.readInt(state.lastEnemyInitiative) || !reader.readBool(state.traded)
         || !reader.readBool(state.battleWon) || !reader.readBool(state.retreated)
         || !reader.readBool(state.missionFailed) || !reader.readBool(state.lootAvailable)
-        || !reader.readBool(state.settled)) {
+        || !reader.readBool(state.settled) || !reader.readBool(state.worldMode)
+        || !reader.readInt(state.worldLocation) || !readBoolArray(reader, state.worldDiscovered)
+        || !readBoolArray(reader, state.outposts) || !reader.readInt(state.cargoFood)
+        || !reader.readInt(state.cargoWood) || !reader.readInt(state.cargoStone)
+        || !reader.readInt(state.cargoHerbs) || !reader.readInt(state.harvestActions)
+        || !reader.readInt(state.cargoCapacity) || !reader.readInt(state.foodGatherBonus)
+        || !reader.readInt(state.herbGatherBonus) || !reader.readBool(state.rockfangFortCleared)) {
         return false;
     }
     return static_cast<bool>(ExpansionGame::validateState(state));
@@ -450,6 +469,7 @@ void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
     writer.writeInt(squad.eliteExperience);
     writer.writeBool(squad.personallyDeployedThisSeason);
     writer.writeBool(squad.refusingOrders);
+    writeEnum(writer, squad.station);
 }
 
 bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
@@ -468,7 +488,8 @@ bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
     return readEnum(reader, squad.residentMission, ResidentMission::None, ResidentMission::Train)
         && reader.readInt(squad.fatigue) && reader.readInt(squad.eliteExperience)
         && reader.readBool(squad.personallyDeployedThisSeason)
-        && reader.readBool(squad.refusingOrders);
+        && reader.readBool(squad.refusingOrders)
+        && readEnum(reader, squad.station, WorldLocationId::Camp, WorldLocationId::CliffTradeRoad);
 }
 
 void writeWar(BufferWriter& writer, const WarState& war) {
@@ -535,6 +556,7 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeString(state.actingLeaderName);
     writer.writeString(state.leaderFocus);
     writeBoolArray(writer, state.discovered);
+    writeBoolArray(writer, state.outposts);
     writeBoolArray(writer, state.buildings);
     writeBoolArray(writer, state.technologies);
     for (const TribeProfile& profile : state.tribes) writeTribeProfile(writer, profile);
@@ -583,6 +605,7 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         || !reader.readInt(state.rockfangStrength) || !reader.readString(state.tribeName)
         || !reader.readString(state.leaderName) || !reader.readString(state.actingLeaderName)
         || !reader.readString(state.leaderFocus) || !readBoolArray(reader, state.discovered)
+        || !readBoolArray(reader, state.outposts)
         || !readBoolArray(reader, state.buildings) || !readBoolArray(reader, state.technologies)) {
         error = "存档基础字段损坏或不完整。";
         return false;
@@ -758,7 +781,8 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
         return false;
     }
     if (!fileReader.readU32(version) || version != static_cast<std::uint32_t>(kSaveVersion)) {
-        error = "不支持的游戏存档版本。";
+        error = version == 2U ? "版本2旧存档不再支持，请新开局；原文件未被修改。"
+                              : "不支持的游戏存档版本。";
         return false;
     }
     if (!fileReader.readU32(payloadSize) || payloadSize > kMaximumSaveBytes

@@ -101,7 +101,7 @@ TEST_CASE("war overrides personality and an established trade route drives comme
     auto warState = initialState(seedSelectingRiverDeer);
     auto& warRelation = warState.relations[riverIndex];
     warRelation.atWar = true;
-    warRelation.tradeRoute = true;
+    warRelation.tradeRoute = false;
     const int fearBefore = warRelation.fear;
     const int dependenceBeforeWar = warRelation.tradeDependence;
     tribe::GameEngine wartime{warState};

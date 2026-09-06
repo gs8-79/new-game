@@ -5,4 +5,4 @@
 启动、三种模式、存档和构建方法见项目根目录的 [README](../README.md)。
 当前架构见 [DESIGN](docs/DESIGN.md)，验证证据见 [TEST_REPORT](docs/TEST_REPORT.md)。
 
-苍林任务通过 `GameEngine` 进入；`ExpansionGame` 是内部任务组件，没有独立的玩家入口。
+地图任务通过 `GameEngine` 进入；小队必须沿16地点道路移动、采集并在燧火营地或前哨结算。在对应接触点可办理部落外交；岩牙要塞可触发装备生效的小队遭遇，但要塞占领仍需大军出征。经营界面不再提供直接采集或直接侦察。`ExpansionGame` 是内部任务组件，没有独立的玩家入口。

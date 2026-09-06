@@ -69,7 +69,7 @@ constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
 constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
 constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
 constexpr std::size_t kPlayerFactionCount = 3U;
-constexpr int kSaveVersion = 2;
+constexpr int kSaveVersion = 3;
 
 template <typename Enum>
 constexpr std::size_t indexOf(const Enum value) {
@@ -133,6 +133,7 @@ struct PermanentSquad {
     int eliteExperience = 0;
     bool personallyDeployedThisSeason = false;
     bool refusingOrders = false;
+    WorldLocationId station = WorldLocationId::Camp;
     Inventory backpack{80, 20};
 };
 
@@ -191,6 +192,7 @@ struct GameState {
     std::array<DiplomacyRelation, kTribeCount> relations{};
     std::array<FactionState, kPlayerFactionCount> playerFactions{};
     std::array<bool, kTribeCount> tradePartners{};
+    std::array<bool, kWorldLocationCount> outposts{};
     std::vector<Character> roster;
     std::vector<PermanentSquad> squads;
     std::optional<ExpansionState> activeMission;
@@ -252,8 +254,6 @@ public:
     static std::string resourceName(ResourceKind resource);
 
 private:
-    ActionResult gather(ResourceKind resource);
-    ActionResult scout(WorldLocationId location);
     ActionResult build(BuildingId building);
     ActionResult research(TechnologyId technology);
     ActionResult setResidentMission(ResidentMission mission);
@@ -286,6 +286,8 @@ private:
         bool consumesAction = false, bool seasonAdvanced = false, bool endingReached = false);
     ActionResult rejected(std::string message) const;
     bool canSpendAction(ActionResult& result) const;
+    bool diplomacyUsedThisSeason(TribeId tribe) const;
+    ActionResult finalizeDiplomacy(TribeId tribe, ActionResult result);
     void spendAction(GameState& candidate) const;
     void addChronicle(GameState& candidate, int importance, std::string title, std::string detail) const;
     void settleResidentSquads(GameState& candidate, std::string& message) const;

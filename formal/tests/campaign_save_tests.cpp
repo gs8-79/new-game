@@ -79,7 +79,14 @@ bool sameExpansion(const tribe::ExpansionState& left, const tribe::ExpansionStat
         && left.lastEnemyInitiative == right.lastEnemyInitiative && left.traded == right.traded
         && left.battleWon == right.battleWon && left.retreated == right.retreated
         && left.missionFailed == right.missionFailed && left.lootAvailable == right.lootAvailable
-        && left.settled == right.settled;
+        && left.settled == right.settled && left.worldMode == right.worldMode
+        && left.worldLocation == right.worldLocation && left.worldDiscovered == right.worldDiscovered
+        && left.outposts == right.outposts && left.cargoFood == right.cargoFood
+        && left.cargoWood == right.cargoWood && left.cargoStone == right.cargoStone
+        && left.cargoHerbs == right.cargoHerbs && left.harvestActions == right.harvestActions
+        && left.cargoCapacity == right.cargoCapacity && left.foodGatherBonus == right.foodGatherBonus
+        && left.herbGatherBonus == right.herbGatherBonus
+        && left.rockfangFortCleared == right.rockfangFortCleared;
 }
 
 bool sameFaction(const tribe::FactionState& left, const tribe::FactionState& right) {
@@ -114,6 +121,7 @@ bool samePermanentSquad(const tribe::PermanentSquad& left, const tribe::Permanen
         && left.eliteExperience == right.eliteExperience
         && left.personallyDeployedThisSeason == right.personallyDeployedThisSeason
         && left.refusingOrders == right.refusingOrders
+        && left.station == right.station
         && sameInventory(left.backpack, right.backpack);
 }
 
@@ -144,6 +152,7 @@ bool sameCampaign(const tribe::GameState& left, const tribe::GameState& right) {
         || left.rockfangStrength != right.rockfangStrength || left.tribeName != right.tribeName
         || left.leaderName != right.leaderName || left.actingLeaderName != right.actingLeaderName
         || left.leaderFocus != right.leaderFocus || left.discovered != right.discovered
+        || left.outposts != right.outposts
         || left.buildings != right.buildings || left.technologies != right.technologies
         || left.tradePartners != right.tradePartners || left.missionRewardClaimed != right.missionRewardClaimed
         || left.currencyUnlocked != right.currencyUnlocked
@@ -202,6 +211,7 @@ tribe::GameState richState() {
     state.rockfangStrength = 17;
     state.actingLeaderName = "青枝（代理）";
     state.discovered[static_cast<std::size_t>(tribe::WorldLocationId::TidesaltHarbor)] = true;
+    state.outposts[static_cast<std::size_t>(tribe::WorldLocationId::RedPlain)] = true;
     state.buildings[static_cast<std::size_t>(tribe::BuildingId::Granary)] = true;
     state.technologies[static_cast<std::size_t>(tribe::TechnologyId::FoodPreservation)] = true;
 
@@ -246,6 +256,7 @@ tribe::GameState richState() {
     state.squads.front().eliteExperience = 87;
     state.squads.front().personallyDeployedThisSeason = true;
     state.squads.front().refusingOrders = true;
+    state.squads.front().station = tribe::WorldLocationId::RedPlain;
     state.war = {false, tribe::TribeId::Tidesalt, "石刃=统帅", 7, 5, 31, 19, 2,
         tribe::WarOrder::Flank, true};
     state.currencyUnlocked = true;
@@ -264,7 +275,6 @@ tribe::GameState missionState() {
     REQUIRE(game.execute("mission forest").success);
     REQUIRE(game.execute("equip mainhand spare_knife").success);
     REQUIRE(game.execute("move forest").success);
-    REQUIRE(game.execute("move deep").success);
     REQUIRE(game.execute("gather herbs").success);
     REQUIRE(game.state().phase == tribe::GamePhase::Mission);
     REQUIRE(game.state().activeMission.has_value());
@@ -491,7 +501,7 @@ TEST_CASE("campaign save rejects a wrong version and checksum without mutating d
     REQUIRE(validBytes.size() > 20U);
 
     std::string wrongVersion = validBytes;
-    wrongVersion[8] = 3;
+    wrongVersion[8] = 2;
     wrongVersion[9] = 0;
     wrongVersion[10] = 0;
     wrongVersion[11] = 0;
@@ -500,6 +510,7 @@ TEST_CASE("campaign save rejects a wrong version and checksum without mutating d
     const tribe::GameState before = destination;
     REQUIRE(!repository.load(tribe::SaveSlot::Slot3, destination, error));
     REQUIRE(error.find("版本") != std::string::npos);
+    REQUIRE(error.find("新开局") != std::string::npos);
     REQUIRE(sameCampaign(destination, before));
 
     std::string wrongChecksum = validBytes;

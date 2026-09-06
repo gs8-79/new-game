@@ -52,6 +52,7 @@ class ConsoleUI {
     void writeCentered(UiColor color, std::string_view text);
     void writeRule(char fill = '-');
     void writeSection(std::string_view title);
+    void renderMission(const GameEngine &game, std::string_view message);
     void flushPage();
 
     std::ostream &destination_;

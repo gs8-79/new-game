@@ -301,27 +301,25 @@ void ConsoleUI::renderHelpPage(const int topic) {
         writeSection("首次游玩");
         output_ << "  从封面选择开始游戏，再选择8、16或32季旅程。数字命令最适合新手。\n"
                 << "  每季行动点有限；先保证食物，再逐步探索、建设和外交。\n";
-        output_ << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看可去的地点。\n"
-                << "  示例：3 → 4 → 8。食物不足会导致人口损失，冬季要提前备粮。\n"
+        output_ << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看全地图，再用 5 派小队。\n"
+                << "  示例：5 → move forest → gather food → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
                 << "  快速模式从第9季开始，到第16季结束；正式从第1季开始。\n";
     } else if (topic == 2) {
         writeSection("经营建设");
-        output_ << "  1 状态  2 地图  3 采集食物  4 采集木材  8 结束季节\n"
-                << "  gather/采集  scout/侦察  build/建造  research/研究\n";
-        output_ << "  采集 <食物|木材|石料|草药>；侦察 <地图中的相邻地点>\n"
+        output_ << "  1 状态  2 地图  5 小队地图任务  8 结束季节\n"
+                << "  build/建造  research/研究；经营界面不能直接采集或侦察\n";
+        output_ << "  资源与新地点必须由小队进入十六地点地图取得。\n"
                 << "  建造 <粮仓|木墙|工坊|医者小屋|瞭望塔|议事火坛>\n"
-                << "  研究 <技术名>；示例：采集 食物、建造 粮仓。\n"
+                << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
                 << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需工坊。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
-        output_ << "  5 进入苍林任务；任务中可移动、采集、交谈、贸易、战斗和回营。\n"
-                << "  move/移动  gather/采集  order/下令  attack/攻击  return/回营\n";
-        output_ << "  小队：7/squads；squadtask <采集|巡逻|侦察|护送|训练|停止>\n"
-                << "  squadrest 休整；任务路线：移动 苍林 → 移动 深林 → 采集 草药 → 回营。\n"
-                << "  战斗：攻击、防御、下令 <集火|坚守|突进|后撤>；胜利后 搜取。\n"
-                << "  look/查看 查询任务与物品详情；使用 <药包|草药|口粮>。\n"
-                << "  装备 <主手|副手|头部|身体|手部|腿脚|工具|饰品> <物品编号>。\n";
+        output_ << "  5 或 mission 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
+                << "  move/移动 <地点>  gather/采集 <资源>  look/查看\n";
+        output_ << "  build outpost/建造 前哨：现场消耗木材6、石料4。\n"
+                << "  settle/结算：只能在营地或前哨卸货；结算后小队驻留当地。\n"
+                << "  小队：7/squads；squadtask <巡逻|侦察|护送|训练|停止>；squadrest 休整。\n";
     } else if (topic == 4) {
         writeSection("外交贸易");
         output_ << "  talk/交谈  gift/送礼  trade/贸易  openroute/开通商路  marry/联姻\n";
@@ -349,9 +347,70 @@ void ConsoleUI::renderHelpPage(const int topic) {
     prompt(topic == 0 ? "\n输入1至6，或 B/Enter 返回 > " : "\n输入1至6切换分类，B/Enter 返回 > ");
 }
 
-void ConsoleUI::renderGame(const GameEngine &game, const std::string_view message) {
+void ConsoleUI::renderMission(const GameEngine &game, const std::string_view message) {
     clear();
     const GameState &state = game.state();
+    writeRule('=');
+    writeCentered(UiColor::Title, "《燧火纪：部落黎明》· 小队地图");
+    writeCentered(UiColor::Dim, "离开营地后，只听道路、风声与队友的脚步。输入指令继续探索。");
+    writeRule('=');
+
+    const ExpansionState &mission = *state.activeMission;
+    const auto &locations = GameEngine::worldLocations();
+    const Character &captain = mission.squad.members[mission.squad.leaderIndex];
+    writeSection("道路地图");
+    output_ << "  图例：◎当前位置  ●已发现  ▲已建前哨  ？未发现\n";
+    for (std::size_t index = 0; index < locations.size(); ++index) {
+        const bool here = mission.worldLocation == static_cast<int>(index);
+        const char *marker = here ? "◎" : mission.outposts[index] ? "▲" : mission.worldDiscovered[index] ? "●" : "？";
+        output_ << "  " << marker << ' ' << (index + 1U) << '.';
+        if (mission.worldDiscovered[index] || here) {
+            output_ << locations[index].name << "  → ";
+            bool first = true;
+            for (const WorldLocationId neighbor : locations[index].neighbors) {
+                if (!first) output_ << "、";
+                const std::size_t neighborIndex = indexOf(neighbor);
+                output_ << (neighborIndex + 1U);
+                if (mission.worldDiscovered[neighborIndex]) output_ << '.' << locations[neighborIndex].name;
+                first = false;
+            }
+        } else {
+            output_ << "未知地点";
+        }
+        output_ << '\n';
+    }
+
+    writeSection("小队现场");
+    output_ << "  " << ExpansionGame{mission}.lookText() << '\n';
+    output_ << "  队长 " << captain.name << "  生命 " << captain.life << "  疲劳 " << captain.fatigue
+            << "  任务回合 " << mission.turn << "  行动点 " << state.actionsLeft << '\n';
+
+    writeSection("现场记录");
+    output_ << "  " << (message.empty() ? "道路延伸到视线之外，等待你的指令。" : std::string(message)) << '\n';
+
+    writeSection("任务指令");
+    output_ << "  look/查看                 查看当前位置、可采资源和最近结算点\n"
+            << "  move/移动 <编号或地点>    沿相邻道路前进，例如：move 2\n"
+            << "  gather/采集 <资源>        在对应地点把资源装入小队载货\n"
+            << "  build outpost/建造 前哨   消耗载货木材6、石料4，建立结算点\n"
+            << "  settle/结算               仅在营地或前哨结算并返回部落\n"
+            << "  talk/gift/trade 等         在部落接触地点外交；对象由当前位置确定\n"
+            << "  attack/defend/retreat      岩牙要塞遭遇；装备会影响战斗\n"
+            << "  equip/装备 <栏位> <物品>  更换队长装备，例如：equip mainhand spare_knife\n"
+            << "  abort/放弃任务            空载返回营地（稳定-2）\n"
+            << "  save/保存 <1至6>  quit/退出\n";
+    writeRule();
+    prompt("地图指令 > ");
+}
+
+void ConsoleUI::renderGame(const GameEngine &game, const std::string_view message) {
+    const GameState &state = game.state();
+    if (state.phase == GamePhase::Mission && state.activeMission) {
+        renderMission(game, message);
+        return;
+    }
+
+    clear();
     writeRule('=');
     writeCentered(UiColor::Title, "《燧火纪：部落黎明》");
     writeCentered(UiColor::Dim, GameEngine::modeName(state.mode) + "  |  第" + std::to_string(state.season) +
@@ -392,29 +451,14 @@ void ConsoleUI::renderGame(const GameEngine &game, const std::string_view messag
                               : relation.alliance ? UiColor::Friendly
                                                   : UiColor::Neutral;
         write(color, GameEngine::tribeName(tribe) + " " + std::to_string(relation.relation));
-        if (relation.atWar)
-            output_ << "[战]";
-        else if (relation.alliance)
-            output_ << "[盟]";
-        else if (relation.tradeRoute)
-            output_ << "[商]";
+        if (relation.atWar) output_ << "[战]";
+        else if (relation.alliance) output_ << "[盟]";
+        else if (relation.tradeRoute) output_ << "[商]";
         output_ << (index + 1U == kTribeCount ? '\n' : ' ');
     }
 
     writeSection("当前局面");
-    if (state.phase == GamePhase::Mission && state.activeMission) {
-        // 苍林任务使用共同的小队组件，显示其实时资源与队长状态。
-        const ExpansionState &mission = *state.activeMission;
-        output_ << "  苍林任务：" << ExpansionGame::phaseName(mission.phase) << " / "
-                << ExpansionGame::locationName(mission.location) << "，回合 " << mission.turn;
-        if (mission.phase == ExpansionPhase::FrontlineCombat) {
-            output_ << "，战线 " << mission.frontline << "/3，敌方生命 " << mission.enemyLife;
-        }
-        output_ << '\n';
-        const Character &captain = mission.squad.members[mission.squad.leaderIndex];
-        output_ << "  队长 " << captain.name << "  生命 " << captain.life << "  疲劳 " << captain.fatigue
-                << "  口粮 " << mission.supplies << "  药包 " << mission.medicine << '\n';
-    } else if (state.phase == GamePhase::War) {
+    if (state.phase == GamePhase::War) {
         output_ << "  部落战争：对" << GameEngine::tribeName(state.war.enemy) << "，战线 " << state.war.front
                 << "/3，己方战力 " << state.war.playerPower << "，敌方战力 " << state.war.enemyPower << '\n';
     } else if (state.phase == GamePhase::Finished) {
@@ -435,7 +479,7 @@ void ConsoleUI::renderGame(const GameEngine &game, const std::string_view messag
 
     writeSection("可用命令");
     if (state.phase == GamePhase::Mission) {
-        output_ << "  移动 采集 交谈 贸易 劫掠 攻击 防御 下令 搜取 回营 放弃任务\n";
+        output_ << "  查看 移动 <地点> 采集 <资源> 建造 前哨 结算 放弃任务\n";
     } else if (state.phase == GamePhase::War) {
         output_ << "  攻击 防御 下令 <推进|坚守|集火|包抄|掩护|撤退> 撤退\n";
     } else if (state.phase == GamePhase::EndingChoice) {
@@ -443,8 +487,9 @@ void ConsoleUI::renderGame(const GameEngine &game, const std::string_view messag
     } else if (state.phase == GamePhase::Finished) {
         output_ << "  重新播放  人物  编年史  继续沙盒  返回主菜单\n";
     } else {
-        output_ << "  1状态  2地图  3食物  4木材  5苍林任务  6外交  7小队  8结束季节  9帮助\n"
-                << "  经营：采集 侦察 建造 研究    外交：交谈 送礼 贸易 开通商路 联姻\n";
+        output_ << "  1状态  2地图  5小队地图任务  6外交  7小队  8结束季节  9帮助\n"
+                << "  经营：建造 研究    小队地图：移动 采集 建造前哨 结算\n"
+                << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
     }
     output_ << "  存档：save/保存 <1至6>  load/读取 <1至6|auto>  返回：back  退出：quit\n";
     writeRule();
