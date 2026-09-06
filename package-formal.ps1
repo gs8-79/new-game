@@ -1,3 +1,4 @@
+﻿# Keep UTF-8 BOM: Windows PowerShell 5.1 otherwise misreads Chinese strings.
 param(
     [string]$Destination = [Environment]::GetFolderPath('Desktop'),
     [switch]$SkipBuild
@@ -17,8 +18,8 @@ if (Test-Path -LiteralPath $stageRoot) {
     Remove-Item -LiteralPath $stageRoot -Recurse -Force
 }
 
-$windowsName = '燧火纪-部落黎明-大型扩展V2-Windows-x64'
-$sourceName = '燧火纪-部落黎明-大型扩展V2-源码-Windows-Mac'
+$windowsName = '燧火纪-部落黎明-Windows-x64'
+$sourceName = '燧火纪-部落黎明-源码-Windows-Mac'
 $windowsRoot = Join-Path $stageRoot $windowsName
 $sourceRoot = Join-Path $stageRoot $sourceName
 New-Item -ItemType Directory -Path $windowsRoot, $sourceRoot -Force | Out-Null
@@ -32,6 +33,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal\package\开始游戏.cmd
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal\package\试玩说明.txt') -Destination $windowsRoot
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'CMakeLists.txt') -Destination $sourceRoot
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $sourceRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '.gitignore') -Destination $sourceRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal') -Destination $sourceRoot -Recurse
 New-Item -ItemType Directory -Path (Join-Path $sourceRoot 'tests') -Force | Out-Null

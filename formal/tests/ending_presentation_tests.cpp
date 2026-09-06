@@ -8,16 +8,16 @@
 
 namespace {
 
-const std::array<tribe::CampaignEnding, 5> kCompletedEndings{{
-    tribe::CampaignEnding::Alliance,
-    tribe::CampaignEnding::Conquest,
-    tribe::CampaignEnding::Prosperity,
-    tribe::CampaignEnding::Migration,
-    tribe::CampaignEnding::Extinction,
+const std::array<tribe::GameEnding, 5> kCompletedEndings{{
+    tribe::GameEnding::Alliance,
+    tribe::GameEnding::Conquest,
+    tribe::GameEnding::Prosperity,
+    tribe::GameEnding::Migration,
+    tribe::GameEnding::Extinction,
 }};
 
 tribe::EndingSummary sampleSummary() {
-    return {tribe::CampaignEnding::Alliance,
+    return {tribe::GameEnding::Alliance,
         "联盟共主",
         "六族围坐在同一簇长火旁，旧日边界成为共同守望的道路。",
         {"人口：24", "盟友：3", "完成任务：8"},
@@ -54,7 +54,7 @@ TEST_CASE("ending presentation provides four to six distinct ASCII frames for ev
 
 TEST_CASE("ending presentation static fallback emits only the final frame") {
     auto summary = sampleSummary();
-    summary.ending = tribe::CampaignEnding::Migration;
+    summary.ending = tribe::GameEnding::Migration;
     summary.title = "迁徙新生";
     const auto frames = tribe::EndingPresentation::framesFor(summary.ending);
 

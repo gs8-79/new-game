@@ -1,3 +1,4 @@
+﻿# Keep UTF-8 BOM: Windows PowerShell 5.1 otherwise misreads Chinese strings.
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
