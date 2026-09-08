@@ -29,7 +29,6 @@ constexpr std::size_t kMaximumSquadMembers = 8U;
 constexpr std::size_t kMaximumInventoryItems = 64U;
 constexpr std::size_t kMaximumLeadershipEntries = 256U;
 constexpr std::size_t kMaximumChronicleEntries = 200U;
-constexpr std::uint32_t kSquadBackpackExtension = 0x314B5053U; // "SPK1" in little endian.
 
 class BufferWriter {
 public:
@@ -292,7 +291,6 @@ void writeExpansionSquad(BufferWriter& writer, const Squad& squad) {
     writer.writeU32(static_cast<std::uint32_t>(squad.members.size()));
     for (const Character& member : squad.members) writeCharacter(writer, member);
     writer.writeU32(static_cast<std::uint32_t>(squad.leaderIndex));
-    writeEnum(writer, squad.residentMission);
     writer.writeInt(squad.cohesion);
 }
 
@@ -310,9 +308,7 @@ bool readExpansionSquad(BufferReader& reader, Squad& squad) {
         if (!readCharacter(reader, character)) return false;
         squad.members.push_back(std::move(character));
     }
-    if (!reader.readU32(leaderIndex) || leaderIndex >= count
-        || !readEnum(reader, squad.residentMission, ResidentMission::None, ResidentMission::Train)
-        || !reader.readInt(squad.cohesion)) {
+    if (!reader.readU32(leaderIndex) || leaderIndex >= count || !reader.readInt(squad.cohesion)) {
         return false;
     }
     squad.leaderIndex = leaderIndex;
@@ -323,31 +319,9 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeU32(state.seed);
     writer.writeInt(state.turn);
     writeEnum(writer, state.phase);
-    writeEnum(writer, state.location);
-    writeEnum(writer, state.foreignStance);
-    writeEnum(writer, state.order);
     writeExpansionSquad(writer, state.squad);
-    writeInventory(writer, state.inventory);
-    writer.writeInt(state.supplies);
-    writer.writeInt(state.herbs);
-    writer.writeInt(state.hides);
-    writer.writeInt(state.medicine);
-    writer.writeInt(state.tradeGoods);
-    writer.writeInt(state.frontline);
-    writer.writeInt(state.enemyLife);
-    writer.writeInt(state.enemySpeed);
-    writer.writeInt(state.leaderActions);
-    writer.writeInt(state.followerActions);
-    writer.writeInt(state.dodges);
-    writer.writeInt(state.lastPlayerInitiative);
-    writer.writeInt(state.lastEnemyInitiative);
-    writer.writeBool(state.traded);
-    writer.writeBool(state.battleWon);
-    writer.writeBool(state.retreated);
-    writer.writeBool(state.missionFailed);
-    writer.writeBool(state.lootAvailable);
+    writeInventory(writer, state.backpack);
     writer.writeBool(state.settled);
-    writer.writeBool(state.worldMode);
     writer.writeInt(state.worldLocation);
     writeBoolArray(writer, state.worldDiscovered);
     writeBoolArray(writer, state.outposts);
@@ -355,36 +329,29 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeInt(state.cargoWood);
     writer.writeInt(state.cargoStone);
     writer.writeInt(state.cargoHerbs);
+    writer.writeInt(state.cargoHides);
     writer.writeInt(state.harvestActions);
     writer.writeInt(state.cargoCapacity);
     writer.writeInt(state.foodGatherBonus);
     writer.writeInt(state.herbGatherBonus);
-    writer.writeBool(state.rockfangFortCleared);
+    writer.writeInt(state.assignedResource);
+    writer.writeInt(state.crewSize);
+    writer.writeInt(state.encounterLife);
+    writer.writeBool(state.encounterDefeated);
 }
 
 bool readExpansionState(BufferReader& reader, ExpansionState& state) {
     if (!reader.readU32(state.seed) || !reader.readInt(state.turn)
-        || !readEnum(reader, state.phase, ExpansionPhase::CampPreparation, ExpansionPhase::ReturnSettlement)
-        || !readEnum(reader, state.location, ExpansionLocation::Camp, ExpansionLocation::StrangerClearing)
-        || !readEnum(reader, state.foreignStance, ForeignStance::Unknown, ForeignStance::Defeated)
-        || !readEnum(reader, state.order, SquadOrder::Follow, SquadOrder::Withdraw)
-        || !readExpansionSquad(reader, state.squad) || !readInventory(reader, state.inventory)
-        || !reader.readInt(state.supplies) || !reader.readInt(state.herbs)
-        || !reader.readInt(state.hides) || !reader.readInt(state.medicine)
-        || !reader.readInt(state.tradeGoods) || !reader.readInt(state.frontline)
-        || !reader.readInt(state.enemyLife) || !reader.readInt(state.enemySpeed)
-        || !reader.readInt(state.leaderActions) || !reader.readInt(state.followerActions)
-        || !reader.readInt(state.dodges) || !reader.readInt(state.lastPlayerInitiative)
-        || !reader.readInt(state.lastEnemyInitiative) || !reader.readBool(state.traded)
-        || !reader.readBool(state.battleWon) || !reader.readBool(state.retreated)
-        || !reader.readBool(state.missionFailed) || !reader.readBool(state.lootAvailable)
-        || !reader.readBool(state.settled) || !reader.readBool(state.worldMode)
+        || !readEnum(reader, state.phase, ExpansionPhase::Exploring, ExpansionPhase::Settled)
+        || !readExpansionSquad(reader, state.squad) || !readInventory(reader, state.backpack)
+        || !reader.readBool(state.settled)
         || !reader.readInt(state.worldLocation) || !readBoolArray(reader, state.worldDiscovered)
         || !readBoolArray(reader, state.outposts) || !reader.readInt(state.cargoFood)
         || !reader.readInt(state.cargoWood) || !reader.readInt(state.cargoStone)
-        || !reader.readInt(state.cargoHerbs) || !reader.readInt(state.harvestActions)
+        || !reader.readInt(state.cargoHerbs) || !reader.readInt(state.cargoHides) || !reader.readInt(state.harvestActions)
         || !reader.readInt(state.cargoCapacity) || !reader.readInt(state.foodGatherBonus)
-        || !reader.readInt(state.herbGatherBonus) || !reader.readBool(state.rockfangFortCleared)) {
+        || !reader.readInt(state.herbGatherBonus) || !reader.readInt(state.assignedResource) || !reader.readInt(state.crewSize)
+        || !reader.readInt(state.encounterLife) || !reader.readBool(state.encounterDefeated)) {
         return false;
     }
     return static_cast<bool>(ExpansionGame::validateState(state));
@@ -464,7 +431,6 @@ void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
     writer.writeString(squad.captain);
     writer.writeU32(static_cast<std::uint32_t>(squad.members.size()));
     for (const std::string& member : squad.members) writer.writeString(member);
-    writeEnum(writer, squad.residentMission);
     writer.writeInt(squad.fatigue);
     writer.writeInt(squad.eliteExperience);
     writer.writeBool(squad.personallyDeployedThisSeason);
@@ -485,8 +451,7 @@ bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
         if (!reader.readString(member)) return false;
         squad.members.push_back(std::move(member));
     }
-    return readEnum(reader, squad.residentMission, ResidentMission::None, ResidentMission::Train)
-        && reader.readInt(squad.fatigue) && reader.readInt(squad.eliteExperience)
+    return reader.readInt(squad.fatigue) && reader.readInt(squad.eliteExperience)
         && reader.readBool(squad.personallyDeployedThisSeason)
         && reader.readBool(squad.refusingOrders)
         && readEnum(reader, squad.station, WorldLocationId::Camp, WorldLocationId::CliffTradeRoad);
@@ -500,19 +465,27 @@ void writeWar(BufferWriter& writer, const WarState& war) {
     writer.writeInt(war.militia);
     writer.writeInt(war.playerPower);
     writer.writeInt(war.enemyPower);
-    writer.writeInt(war.front);
     writeEnum(writer, war.order);
     writer.writeBool(war.riskConfirmed);
+    writer.writeInt(war.spearMilitia);
+    writer.writeInt(war.shieldBearers);
+    writer.writeInt(war.heavySpears);
+    writer.writeU32(static_cast<std::uint32_t>(war.lockedEquipment.size()));
+    for (const Item& item : war.lockedEquipment) writeItem(writer, item);
+    writer.writeBool(war.defensive);
 }
 
 bool readWar(BufferReader& reader, WarState& war) {
-    return reader.readBool(war.active)
-        && readEnum(reader, war.enemy, TribeId::Player, TribeId::Blackstone)
-        && reader.readString(war.commander) && reader.readInt(war.warriors)
-        && reader.readInt(war.militia) && reader.readInt(war.playerPower)
-        && reader.readInt(war.enemyPower) && reader.readInt(war.front)
-        && readEnum(reader, war.order, WarOrder::Advance, WarOrder::Retreat)
-        && reader.readBool(war.riskConfirmed);
+    std::uint32_t count = 0;
+    if (!reader.readBool(war.active) || !readEnum(reader, war.enemy, TribeId::Player, TribeId::Blackstone)
+        || !reader.readString(war.commander) || !reader.readInt(war.warriors) || !reader.readInt(war.militia)
+        || !reader.readInt(war.playerPower) || !reader.readInt(war.enemyPower)
+        || !readEnum(reader, war.order, WarOrder::Advance, WarOrder::Retreat) || !reader.readBool(war.riskConfirmed)
+        || !reader.readInt(war.spearMilitia) || !reader.readInt(war.shieldBearers) || !reader.readInt(war.heavySpears)
+        || !reader.readU32(count) || count > kMaximumInventoryItems) return false;
+    war.lockedEquipment.clear();
+    for (std::uint32_t i = 0; i < count; ++i) { Item item; if (!readItem(reader, item)) return false; war.lockedEquipment.push_back(std::move(item)); }
+    return reader.readBool(war.defensive);
 }
 
 void writeChronicle(BufferWriter& writer, const ChronicleEntry& entry) {
@@ -539,6 +512,7 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeInt(state.wood);
     writer.writeInt(state.stone);
     writer.writeInt(state.herbs);
+    writer.writeInt(state.hides);
     writer.writeInt(state.warriors);
     writer.writeInt(state.morale);
     writer.writeInt(state.campDurability);
@@ -550,7 +524,6 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeInt(state.missionCount);
     writer.writeInt(state.missionDeaths);
     writer.writeInt(state.highestLevel);
-    writer.writeInt(state.rockfangStrength);
     writer.writeString(state.tribeName);
     writer.writeString(state.leaderName);
     writer.writeString(state.actingLeaderName);
@@ -571,10 +544,8 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
 
     writer.writeBool(state.activeMission.has_value());
     if (state.activeMission) writeExpansionState(writer, *state.activeMission);
-    writer.writeBool(state.missionRewardClaimed);
     writeWar(writer, state.war);
     writer.writeBool(state.currencyUnlocked);
-    writer.writeBool(state.rockfangFortCaptured);
     writer.writeBool(state.longModeFinalShown);
     writeEnum(writer, state.ending);
 
@@ -583,10 +554,14 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeU32(static_cast<std::uint32_t>(state.chronicle.size()));
     for (const ChronicleEntry& entry : state.chronicle) writeChronicle(writer, entry);
 
-    // 背包是长期小队的一部分，缺失时必须拒绝加载，避免静默丢失物品。
-    writer.writeU32(kSquadBackpackExtension);
-    writer.writeU32(static_cast<std::uint32_t>(state.squads.size()));
-    for (const PermanentSquad& squad : state.squads) writeInventory(writer, squad.backpack);
+    writer.writeInt(state.workforce.foodCrew); writer.writeInt(state.workforce.woodCrew); writer.writeInt(state.workforce.stoneCrew); writer.writeInt(state.workforce.herbCrew);
+    writer.writeInt(state.workforce.crafters); writer.writeInt(state.workforce.healers); writer.writeInt(state.workforce.scouts); writer.writeInt(state.workforce.envoys); writer.writeInt(state.workforce.campGuards);
+    writer.writeBool(state.pendingEvent.active); writer.writeString(state.pendingEvent.name); writer.writeString(state.pendingEvent.optionOne); writer.writeString(state.pendingEvent.optionTwo);
+    writer.writeString(state.workshopSupervisor); writer.writeString(state.healerSupervisor);
+    for (const int guard : state.workforce.outpostGuards) writer.writeInt(guard);
+    for (const int idle : state.workforce.outpostIdleSeasons) writer.writeInt(idle);
+    writer.writeU32(static_cast<std::uint32_t>(state.stockpile.size())); for (const Item& item : state.stockpile) writeItem(writer, item);
+    for (const OccupationState& site : state.occupations) { writer.writeBool(site.occupied); writer.writeInt(site.garrison); writer.writeInt(site.unrest); }
 }
 
 bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
@@ -596,13 +571,13 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         || !reader.readInt(state.seasonLimit) || !reader.readInt(state.actionsLeft)
         || !reader.readInt(state.population) || !reader.readInt(state.food)
         || !reader.readInt(state.wood) || !reader.readInt(state.stone)
-        || !reader.readInt(state.herbs) || !reader.readInt(state.warriors)
+        || !reader.readInt(state.herbs) || !reader.readInt(state.hides) || !reader.readInt(state.warriors)
         || !reader.readInt(state.morale) || !reader.readInt(state.campDurability)
         || !reader.readInt(state.stability) || !reader.readInt(state.shells)
         || !reader.readInt(state.tradeCount) || !reader.readInt(state.warsWon)
         || !reader.readInt(state.warsLost) || !reader.readInt(state.missionCount)
         || !reader.readInt(state.missionDeaths) || !reader.readInt(state.highestLevel)
-        || !reader.readInt(state.rockfangStrength) || !reader.readString(state.tribeName)
+        || !reader.readString(state.tribeName)
         || !reader.readString(state.leaderName) || !reader.readString(state.actingLeaderName)
         || !reader.readString(state.leaderFocus) || !readBoolArray(reader, state.discovered)
         || !readBoolArray(reader, state.outposts)
@@ -680,8 +655,7 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
     } else {
         state.activeMission.reset();
     }
-    if (!reader.readBool(state.missionRewardClaimed) || !readWar(reader, state.war)
-        || !reader.readBool(state.currencyUnlocked) || !reader.readBool(state.rockfangFortCaptured)
+    if (!readWar(reader, state.war) || !reader.readBool(state.currencyUnlocked)
         || !reader.readBool(state.longModeFinalShown)
         || !readEnum(reader, state.ending, GameEnding::None, GameEnding::Extinction)) {
         error = "存档的任务、战争或结局字段损坏。";
@@ -722,24 +696,15 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         state.chronicle.push_back(std::move(entry));
     }
 
-    {
-        std::uint32_t extension = 0;
-        std::uint32_t backpackCount = 0;
-        if (!reader.readU32(extension) || extension != kSquadBackpackExtension) {
-            error = "存档包含无法识别的扩展字段。";
-            return false;
-        }
-        if (!reader.readU32(backpackCount) || backpackCount != state.squads.size()) {
-            error = "存档的小队背包数量无效。";
-            return false;
-        }
-        for (std::uint32_t index = 0; index < backpackCount; ++index) {
-            if (!readInventory(reader, state.squads[index].backpack)) {
-                error = "存档的小队背包字段损坏。";
-                return false;
-            }
-        }
-    }
+    if (!reader.readInt(state.workforce.foodCrew) || !reader.readInt(state.workforce.woodCrew) || !reader.readInt(state.workforce.stoneCrew) || !reader.readInt(state.workforce.herbCrew)
+        || !reader.readInt(state.workforce.crafters) || !reader.readInt(state.workforce.healers) || !reader.readInt(state.workforce.scouts) || !reader.readInt(state.workforce.envoys) || !reader.readInt(state.workforce.campGuards)
+        || !reader.readBool(state.pendingEvent.active) || !reader.readString(state.pendingEvent.name) || !reader.readString(state.pendingEvent.optionOne) || !reader.readString(state.pendingEvent.optionTwo)
+        || !reader.readString(state.workshopSupervisor) || !reader.readString(state.healerSupervisor)) { error = "存档的当前玩法字段损坏。"; return false; }
+    for (int& guard : state.workforce.outpostGuards) if (!reader.readInt(guard)) { error = "存档前哨守卫字段损坏。"; return false; }
+    for (int& idle : state.workforce.outpostIdleSeasons) if (!reader.readInt(idle)) { error = "存档前哨维护字段损坏。"; return false; }
+    std::uint32_t stockCount = 0; if (!reader.readU32(stockCount) || stockCount > kMaximumInventoryItems) { error = "存档仓库数量无效。"; return false; }
+    state.stockpile.clear(); for (std::uint32_t i=0;i<stockCount;++i) { Item item; if(!readItem(reader,item)){error="存档仓库物品损坏。";return false;} state.stockpile.push_back(std::move(item)); }
+    for (OccupationState& site : state.occupations) if (!reader.readBool(site.occupied) || !reader.readInt(site.garrison) || !reader.readInt(site.unrest)) { error="存档占领字段损坏。";return false; }
     if (!GameEngine::validateState(state, error)) return false;
     error.clear();
     return true;
@@ -781,8 +746,7 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
         return false;
     }
     if (!fileReader.readU32(version) || version != static_cast<std::uint32_t>(kSaveVersion)) {
-        error = version == 2U ? "版本2旧存档不再支持，请新开局；原文件未被修改。"
-                              : "不支持的游戏存档版本。";
+        error = "旧版本存档不支持，需要新开局；原文件未被修改。";
         return false;
     }
     if (!fileReader.readU32(payloadSize) || payloadSize > kMaximumSaveBytes

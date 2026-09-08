@@ -107,13 +107,10 @@ private:
     std::vector<Item> items_;
 };
 
-enum class ResidentMission { None = 0, Gather, Patrol, Explore, Escort, Train };
-
 struct Squad {
     std::string name;
     std::vector<Character> members;
     std::size_t leaderIndex = 0;
-    ResidentMission residentMission = ResidentMission::None;
     int cohesion = 50;
 };
 

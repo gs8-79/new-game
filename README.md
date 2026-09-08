@@ -1,36 +1,64 @@
 # 《燧火纪：部落黎明》
 
-C++17 单机控制台策略游戏。领导燧火部落经营资源、组织小队沿道路探索16处地点并在营地或前哨结算，处理六部落外交与战争，在季节结束时决定部落的去向。
+C++17 单机控制台策略游戏。你将带领燧火部落探索十六地点道路地图、组织人口分工、制造装备、征召军队，并通过外交、战争、占领和季末抉择延续火种。
 
 ## 开始游玩
 
-Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试，再进入封面。首次启动需安装 Visual Studio 的 C++ 桌面开发、CMake 和 Ninja 组件。
+Windows 下双击项目根目录的 `开始正式版.cmd`。它会构建并运行测试后进入封面。首次运行需要 Visual Studio 的“使用 C++ 的桌面开发”组件、CMake 与 Ninja。
 
-封面采用居中篝火封面，输入数字后按 Enter：
+封面输入数字后按 Enter：
 
-| 封面选项 | 功能 |
+| 选项 | 功能 |
 | --- | --- |
-| 1 开始游戏 | 再选择1快速、2正式、3长期 |
-| 2 读取存档 | A自动档，1至6手动档，B返回 |
-| 3 游戏帮助 | 1至6查看分类，B或Enter逐级返回 |
+| 1 开始游戏 | 选择快速、正式或长期模式 |
+| 2 读取存档 | 读取 A 自动档或 1 至 6 手动档 |
+| 3 游戏帮助 | 查看分类指令说明 |
 | 4 退出游戏 | 关闭游戏 |
 
-快速游戏从第9季到第16季，共8个可玩季节；正式游戏从第1季到第16季；长期游戏从第1季到第32季，非覆灭结局后可继续沙盒。
-推荐至少80列、30行的终端窗口；更窄时文本会按显示列数换行。需要使用支持中文的等宽字体。
+三种模式均从第一季开始：快速 8 季、正式 16 季、长期 32 季；长期模式在非覆灭结局后可继续沙盒。建议使用至少 80 列、30 行并支持中文的等宽终端。
 
-## 操作与存档
+## 当前玩法循环
 
-游戏内：`1`状态、`2`地图、`5`小队地图任务、`6`外交、`7`小队、`8`结束季节、`9`帮助。`3`、`4`、经营界面的`gather`和`scout`已移除；进入小队地图后使用`move`、`gather`、`build outpost`、`settle`，并可在部落接触点外交、在岩牙要塞进行小队遭遇。
-完整参数、资源名称和注意事项在游戏帮助分类中。
+```text
+地图探索采集 → 营地或前哨结算 → 劳力维护建筑 → 制造并装备物品
+       ↑                                               ↓
+季末事件、派系与外交 ← 战争、占领、驻军 ← 按库存征召军队
+```
 
-`save 1` / `保存 1` 写入手动档，覆盖前需输入 `y` 或 `是`；`load 1` / `读取 1` 读取手动档，`load auto` 读取自动档。
-新局、季节结算、结局以及正常返回或退出时自动保存。`back` / `返回主菜单` 返回封面，`quit` / `退出` 保存后退出。失败时游戏继续等待操作；`forcequit` / `强制退出` 放弃未保存进度。
+- 资源只能由小队在十六地点地图中装载后，回到燧火营地或有守卫的前哨结算获得；经营界面没有直接采集或侦察。
+- `workforce/劳力` 查看分工，`assign/分配 <岗位> <人数>` 调整资源队、工匠、医者、侦察、使者和营地守卫。已配置的资源队会提高下一季行动容量。
+- 建筑与技术的材料、前置和收益可用 `buildings/建筑清单`、`technologies/技术清单` 查询。武备工坊需要至少一名工匠，才能制造或维修装备。
+- `inventory/仓库` 查看共享装备；`craft/制造`、`repair/维修`、`equip/装备` 将物品在仓库、人物、任务背包和军队间按唯一所有权流转。
+- `formarmy/组建军队` 按未锁定装备自动配发兵种；`war targets/战争目标`、`power/战力` 展示占领目标与完整战力计算；占领后要用 `garrison/驻军` 维持据点。
 
-启动脚本以项目目录运行，存档在 `saves/game`，包含 `slot1.sav` 至 `slot6.sav` 和 `autosave.sav`。存档页显示文件本地修改时间、模式、季节、首领和资源摘要，支持备份及中断保存恢复。直接运行可执行文件时，存档相对于当前工作目录。
+## 常用操作
 
-需要复现时在封面输入 `seed quick 7`、`seed standard 123` 或 `seed long 123`。文件格式与目录已统一，不提供历史格式迁移。
+游戏内：`1` 状态、`2` 地图、`5` 小队地图任务、`6` 外交、`7` 小队、`8` 结束季节、`9` 帮助。
 
-## 构建和测试
+在经营界面先分配劳力，再输入例如：
+
+```text
+assign wood 2
+mission wood
+```
+
+地图任务只显示道路图、任务指令和现场记录。移动、采集、回营结算的一条完整路线是：
+
+```text
+move forest → gather wood → move camp → settle
+```
+
+也可在前哨建设任务中携带 6 木材和 4 石料，抵达非营地地点后输入 `build outpost`。地图内使用 `look` 查看当前位置、相邻道路、载货、可采资源和结算点；`gather/采集` 仅在对应地图地点可用。
+
+旧经营面板的资源入口 `3`、`4`、`gather` 和 `scout` 已删除，不提供旧命令或旧存档兼容。
+
+## 存档
+
+`save 1` / `保存 1` 写入手动档；覆盖前需输入 `y` 或 `是`。`load 1` / `读取 1` 读取手动档，`load auto` 读取自动档。新局、季节结算、结局和正常退出时都会自动保存。
+
+存档位于 `saves/game`，含 `slot1.sav` 至 `slot6.sav` 及 `autosave.sav`。当前格式版本为 4；其他版本会提示需要新开局，且不会修改原文件。
+
+## 构建与测试
 
 Windows PowerShell：
 
@@ -40,9 +68,9 @@ Windows PowerShell：
 .\run-formal.ps1 -Configuration Release -SkipBuild
 ```
 
-`-Clean` 会重新编译生成物。常规开发可以省略。构建结果在 `out/Formal-Debug` 或 `out/Formal-Release`，自动测试由 CTest 调用 `tribe-formal-tests` 执行。
+构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖地图采集与失败原子性、前哨、劳力、装备、军队、草药、事件、存档和三种模式的季数。
 
-macOS 安装 CMake 和 Xcode Command Line Tools 后：
+macOS 安装 CMake 与 Xcode Command Line Tools 后：
 
 ```bash
 bash build-formal-macos.sh Release
@@ -51,20 +79,11 @@ bash run-formal-macos.sh Release
 
 macOS 实机验证仍待完成。
 
-## 代码结构
+## 代码结构与文档
 
-- `formal/src/main.cpp`：终端初始化与启动。
-- `application`：注入输入输出流的页面导航、保存与游戏循环。
-- `console_ui`：篝火主题、中文宽度、折行、帮助和状态面板。
-- `game_engine`：唯一主游戏的状态与规则。
-- `expansion_game/expansion_types`：主游戏使用的16地点地图任务、人物、装备、小队、前哨和背包。
-- `save_repository`：严格文件校验、只读摘要、原子保存与恢复。
-- `ending_presentation`：五种结局的演出与结算。
+- `formal/src/game_engine.cpp`：部落管理、劳力、外交、战争、结局和规则校验。
+- `formal/src/expansion_game.cpp`：十六地点任务地图、载货、前哨与遭遇。
+- `formal/src/console_ui.cpp`：控制台面板、道路图、现场记录与帮助页。
+- `formal/src/save_repository.cpp`：校验、原子保存、恢复与当前格式读取。
 
-## 交付与文档
-
-`package-formal.ps1` 默认构建测试后生成 Windows 试玩包和源码包。可用 `-Destination <目录>` 指定输出位置。
-
-[源码目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
-
-本轮改动在 `qianduan1` 分支开发，后续通过 Pull Request 合并。
+[游戏核心目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
