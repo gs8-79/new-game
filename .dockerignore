@@ -1,0 +1,12 @@
+# 构建产物与本地状态不进镜像上下文
+/out/
+/build/
+/saves/
+/.vs/
+/.git/
+*.user
+*.VC.db
+
+# 与容器化无关的文件
+Dockerfile
+docker-compose.yml

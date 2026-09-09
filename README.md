@@ -4,7 +4,7 @@ C++17 单机控制台策略游戏。领导燧火部落经营资源、组织小�
 
 ## 开始游玩
 
-Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试，再进入封面。首次启动需安装 Visual Studio 的 C++ 桌面开发、CMake 和 Ninja 组件。
+Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试，再进入封面。首次启动需安装 Visual Studio 的 C++ 桌面开发、CMake 和 Ninja 组件。不想装开发环境的话，安装 Docker 后双击 `开始Docker版.cmd` 即可，见下文「Docker 运行」一节。
 
 封面采用居中篝火封面，输入数字后按 Enter：
 
@@ -17,6 +17,28 @@ Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试�
 
 快速游戏从第9季到第16季，共8个可玩季节；正式游戏从第1季到第16季；长期游戏从第1季到第32季，非覆灭结局后可继续沙盒。
 推荐至少80列、30行的终端窗口；更窄时文本会按显示列数换行。需要使用支持中文的等宽字体。
+
+## Docker 运行（免装开发环境）
+
+任何装有 Docker 的电脑（Windows / macOS / Linux）都能直接运行，无需安装 Visual Studio、CMake 或 C++ 编译器。镜像构建时会在干净的 Debian 环境里编译并跑完全部自动测试，换机器结果一致。
+
+Windows：安装并启动 Docker Desktop 后，双击根目录的 `开始Docker版.cmd`（首次会自动构建镜像，需要联网），或手动执行：
+
+```powershell
+.\docker-build.ps1
+.\docker-run.ps1
+```
+
+macOS / Linux：
+
+```bash
+bash docker-build.sh
+bash docker-run.sh
+```
+
+也可以使用 Compose：`docker compose run --rm tribe-dawn`。
+
+存档通过目录挂载与宿主机互通：容器内 `/game/saves` 对应项目根目录的 `saves/`，删除容器不丢存档；本机构建版与 Docker 版共用同一套存档文件。终端窗口同样建议至少 80 列、30 行。
 
 ## 操作与存档
 

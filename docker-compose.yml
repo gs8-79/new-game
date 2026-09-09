@@ -1,0 +1,13 @@
+services:
+  tribe-dawn:
+    build: .
+    image: tribe-dawn:latest
+    # 封面与游戏界面需要交互式终端
+    stdin_open: true
+    tty: true
+    environment:
+      TERM: xterm-256color
+      LANG: C.UTF-8
+    volumes:
+      # 宿主机 saves/ 目录与容器内 /game/saves 互通，删除容器不丢存档
+      - ./saves:/game/saves

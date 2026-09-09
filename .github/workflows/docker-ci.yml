@@ -1,0 +1,32 @@
+name: Linux 构建与 Docker 验证
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-build-test:
+    name: Linux 编译与测试（cmake + ninja + ctest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装构建工具
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build
+      - name: CMake 配置（Release）
+        run: cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: 编译
+        run: cmake --build out
+      - name: 自动测试
+        run: ctest --test-dir out --output-on-failure
+
+  docker-build:
+    name: Docker 镜像构建与容器运行验证
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建镜像（构建阶段内含全部自动测试）
+        run: docker build -t tribe-dawn .
+      - name: 容器内启动游戏并选择退出（验证可运行）
+        run: printf '4\n' | docker run --rm -i tribe-dawn
