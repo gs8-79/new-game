@@ -20,7 +20,7 @@ Windows 双击项目根目录的 `开始正式版.cmd`，会先构建和测试�
 
 ## Docker 运行（免装开发环境）
 
-任何装有 Docker 的电脑（Windows / macOS / Linux）都能直接运行，无需安装 Visual Studio、CMake 或 C++ 编译器。镜像构建时会在干净的 Debian 环境里编译并跑完全部自动测试，换机器结果一致。
+任何装有 Docker 的电脑（Windows / macOS / Linux）都能直接运行，无需安装 Visual Studio、CMake 或 C++ 编译器。镜像构建时会在干净的 Debian 环境里编译并跑完全部自动测试，换机器结果一致。这里需要的是 Docker Desktop 或 Docker Engine（命令为 `docker`），不是 Docker Sandboxes（命令为 `sbx`）。
 
 Windows：安装并启动 Docker Desktop 后，双击根目录的 `开始Docker版.cmd`（首次会自动构建镜像，需要联网），或手动执行：
 
@@ -86,6 +86,8 @@ macOS 实机验证仍待完成。
 ## 交付与文档
 
 `package-formal.ps1` 默认构建测试后生成 Windows 试玩包和源码包。可用 `-Destination <目录>` 指定输出位置。
+
+`.github/workflows/docker-ci.yml` 在每次推送时于 GitHub Actions 的 Linux 环境自动编译、运行全部测试，并构建 Docker 镜像、在容器内启动游戏验证可运行。
 
 [源码目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
 
