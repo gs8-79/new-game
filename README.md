@@ -64,15 +64,6 @@ Windows PowerShell：
 
 `-Clean` 会重新编译生成物。常规开发可以省略。构建结果在 `out/Formal-Debug` 或 `out/Formal-Release`，自动测试由 CTest 调用 `tribe-formal-tests` 执行。
 
-不想装 Visual Studio 时，可用免安装的 w64devkit（GCC）直接编译 Windows 本机版：双击 `开始本机版.cmd`（首次自动下载工具链后编译运行），或手动执行：
-
-```powershell
-.\build-native.ps1 -Configuration Release
-.\run-native.ps1 -Configuration Release -SkipBuild
-```
-
-产物在 `out/Native-Release/tribe-dawn.exe`，静态链接、无需运行时 DLL。
-
 macOS 安装 CMake 和 Xcode Command Line Tools 后：
 
 ```bash
@@ -97,6 +88,8 @@ macOS 实机验证仍待完成。
 `package-formal.ps1` 默认构建测试后生成 Windows 试玩包和源码包。可用 `-Destination <目录>` 指定输出位置。
 
 `.github/workflows/docker-ci.yml` 在每次推送时于 GitHub Actions 的 Linux 环境自动编译、运行全部测试，并构建 Docker 镜像、在容器内启动游戏验证可运行。
+
+各平台（Windows / Linux / macOS，含 Intel 与 Apple Silicon）预编译二进制见 [GitHub Releases](https://github.com/gs8-79/new-game/releases)，由 `.github/workflows/release.yml` 在打 tag（`v*`）时自动构建并发布。
 
 [源码目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
 

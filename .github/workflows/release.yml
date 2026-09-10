@@ -1,0 +1,86 @@
+name: 发布多平台 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+            binary: tribe-dawn.exe
+            build_dir: build/Release
+          - os: ubuntu-latest
+            name: linux-x64
+            binary: tribe-dawn
+            build_dir: build
+          - os: macos-latest
+            name: macos-arm64
+            binary: tribe-dawn
+            build_dir: build
+          - os: macos-13
+            name: macos-x64
+            binary: tribe-dawn
+            build_dir: build
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置（CMake Release）
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: 编译
+        run: cmake --build build --config Release
+
+      - name: 自动测试
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: 打包（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "${{ matrix.build_dir }}\${{ matrix.binary }}" dist\
+          Compress-Archive -Path "dist\${{ matrix.binary }}" -DestinationPath "tribe-dawn-${{ matrix.name }}.zip"
+
+      - name: 打包（Linux/macOS）
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "${{ matrix.build_dir }}/${{ matrix.binary }}" dist/
+          tar -czf "tribe-dawn-${{ matrix.name }}.tar.gz" -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tribe-dawn-${{ matrix.name }}
+          path: tribe-dawn-${{ matrix.name }}.*
+          if-no-files-found: error
+
+  release:
+    name: 发布 Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 列出产物
+        run: ls -la artifacts
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
