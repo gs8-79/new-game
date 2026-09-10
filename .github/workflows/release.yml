@@ -24,11 +24,7 @@ jobs:
             binary: tribe-dawn
             build_dir: build
           - os: macos-latest
-            name: macos-arm64
-            binary: tribe-dawn
-            build_dir: build
-          - os: macos-13
-            name: macos-x64
+            name: macos-universal
             binary: tribe-dawn
             build_dir: build
     runs-on: ${{ matrix.os }}
@@ -36,7 +32,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 配置（CMake Release）
+        if: runner.os != 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: 配置（macOS 通用二进制 arm64+x86_64）
+        if: runner.os == 'macOS'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: 编译
         run: cmake --build build --config Release
