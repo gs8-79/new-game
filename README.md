@@ -64,6 +64,15 @@ Windows PowerShell：
 
 `-Clean` 会重新编译生成物。常规开发可以省略。构建结果在 `out/Formal-Debug` 或 `out/Formal-Release`，自动测试由 CTest 调用 `tribe-formal-tests` 执行。
 
+不想装 Visual Studio 时，可用免安装的 w64devkit（GCC）直接编译 Windows 本机版：双击 `开始本机版.cmd`（首次自动下载工具链后编译运行），或手动执行：
+
+```powershell
+.\build-native.ps1 -Configuration Release
+.\run-native.ps1 -Configuration Release -SkipBuild
+```
+
+产物在 `out/Native-Release/tribe-dawn.exe`，静态链接、无需运行时 DLL。
+
 macOS 安装 CMake 和 Xcode Command Line Tools 后：
 
 ```bash
