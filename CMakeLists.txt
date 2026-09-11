@@ -39,14 +39,7 @@ endif()
 
 add_executable(tribe-formal-tests
     tests/test_main.cpp
-    formal/tests/expansion_domain_tests.cpp
-    formal/tests/expansion_game_tests.cpp
-    formal/tests/campaign_tests.cpp
-    formal/tests/campaign_autonomy_tests.cpp
-    formal/tests/campaign_route_tests.cpp
-    formal/tests/campaign_save_tests.cpp
-    formal/tests/ending_presentation_tests.cpp
-    formal/tests/interface_tests.cpp
+    formal/tests/current_game_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
 target_include_directories(tribe-formal-tests PRIVATE tests)
