@@ -5,7 +5,16 @@ project(tribe_dawn VERSION 2.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 enable_testing()
+
+set(TRIBE_LLVM_HINTS
+    "$ENV{ProgramFiles}/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin"
+    "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin"
+)
+find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format clang-format.exe HINTS ${TRIBE_LLVM_HINTS})
+find_program(CLANG_TIDY_EXECUTABLE NAMES clang-tidy clang-tidy.exe HINTS ${TRIBE_LLVM_HINTS})
+find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell)
 
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -51,3 +60,67 @@ else()
 endif()
 
 add_test(NAME tribe-formal-tests COMMAND tribe-formal-tests)
+
+set(TRIBE_FORMAT_SOURCES
+    formal/include/tribe/application.hpp
+    formal/include/tribe/console_ui.hpp
+    formal/include/tribe/ending_presentation.hpp
+    formal/include/tribe/expansion_game.hpp
+    formal/include/tribe/expansion_types.hpp
+    formal/include/tribe/game_engine.hpp
+    formal/include/tribe/save_repository.hpp
+    formal/src/application.cpp
+    formal/src/console_ui.cpp
+    formal/src/ending_presentation.cpp
+    formal/src/expansion_game.cpp
+    formal/src/expansion_types.cpp
+    formal/src/game_engine.cpp
+    formal/src/main.cpp
+    formal/src/save_repository.cpp
+    formal/tests/current_game_tests.cpp
+    tests/test_harness.hpp
+    tests/test_main.cpp
+)
+
+if(CLANG_FORMAT_EXECUTABLE)
+    add_custom_target(format
+        COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i ${TRIBE_FORMAT_SOURCES}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Formatting C++ sources with clang-format"
+        VERBATIM
+    )
+    add_custom_target(format-check
+        COMMAND "${CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror ${TRIBE_FORMAT_SOURCES}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Checking C++ formatting with clang-format"
+        VERBATIM
+    )
+else()
+    message(STATUS "clang-format was not found; format and format-check targets are unavailable.")
+endif()
+
+if(CLANG_TIDY_EXECUTABLE AND POWERSHELL_EXECUTABLE)
+    add_custom_target(tidy
+        COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-clang-tidy.ps1"
+            -SourceRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+            -ClangTidy "${CLANG_TIDY_EXECUTABLE}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Analyzing C++ sources with clang-tidy"
+        VERBATIM
+    )
+else()
+    message(STATUS "clang-tidy or PowerShell was not found; the tidy target is unavailable.")
+endif()
+
+find_program(DOXYGEN_EXECUTABLE NAMES doxygen doxygen.exe HINTS "$ENV{DOXYGEN_ROOT}" "D:/tools/doxygen")
+if(DOXYGEN_EXECUTABLE)
+    add_custom_target(docs
+        COMMAND "${DOXYGEN_EXECUTABLE}" Doxyfile
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Generating API documentation with Doxygen"
+        VERBATIM
+    )
+else()
+    message(STATUS "Doxygen was not found; the docs target is unavailable.")
+endif()

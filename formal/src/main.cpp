@@ -7,6 +7,6 @@
 int main() {
     const bool interactive = tribe::ConsoleUI::standardStreamsAreInteractive();
     const bool ansiEnabled = interactive && tribe::ConsoleUI::initializeTerminal();
-    return tribe::runApplication(std::cin, std::cout, std::filesystem::current_path() / "saves" / "game",
-                                 interactive, ansiEnabled);
+    return tribe::runApplication(std::cin, std::cout, std::filesystem::current_path() / "saves" / "game", interactive,
+                                 ansiEnabled);
 }

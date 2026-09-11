@@ -31,7 +31,7 @@ struct SaveSummary {
 };
 
 class SaveRepository {
-public:
+   public:
     explicit SaveRepository(std::filesystem::path root);
 
     bool save(const GameState& state, SaveSlot slot, std::string& error) const;
@@ -42,7 +42,7 @@ public:
     static std::optional<SaveSlot> parseSlot(std::string_view text);
     static std::string slotName(SaveSlot slot);
 
-private:
+   private:
     std::filesystem::path root_;
 };
 

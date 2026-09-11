@@ -1,3 +1,4 @@
+#include "tribe/console_ui.hpp"
 #include "tribe/game_engine.hpp"
 #include "tribe/save_repository.hpp"
 #include "test_harness.hpp"
@@ -8,6 +9,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 #include <utility>
 
 namespace {
@@ -20,8 +22,8 @@ tribe::ActionResult requireSuccess(tribe::GameEngine& game, const std::string& c
 
 std::string stateSnapshot(const tribe::GameState& state) {
     static unsigned int snapshotNumber = 0;
-    const std::filesystem::path root = std::filesystem::temp_directory_path()
-        / ("tribe-current-state-snapshot-" + std::to_string(++snapshotNumber));
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / ("tribe-current-state-snapshot-" + std::to_string(++snapshotNumber));
     tribe::SaveRepository saves{root};
     std::string error;
     if (!saves.save(state, tribe::SaveSlot::Slot1, error))
@@ -67,6 +69,33 @@ TEST_CASE("direct gathering and scouting commands are absent outside the map") {
         REQUIRE(!result.stateChanged);
         REQUIRE(stateSnapshot(game.state()) == before);
     }
+}
+
+TEST_CASE("help and workforce commands expose the current simplified rules") {
+    std::ostringstream output;
+    tribe::ConsoleUI ui{output, false, false, 80U};
+    ui.renderHelpPage(1);
+    REQUIRE(output.str().find("快速8季") != std::string::npos);
+    REQUIRE(output.str().find("第9季") == std::string::npos);
+
+    tribe::GameEngine game{{tribe::GameMode::Quick, 13U}};
+    requireRejectedWithoutChange(game, "assign crafters 2");
+    requireSuccess(game, "assign crafters 1");
+    REQUIRE(game.state().workforce.crafters == 1);
+}
+
+TEST_CASE("hides can be offered for trade without requiring shells") {
+    tribe::GameEngine base{{tribe::GameMode::Quick, 17U}};
+    tribe::GameState state = base.state();
+    state.hides = 4;
+    state.shells = 0;
+    state.discovered[tribe::indexOf(tribe::WorldLocationId::RiverFord)] = true;
+    tribe::GameEngine game{std::move(state)};
+
+    const int woodBefore = game.state().wood;
+    requireSuccess(game, "trade river hides wood");
+    REQUIRE(game.state().hides == 0);
+    REQUIRE(game.state().wood > woodBefore);
 }
 
 TEST_CASE("each new mode starts at the first season with its advertised length") {

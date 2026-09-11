@@ -23,29 +23,26 @@ struct Words {
 };
 
 std::string asciiLower(std::string text) {
-    for (char &character : text) {
+    for (char& character : text) {
         const auto byte = static_cast<unsigned char>(character);
-        if (byte < 128U)
-            character = static_cast<char>(std::tolower(byte));
+        if (byte < 128U) character = static_cast<char>(std::tolower(byte));
     }
     return text;
 }
 
-Words words(const std::string &input) {
+Words words(const std::string& input) {
     std::istringstream stream(input);
     Words parsed;
     stream >> parsed.verb;
     parsed.verb = asciiLower(parsed.verb);
     std::string argument;
-    while (stream >> argument)
-        parsed.args.push_back(asciiLower(std::move(argument)));
+    while (stream >> argument) parsed.args.push_back(asciiLower(std::move(argument)));
     return parsed;
 }
 
-bool verbIs(const Words &command, const std::initializer_list<std::string_view> aliases) {
+bool verbIs(const Words& command, const std::initializer_list<std::string_view> aliases) {
     for (const std::string_view alias : aliases) {
-        if (command.verb == alias)
-            return true;
+        if (command.verb == alias) return true;
     }
     return false;
 }
@@ -55,39 +52,33 @@ std::uint32_t freshSeed() {
     return static_cast<std::uint32_t>(static_cast<unsigned long long>(now) & 0xFFFFFFFFULL);
 }
 
-bool parseSeed(const std::string &text, std::uint32_t &seed) {
-    if (text.empty())
-        return false;
+bool parseSeed(const std::string& text, std::uint32_t& seed) {
+    if (text.empty()) return false;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), seed);
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 
 std::optional<GameMode> parseMode(const std::string_view text) {
-    if (text == "1" || text == "quick" || text == "fast" || text == "快速")
-        return GameMode::Quick;
-    if (text == "2" || text == "standard" || text == "formal" || text == "正式")
-        return GameMode::Standard;
-    if (text == "3" || text == "long" || text == "长期")
-        return GameMode::Long;
+    if (text == "1" || text == "quick" || text == "fast" || text == "快速") return GameMode::Quick;
+    if (text == "2" || text == "standard" || text == "formal" || text == "正式") return GameMode::Standard;
+    if (text == "3" || text == "long" || text == "长期") return GameMode::Long;
     return std::nullopt;
 }
 
-void waitForEnter(std::istream &input) {
+void waitForEnter(std::istream& input) {
     std::string ignored;
     std::getline(input, ignored);
 }
 
-void showHelp(ConsoleUI &ui, std::istream &input) {
+void showHelp(ConsoleUI& ui, std::istream& input) {
     int topic = 0;
     std::string line;
     for (;;) {
         ui.renderHelpPage(topic);
-        if (!std::getline(input, line))
-            return;
+        if (!std::getline(input, line)) return;
         const Words command = words(line);
         if (command.args.empty() && (command.verb.empty() || verbIs(command, {"b", "back", "返回"}))) {
-            if (topic == 0)
-                return;
+            if (topic == 0) return;
             topic = 0;
         } else if (command.args.empty() && command.verb.size() == 1U && command.verb[0] >= '1' &&
                    command.verb[0] <= '6') {
@@ -96,7 +87,7 @@ void showHelp(ConsoleUI &ui, std::istream &input) {
     }
 }
 
-void playEnding(const GameEngine &game, ConsoleUI &ui, std::istream &input, std::ostream &output) {
+void playEnding(const GameEngine& game, ConsoleUI& ui, std::istream& input, std::ostream& output) {
     EndingPresentationOptions options;
     options.animated = ui.interactive();
     options.ansiEnabled = ui.ansiEnabled();
@@ -109,22 +100,20 @@ void playEnding(const GameEngine &game, ConsoleUI &ui, std::istream &input, std:
     waitForEnter(input);
 }
 
-bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::istream &input,
-             std::ostream &output, const bool saveInitial, std::string &exitMessage) {
+bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::istream& input, std::ostream& output,
+             const bool saveInitial, std::string& exitMessage) {
     exitMessage.clear();
     std::string message =
         GameEngine::modeName(game.state().mode) + "已经开始。输入1查看状态，输入9或帮助查看完整命令。";
     if (saveInitial) {
         std::string error;
-        if (!saves.save(game.state(), SaveSlot::Autosave, error))
-            message += "\n自动保存失败：" + error;
+        if (!saves.save(game.state(), SaveSlot::Autosave, error)) message += "\n自动保存失败：" + error;
     }
 
     std::string line;
     for (;;) {
         ui.renderGame(game, message);
-        if (!std::getline(input, line))
-            return false;
+        if (!std::getline(input, line)) return false;
         const Words command = words(line);
         if (command.verb.empty()) {
             message = "请输入命令；第一次游玩可输入9或帮助。";
@@ -138,8 +127,8 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
         if (verbIs(command, {"back", "返回", "返回主菜单"}) && command.args.empty()) {
             std::string error;
             if (!saves.save(game.state(), SaveSlot::Autosave, error)) {
-                message = "自动保存失败，仍留在游戏中：" + error +
-                          " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
+                message =
+                    "自动保存失败，仍留在游戏中：" + error + " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
                 continue;
             }
             exitMessage = "已返回封面，当前进度保存在自动档。";
@@ -148,14 +137,13 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
         if (verbIs(command, {"quit", "exit", "退出"}) && command.args.empty()) {
             std::string error;
             if (!saves.save(game.state(), SaveSlot::Autosave, error)) {
-                message = "退出前保存失败，游戏仍保留：" + error +
-                          " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
+                message =
+                    "退出前保存失败，游戏仍保留：" + error + " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
                 continue;
             }
             return false;
         }
-        if (verbIs(command, {"forcequit", "强制退出"}) && command.args.empty())
-            return false;
+        if (verbIs(command, {"forcequit", "强制退出"}) && command.args.empty()) return false;
         if (verbIs(command, {"replay", "重新播放"}) && command.args.empty()) {
             if (game.state().phase != GamePhase::Finished)
                 message = "只有结局确定后才能重新播放演出。";
@@ -182,15 +170,13 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
                 continue;
             }
             bool occupied = false;
-            for (const auto &summary : saves.inspect()) {
-                if (summary.slot == *slot)
-                    occupied = summary.status != SaveStatus::Empty;
+            for (const auto& summary : saves.inspect()) {
+                if (summary.slot == *slot) occupied = summary.status != SaveStatus::Empty;
             }
             if (occupied) {
                 ui.prompt("覆盖" + SaveRepository::slotName(*slot) + "？输入 y/是 确认，其他输入取消 > ");
                 std::string answer;
-                if (!std::getline(input, answer))
-                    return false;
+                if (!std::getline(input, answer)) return false;
                 const Words confirmation = words(answer);
                 if (!confirmation.args.empty() || !verbIs(confirmation, {"y", "yes", "是"})) {
                     message = "已取消覆盖存档。";
@@ -198,9 +184,8 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
                 }
             }
             std::string error;
-            message = saves.save(game.state(), *slot, error)
-                          ? "已保存到" + SaveRepository::slotName(*slot) + "。"
-                          : "保存失败，当前游戏不受影响：" + error;
+            message = saves.save(game.state(), *slot, error) ? "已保存到" + SaveRepository::slotName(*slot) + "。"
+                                                             : "保存失败，当前游戏不受影响：" + error;
             continue;
         }
         if (verbIs(command, {"load", "读取"})) {
@@ -233,8 +218,7 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
         }
         if (result.endingReached) {
             std::string error;
-            if (!saves.save(game.state(), SaveSlot::Autosave, error))
-                message += "\n结局自动保存失败：" + error;
+            if (!saves.save(game.state(), SaveSlot::Autosave, error)) message += "\n结局自动保存失败：" + error;
             playEnding(game, ui, input, output);
             message += "\n结局演出播放完毕，可重新播放、查看人物或编年史。";
         } else if (result.seasonAdvanced) {
@@ -247,7 +231,7 @@ bool runGame(GameEngine &game, const SaveRepository &saves, ConsoleUI &ui, std::
     }
 }
 
-std::optional<GameMode> chooseMode(ConsoleUI &ui, std::istream &input, bool &inputClosed) {
+std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inputClosed) {
     std::string message;
     std::string line;
     for (;;) {
@@ -257,19 +241,17 @@ std::optional<GameMode> chooseMode(ConsoleUI &ui, std::istream &input, bool &inp
             return std::nullopt;
         }
         const Words command = words(line);
-        if (command.args.empty() && verbIs(command, {"b", "back", "返回"}))
-            return std::nullopt;
+        if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         if (command.args.empty()) {
             const auto mode = parseMode(command.verb);
-            if (mode)
-                return mode;
+            if (mode) return mode;
         }
         message = "无效模式，请输入1、2、3或B。";
     }
 }
 
-std::optional<GameState> chooseSave(const SaveRepository &saves, ConsoleUI &ui, std::istream &input,
-                                    bool &inputClosed) {
+std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, std::istream& input,
+                                    bool& inputClosed) {
     std::string message;
     std::string line;
     for (;;) {
@@ -279,8 +261,7 @@ std::optional<GameState> chooseSave(const SaveRepository &saves, ConsoleUI &ui, 
             return std::nullopt;
         }
         const Words command = words(line);
-        if (command.args.empty() && verbIs(command, {"b", "back", "返回"}))
-            return std::nullopt;
+        if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         std::optional<SaveSlot> slot;
         if (command.args.empty()) {
             if (verbIs(command, {"a", "auto", "autosave", "自动", "自动档"}))
@@ -304,7 +285,7 @@ std::optional<GameState> chooseSave(const SaveRepository &saves, ConsoleUI &ui, 
 
 } // namespace
 
-int runApplication(std::istream &input, std::ostream &output, const std::filesystem::path &saveRoot,
+int runApplication(std::istream& input, std::ostream& output, const std::filesystem::path& saveRoot,
                    const bool interactive, const bool ansiEnabled, const std::size_t terminalWidth) {
     ConsoleUI ui(output, interactive, ansiEnabled, terminalWidth);
     const SaveRepository saves(saveRoot);
@@ -312,37 +293,31 @@ int runApplication(std::istream &input, std::ostream &output, const std::filesys
     std::string line;
     for (;;) {
         ui.renderMainMenu(menuMessage);
-        if (!std::getline(input, line))
-            break;
+        if (!std::getline(input, line)) break;
         const Words command = words(line);
-        if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"}))
-            break;
+        if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"})) break;
         if (command.args.empty() && verbIs(command, {"1", "start", "开始", "开始游戏"})) {
             bool inputClosed = false;
             const auto mode = chooseMode(ui, input, inputClosed);
-            if (inputClosed)
-                break;
+            if (inputClosed) break;
             if (!mode) {
                 menuMessage.clear();
                 continue;
             }
             GameEngine game({*mode, freshSeed()});
-            if (!runGame(game, saves, ui, input, output, true, menuMessage))
-                break;
+            if (!runGame(game, saves, ui, input, output, true, menuMessage)) break;
             continue;
         }
         if (command.args.empty() && verbIs(command, {"2", "load", "读取", "读取存档"})) {
             bool inputClosed = false;
             auto loaded = chooseSave(saves, ui, input, inputClosed);
-            if (inputClosed)
-                break;
+            if (inputClosed) break;
             if (!loaded) {
                 menuMessage.clear();
                 continue;
             }
             GameEngine game(std::move(*loaded));
-            if (!runGame(game, saves, ui, input, output, false, menuMessage))
-                break;
+            if (!runGame(game, saves, ui, input, output, false, menuMessage)) break;
             continue;
         }
         if (command.args.empty() && verbIs(command, {"3", "h", "help", "帮助", "游戏帮助"})) {
@@ -358,8 +333,7 @@ int runApplication(std::istream &input, std::ostream &output, const std::filesys
                 continue;
             }
             GameEngine game({*mode, seed});
-            if (!runGame(game, saves, ui, input, output, true, menuMessage))
-                break;
+            if (!runGame(game, saves, ui, input, output, true, menuMessage)) break;
             continue;
         }
         menuMessage = "无效选择，请输入1至4。";

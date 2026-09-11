@@ -21,24 +21,36 @@ namespace {
 
 std::string endingTitle(const GameEnding ending) {
     switch (ending) {
-    case GameEnding::Alliance: return "联盟共主";
-    case GameEnding::Conquest: return "山河征服者";
-    case GameEnding::Prosperity: return "燧火繁荣";
-    case GameEnding::Migration: return "迁徙新生";
-    case GameEnding::Extinction: return "部落覆灭";
-    case GameEnding::None: break;
+        case GameEnding::Alliance:
+            return "联盟共主";
+        case GameEnding::Conquest:
+            return "山河征服者";
+        case GameEnding::Prosperity:
+            return "燧火繁荣";
+        case GameEnding::Migration:
+            return "迁徙新生";
+        case GameEnding::Extinction:
+            return "部落覆灭";
+        case GameEnding::None:
+            break;
     }
     return "尚未结算";
 }
 
 const char* endingColor(const GameEnding ending) {
     switch (ending) {
-    case GameEnding::Alliance: return "\x1b[32m";
-    case GameEnding::Conquest: return "\x1b[31m";
-    case GameEnding::Prosperity: return "\x1b[33m";
-    case GameEnding::Migration: return "\x1b[36m";
-    case GameEnding::Extinction: return "\x1b[90m";
-    case GameEnding::None: break;
+        case GameEnding::Alliance:
+            return "\x1b[32m";
+        case GameEnding::Conquest:
+            return "\x1b[31m";
+        case GameEnding::Prosperity:
+            return "\x1b[33m";
+        case GameEnding::Migration:
+            return "\x1b[36m";
+        case GameEnding::Extinction:
+            return "\x1b[90m";
+        case GameEnding::None:
+            break;
     }
     return "\x1b[37m";
 }
@@ -48,14 +60,13 @@ std::string valueOrFallback(const std::string& value, const char* fallback) {
 }
 
 class TerminalKeyPoller {
-public:
+   public:
     explicit TerminalKeyPoller(const bool enabled) {
         if (!enabled) return;
 #if defined(_WIN32)
         input_ = ::GetStdHandle(STD_INPUT_HANDLE);
         DWORD mode = 0;
-        active_ = input_ != nullptr && input_ != INVALID_HANDLE_VALUE
-            && ::GetConsoleMode(input_, &mode) != 0;
+        active_ = input_ != nullptr && input_ != INVALID_HANDLE_VALUE && ::GetConsoleMode(input_, &mode) != 0;
 #else
         if (::isatty(STDIN_FILENO) == 0 || ::tcgetattr(STDIN_FILENO, &original_) != 0) return;
         termios immediate = original_;
@@ -99,7 +110,7 @@ public:
 #endif
     }
 
-private:
+   private:
     bool active_ = false;
 #if defined(_WIN32)
     HANDLE input_ = INVALID_HANDLE_VALUE;
@@ -116,8 +127,7 @@ void waitOnce(const EndingPresentationOptions& options, const std::chrono::milli
     std::this_thread::sleep_for(duration);
 }
 
-bool waitForNextFrame(const EndingPresentationOptions& options,
-    const std::function<bool()>& skipRequested) {
+bool waitForNextFrame(const EndingPresentationOptions& options, const std::function<bool()>& skipRequested) {
     if (options.frameDelay.count() <= 0) return false;
     if (!skipRequested) {
         waitOnce(options, options.frameDelay);
@@ -135,8 +145,7 @@ bool waitForNextFrame(const EndingPresentationOptions& options,
     return skipRequested();
 }
 
-void writeFrame(const EndingSummary& summary, const std::string& frame, std::ostream& output,
-    const bool ansiEnabled) {
+void writeFrame(const EndingSummary& summary, const std::string& frame, std::ostream& output, const bool ansiEnabled) {
     if (ansiEnabled) {
         output << endingColor(summary.ending) << frame << "\x1b[0m";
     } else {
@@ -148,116 +157,116 @@ void writeFrame(const EndingSummary& summary, const std::string& frame, std::ost
 
 std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) {
     switch (ending) {
-    case GameEnding::Alliance:
-        return {
-            "  o                 o\n"
-            " /|\\               /|\\\n"
-            " / \\               / \\",
-            "  o        -->      o\n"
-            " /|\\               /|\\\n"
-            " / \\               / \\",
-            "       o       o\n"
-            "      /|\\_____ /|\\\n"
-            "      / \\     / \\",
-            "    o-----+-----o\n"
-            "   /|\\    |    /|\\\n"
-            "   / \\   /\\   / \\",
-            ".=====================.\n"
-            "|      ALLIANCE       |\n"
-            "'==o=======+=======o=='\n"
-            "  /|\\     /\\     /|\\\n"
-            "  / \\    /  \\    / \\"};
+        case GameEnding::Alliance:
+            return {
+                "  o                 o\n"
+                " /|\\               /|\\\n"
+                " / \\               / \\",
+                "  o        -->      o\n"
+                " /|\\               /|\\\n"
+                " / \\               / \\",
+                "       o       o\n"
+                "      /|\\_____ /|\\\n"
+                "      / \\     / \\",
+                "    o-----+-----o\n"
+                "   /|\\    |    /|\\\n"
+                "   / \\   /\\   / \\",
+                ".=====================.\n"
+                "|      ALLIANCE       |\n"
+                "'==o=======+=======o=='\n"
+                "  /|\\     /\\     /|\\\n"
+                "  / \\    /  \\    / \\"};
 
-    case GameEnding::Conquest:
-        return {
-            "                 /\\\n"
-            "            /\\  /  \\\n"
-            "       /\\  /  \\/    \\",
-            "                 /\\\n"
-            "            /\\  /  \\\n"
-            "       /\\  / o\\/    \\",
-            "                 /\\\n"
-            "            /\\  /|\\ \\\n"
-            "       /\\  /  \\/ \\  \\",
-            "                 |>\n"
-            "                 | /\\\n"
-            "            /\\  |/  \\\n"
-            "       /\\  /  \\/    \\",
-            "              .------.\n"
-            "              |VICTORY\n"
-            "              '---+--'\n"
-            "            /\\   |  /\\\n"
-            "       /\\  /  \\ | /  \\",
-        };
+        case GameEnding::Conquest:
+            return {
+                "                 /\\\n"
+                "            /\\  /  \\\n"
+                "       /\\  /  \\/    \\",
+                "                 /\\\n"
+                "            /\\  /  \\\n"
+                "       /\\  / o\\/    \\",
+                "                 /\\\n"
+                "            /\\  /|\\ \\\n"
+                "       /\\  /  \\/ \\  \\",
+                "                 |>\n"
+                "                 | /\\\n"
+                "            /\\  |/  \\\n"
+                "       /\\  /  \\/    \\",
+                "              .------.\n"
+                "              |VICTORY\n"
+                "              '---+--'\n"
+                "            /\\   |  /\\\n"
+                "       /\\  /  \\ | /  \\",
+            };
 
-    case GameEnding::Prosperity:
-        return {
-            "          .\n"
-            "         / \\\n"
-            "________/_ _\\________",
-            "       \\  |  /\n"
-            "        \\ | /\n"
-            "_________\\|/_________",
-            "   \\ | /   \\ | /\n"
-            "    \\|/     \\|/\n"
-            "_____|_______|_________",
-            " \\|/ \\|/ \\|/ \\|/\n"
-            "  |   |   |   |\n"
-            "==|===|===|===|========",
-            ".=======================.\n"
-            "|      PROSPERITY       |\n"
-            "'======================='\n"
-            " \\|/ \\|/ \\|/ \\|/ \\|/\n"
-            "  |   |   |   |   |"};
+        case GameEnding::Prosperity:
+            return {
+                "          .\n"
+                "         / \\\n"
+                "________/_ _\\________",
+                "       \\  |  /\n"
+                "        \\ | /\n"
+                "_________\\|/_________",
+                "   \\ | /   \\ | /\n"
+                "    \\|/     \\|/\n"
+                "_____|_______|_________",
+                " \\|/ \\|/ \\|/ \\|/\n"
+                "  |   |   |   |\n"
+                "==|===|===|===|========",
+                ".=======================.\n"
+                "|      PROSPERITY       |\n"
+                "'======================='\n"
+                " \\|/ \\|/ \\|/ \\|/ \\|/\n"
+                "  |   |   |   |   |"};
 
-    case GameEnding::Migration:
-        return {
-            "   ______________\n"
-            " _/[] [] [] [] []\\_\n"
-            "(__________________)\n"
-            "  O              O",
-            "       ______________\n"
-            "     _/[] [] [] [] []\\_\n"
-            "____(__________________)___\n"
-            "      O              O",
-            "             ______________\n"
-            "           _/[] [] [] [] []\\_\n"
-            "__________(__________________)_\n"
-            "            O              O",
-            "                   _____________\n"
-            "                 _/[] [] [] [] /\n"
-            "________________(______________/__\n"
-            "                  O          O",
-            "                         /\\\n"
-            "        NEW LAND        /  \\\n"
-            "_______________________/____\\___\n"
-            "             *    *    *    *"};
+        case GameEnding::Migration:
+            return {
+                "   ______________\n"
+                " _/[] [] [] [] []\\_\n"
+                "(__________________)\n"
+                "  O              O",
+                "       ______________\n"
+                "     _/[] [] [] [] []\\_\n"
+                "____(__________________)___\n"
+                "      O              O",
+                "             ______________\n"
+                "           _/[] [] [] [] []\\_\n"
+                "__________(__________________)_\n"
+                "            O              O",
+                "                   _____________\n"
+                "                 _/[] [] [] [] /\n"
+                "________________(______________/__\n"
+                "                  O          O",
+                "                         /\\\n"
+                "        NEW LAND        /  \\\n"
+                "_______________________/____\\___\n"
+                "             *    *    *    *"};
 
-    case GameEnding::Extinction:
-        return {
-            "       (  )\n"
-            "      ( /\\ )\n"
-            "       /  \\\n"
-            "      /____\\",
-            "        ( )\n"
-            "       ( /\\\n"
-            "        /  \\\n"
-            "       /____\\",
-            "         .\n"
-            "        /\\\n"
-            "       /  \\\n"
-            "      /____\\",
-            "\n"
-            "        /\\\n"
-            "       /  \\\n"
-            "      /____\\",
-            "\n"
-            "\n"
-            "       _.._\n"
-            "______.______.________"};
+        case GameEnding::Extinction:
+            return {
+                "       (  )\n"
+                "      ( /\\ )\n"
+                "       /  \\\n"
+                "      /____\\",
+                "        ( )\n"
+                "       ( /\\\n"
+                "        /  \\\n"
+                "       /____\\",
+                "         .\n"
+                "        /\\\n"
+                "       /  \\\n"
+                "      /____\\",
+                "\n"
+                "        /\\\n"
+                "       /  \\\n"
+                "      /____\\",
+                "\n"
+                "\n"
+                "       _.._\n"
+                "______.______.________"};
 
-    case GameEnding::None:
-        break;
+        case GameEnding::None:
+            break;
     }
     return {".-----------------------.\n|    ENDING PENDING     |\n'-----------------------'"};
 }
@@ -307,13 +316,13 @@ std::string EndingPresentation::formatSummary(const EndingSummary& summary) {
         }
     }
 
-    output << "\n重要编年史：\n" << formatChronicle(summary.importantChronicle) << '\n'
+    output << "\n重要编年史：\n"
+           << formatChronicle(summary.importantChronicle) << '\n'
            << "==============================";
     return output.str();
 }
 
-void EndingPresentation::play(const EndingSummary& summary, std::ostream& output,
-    EndingPresentationOptions options) {
+void EndingPresentation::play(const EndingSummary& summary, std::ostream& output, EndingPresentationOptions options) {
     const auto frames = framesFor(summary.ending);
     if (options.animated) {
         std::function<bool()> skipRequested = std::move(options.skipRequested);

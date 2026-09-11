@@ -18,15 +18,7 @@ enum class GameEnding { None = 0, Alliance, Conquest, Prosperity, Migration, Ext
 enum class ResourceKind { Food = 0, Wood, Stone, Herbs, Hides, Shells };
 enum class WorkforceRole { FoodCrew = 0, WoodCrew, StoneCrew, HerbCrew, Crafters, Healers, Scouts, Envoys, CampGuards };
 
-enum class BuildingId {
-    Granary = 0,
-    Wall,
-    Workshop,
-    HealerHut,
-    Watchtower,
-    CouncilFire,
-    Count
-};
+enum class BuildingId { Granary = 0, Wall, Workshop, HealerHut, Watchtower, CouncilFire, Count };
 
 enum class TechnologyId {
     FoodPreservation = 0,
@@ -260,7 +252,7 @@ struct EndingSummary {
 };
 
 class GameEngine {
-public:
+   public:
     explicit GameEngine(GameConfig config = {});
     explicit GameEngine(GameState state);
 
@@ -295,7 +287,7 @@ public:
     static std::string tribeName(TribeId tribe);
     static std::string resourceName(ResourceKind resource);
 
-private:
+   private:
     ActionResult build(BuildingId building);
     ActionResult research(TechnologyId technology);
     ActionResult restSquad();
@@ -335,8 +327,8 @@ private:
     ActionResult chooseEvent(int option);
     ActionResult garrison(TribeId tribe, int warriors);
 
-    ActionResult commit(GameState candidate, std::string message,
-        bool consumesAction = false, bool seasonAdvanced = false, bool endingReached = false);
+    ActionResult commit(GameState candidate, std::string message, bool consumesAction = false,
+                        bool seasonAdvanced = false, bool endingReached = false);
     ActionResult rejected(std::string message) const;
     bool canSpendAction(ActionResult& result) const;
     bool diplomacyUsedThisSeason(TribeId tribe) const;

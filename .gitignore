@@ -2,6 +2,7 @@
 /saves/
 /.vs/
 /out/
+/vcpkg_installed/
+/formal/docs/generated/
 *.user
 *.VC.db
-

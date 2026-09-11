@@ -50,7 +50,7 @@ struct ExpansionState {
 };
 
 class ExpansionGame {
-public:
+   public:
     explicit ExpansionGame(std::uint32_t seed = 1U, std::size_t squadSize = 4U);
     explicit ExpansionGame(ExpansionState state);
     ExpansionCommandResult execute(std::string_view input);
@@ -58,7 +58,7 @@ public:
     std::string lookText() const;
     static OperationResult validateState(const ExpansionState& state);
 
-private:
+   private:
     ExpansionCommandResult move(std::string_view target);
     ExpansionCommandResult gather(std::string_view resource);
     ExpansionCommandResult buildOutpost();
