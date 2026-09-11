@@ -9,76 +9,64 @@
 namespace tribe {
 namespace {
 
-std::size_t attributeIndex(const Attribute attribute) {
-    return static_cast<std::size_t>(attribute);
-}
+std::size_t attributeIndex(const Attribute attribute) { return static_cast<std::size_t>(attribute); }
 
-std::size_t equipmentIndex(const EquipmentSlot slot) {
-    return static_cast<std::size_t>(slot);
-}
+std::size_t equipmentIndex(const EquipmentSlot slot) { return static_cast<std::size_t>(slot); }
 
-bool validAttribute(const Attribute attribute) {
-    return attributeIndex(attribute) < kAttributeCount;
-}
+bool validAttribute(const Attribute attribute) { return attributeIndex(attribute) < kAttributeCount; }
 
-bool validEquipmentSlot(const EquipmentSlot slot) {
-    return equipmentIndex(slot) < kEquipmentSlotCount;
-}
+bool validEquipmentSlot(const EquipmentSlot slot) { return equipmentIndex(slot) < kEquipmentSlotCount; }
 
 const std::array<Attribute, kAttributeCount>& prioritiesFor(const Occupation occupation) {
-    static const std::array<Attribute, kAttributeCount> hunter{{
-        Attribute::Perception, Attribute::Survival, Attribute::Agility, Attribute::Endurance,
-        Attribute::Willpower, Attribute::Strength, Attribute::Leadership, Attribute::Diplomacy}};
-    static const std::array<Attribute, kAttributeCount> warrior{{
-        Attribute::Strength, Attribute::Endurance, Attribute::Willpower, Attribute::Leadership,
-        Attribute::Agility, Attribute::Perception, Attribute::Survival, Attribute::Diplomacy}};
-    static const std::array<Attribute, kAttributeCount> scout{{
-        Attribute::Agility, Attribute::Perception, Attribute::Survival, Attribute::Endurance,
-        Attribute::Willpower, Attribute::Strength, Attribute::Diplomacy, Attribute::Leadership}};
-    static const std::array<Attribute, kAttributeCount> healer{{
-        Attribute::Survival, Attribute::Perception, Attribute::Willpower, Attribute::Diplomacy,
-        Attribute::Endurance, Attribute::Agility, Attribute::Leadership, Attribute::Strength}};
-    static const std::array<Attribute, kAttributeCount> crafter{{
-        Attribute::Survival, Attribute::Perception, Attribute::Endurance, Attribute::Willpower,
-        Attribute::Strength, Attribute::Agility, Attribute::Leadership, Attribute::Diplomacy}};
-    static const std::array<Attribute, kAttributeCount> envoy{{
-        Attribute::Diplomacy, Attribute::Leadership, Attribute::Willpower, Attribute::Perception,
-        Attribute::Agility, Attribute::Endurance, Attribute::Survival, Attribute::Strength}};
+    static const std::array<Attribute, kAttributeCount> hunter{
+        {Attribute::Perception, Attribute::Survival, Attribute::Agility, Attribute::Endurance, Attribute::Willpower,
+         Attribute::Strength, Attribute::Leadership, Attribute::Diplomacy}};
+    static const std::array<Attribute, kAttributeCount> warrior{
+        {Attribute::Strength, Attribute::Endurance, Attribute::Willpower, Attribute::Leadership, Attribute::Agility,
+         Attribute::Perception, Attribute::Survival, Attribute::Diplomacy}};
+    static const std::array<Attribute, kAttributeCount> scout{
+        {Attribute::Agility, Attribute::Perception, Attribute::Survival, Attribute::Endurance, Attribute::Willpower,
+         Attribute::Strength, Attribute::Diplomacy, Attribute::Leadership}};
+    static const std::array<Attribute, kAttributeCount> healer{
+        {Attribute::Survival, Attribute::Perception, Attribute::Willpower, Attribute::Diplomacy, Attribute::Endurance,
+         Attribute::Agility, Attribute::Leadership, Attribute::Strength}};
+    static const std::array<Attribute, kAttributeCount> crafter{
+        {Attribute::Survival, Attribute::Perception, Attribute::Endurance, Attribute::Willpower, Attribute::Strength,
+         Attribute::Agility, Attribute::Leadership, Attribute::Diplomacy}};
+    static const std::array<Attribute, kAttributeCount> envoy{
+        {Attribute::Diplomacy, Attribute::Leadership, Attribute::Willpower, Attribute::Perception, Attribute::Agility,
+         Attribute::Endurance, Attribute::Survival, Attribute::Strength}};
 
     switch (occupation) {
-    case Occupation::Hunter: return hunter;
-    case Occupation::Warrior: return warrior;
-    case Occupation::Scout: return scout;
-    case Occupation::Healer: return healer;
-    case Occupation::Crafter: return crafter;
-    case Occupation::Envoy: return envoy;
+        case Occupation::Hunter:
+            return hunter;
+        case Occupation::Warrior:
+            return warrior;
+        case Occupation::Scout:
+            return scout;
+        case Occupation::Healer:
+            return healer;
+        case Occupation::Crafter:
+            return crafter;
+        case Occupation::Envoy:
+            return envoy;
     }
     return hunter;
 }
 
-OperationResult accepted(std::string message) {
-    return {true, std::move(message)};
-}
+OperationResult accepted(std::string message) { return {true, std::move(message)}; }
 
-OperationResult rejected(std::string message) {
-    return {false, std::move(message)};
-}
+OperationResult rejected(std::string message) { return {false, std::move(message)}; }
 
 } // namespace
 
 Attributes::Attributes() = default;
 
-Attributes::Attributes(const int initialValue) {
-    values.fill(initialValue);
-}
+Attributes::Attributes(const int initialValue) { values.fill(initialValue); }
 
-int& Attributes::operator[](const Attribute attribute) {
-    return values.at(attributeIndex(attribute));
-}
+int& Attributes::operator[](const Attribute attribute) { return values.at(attributeIndex(attribute)); }
 
-int Attributes::operator[](const Attribute attribute) const {
-    return values.at(attributeIndex(attribute));
-}
+int Attributes::operator[](const Attribute attribute) const { return values.at(attributeIndex(attribute)); }
 
 Character::Character(std::string characterName, const Occupation characterOccupation)
     : name(std::move(characterName)), occupation(characterOccupation) {}
@@ -88,12 +76,12 @@ Inventory::Inventory(const int weightLimit, const int slotLimit)
 
 int Inventory::usedWeight() const {
     return std::accumulate(items_.begin(), items_.end(), 0,
-        [](const int total, const Item& item) { return total + item.weight; });
+                           [](const int total, const Item& item) { return total + item.weight; });
 }
 
 int Inventory::usedSlots() const {
     return std::accumulate(items_.begin(), items_.end(), 0,
-        [](const int total, const Item& item) { return total + item.slotCount; });
+                           [](const int total, const Item& item) { return total + item.slotCount; });
 }
 
 OperationResult Inventory::pickupFree(Item item) {
@@ -107,8 +95,8 @@ OperationResult Inventory::pickupFree(Item item) {
 }
 
 OperationResult Inventory::take(const std::string_view itemId, Item& item) {
-    const auto found = std::find_if(items_.begin(), items_.end(),
-        [&](const Item& candidate) { return candidate.id == itemId; });
+    const auto found =
+        std::find_if(items_.begin(), items_.end(), [&](const Item& candidate) { return candidate.id == itemId; });
     if (found == items_.end()) return rejected("背包中没有该物品。");
 
     item = std::move(*found);
@@ -210,8 +198,8 @@ Attributes effectiveAttributes(const Character& character) {
 
 int maximumLife(const Character& character) {
     const int endurance = std::max(kMinimumAttribute, character.attributes[Attribute::Endurance]);
-    const long long maximum = 50LL + static_cast<long long>(endurance) * 10LL
-        + static_cast<long long>(std::max(1, character.level)) * 2LL;
+    const long long maximum =
+        50LL + static_cast<long long>(endurance) * 10LL + static_cast<long long>(std::max(1, character.level)) * 2LL;
     return static_cast<int>(std::min<long long>(maximum, std::numeric_limits<int>::max()));
 }
 

@@ -70,6 +70,13 @@ Windows PowerShell：
 
 构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖地图采集与失败原子性、前哨、劳力规则、装备、军队、草药、资源贸易、事件、存档和三种模式的季数。
 
+### 开发工具
+
+- `clang-format`：根目录的 `.clang-format` 是唯一格式规则。先构建一次，再运行 `cmake --build out/Formal-Release --target format-check` 检查；`--target format` 会改写所有 C++ 源文件，提交前才手动执行。
+- `clang-tidy`：默认关闭，避免旧代码告警影响日常构建。执行 `./build-formal.ps1 -Configuration Release -EnableClangTidy` 可在编译时运行空指针、未初始化、可疑逻辑、无效拷贝等静态检查。
+- `vcpkg`：清单 `vcpkg.json` 当前不含依赖，只锁定工具基线。未来新增第三方库后，执行 `./build-formal.ps1 -Configuration Release -UseVcpkg`；该模式使用独立的 `out/Formal-Release-vcpkg`，不干扰普通构建。
+- `Doxygen`：执行 `cmake --build out/Formal-Release --target docs` 生成类、状态与存档结构参考文档，入口为 `formal/docs/generated/html/index.html`；生成物不提交。
+
 macOS 安装 CMake 与 Xcode Command Line Tools 后：
 
 ```bash

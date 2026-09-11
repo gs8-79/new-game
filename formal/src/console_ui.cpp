@@ -17,32 +17,32 @@
 namespace tribe {
 namespace {
 
-const char *colorCode(const UiColor color) {
+const char* colorCode(const UiColor color) {
     switch (color) {
-    case UiColor::Title:
-        return "\x1b[1;38;5;208m";
-    case UiColor::Accent:
-        return "\x1b[1;38;5;214m";
-    case UiColor::Dim:
-        return "\x1b[38;5;245m";
-    case UiColor::Food:
-        return "\x1b[1;93m";
-    case UiColor::Wood:
-        return "\x1b[1;92m";
-    case UiColor::Stone:
-        return "\x1b[1;97m";
-    case UiColor::Herbs:
-        return "\x1b[1;95m";
-    case UiColor::Friendly:
-        return "\x1b[1;92m";
-    case UiColor::Neutral:
-        return "\x1b[1;94m";
-    case UiColor::Enemy:
-        return "\x1b[1;91m";
-    case UiColor::Warning:
-        return "\x1b[1;93m";
-    case UiColor::Normal:
-        break;
+        case UiColor::Title:
+            return "\x1b[1;38;5;208m";
+        case UiColor::Accent:
+            return "\x1b[1;38;5;214m";
+        case UiColor::Dim:
+            return "\x1b[38;5;245m";
+        case UiColor::Food:
+            return "\x1b[1;93m";
+        case UiColor::Wood:
+            return "\x1b[1;92m";
+        case UiColor::Stone:
+            return "\x1b[1;97m";
+        case UiColor::Herbs:
+            return "\x1b[1;95m";
+        case UiColor::Friendly:
+            return "\x1b[1;92m";
+        case UiColor::Neutral:
+            return "\x1b[1;94m";
+        case UiColor::Enemy:
+            return "\x1b[1;91m";
+        case UiColor::Warning:
+            return "\x1b[1;93m";
+        case UiColor::Normal:
+            break;
     }
     return "\x1b[0m";
 }
@@ -54,25 +54,20 @@ struct Glyph {
 
 Glyph glyphAt(const std::string_view text, const std::size_t index) {
     const auto first = static_cast<unsigned char>(text[index]);
-    if (first < 0x80U)
-        return {1U, first < 32U ? 0U : 1U};
+    if (first < 0x80U) return {1U, first < 32U ? 0U : 1U};
     const std::size_t count = (first & 0xE0U) == 0xC0U   ? 2U
                               : (first & 0xF0U) == 0xE0U ? 3U
                               : (first & 0xF8U) == 0xF0U ? 4U
                                                          : 1U;
-    if (count == 1U || index + count > text.size())
-        return {1U, 1U};
+    if (count == 1U || index + count > text.size()) return {1U, 1U};
     unsigned int code = first & (0x7FU >> count);
     for (std::size_t offset = 1U; offset < count; ++offset) {
         const auto byte = static_cast<unsigned char>(text[index + offset]);
-        if ((byte & 0xC0U) != 0x80U)
-            return {1U, 1U};
+        if ((byte & 0xC0U) != 0x80U) return {1U, 1U};
         code = (code << 6U) | (byte & 0x3FU);
     }
-    if ((code >= 0x300U && code <= 0x36FU) || (code >= 0xFE00U && code <= 0xFE0FU))
-        return {count, 0U};
-    const bool wide = (code >= 0x1100U && code <= 0x115FU) ||
-                      (code >= 0x2E80U && code <= 0xA4CFU && code != 0x303FU) ||
+    if ((code >= 0x300U && code <= 0x36FU) || (code >= 0xFE00U && code <= 0xFE0FU)) return {count, 0U};
+    const bool wide = (code >= 0x1100U && code <= 0x115FU) || (code >= 0x2E80U && code <= 0xA4CFU && code != 0x303FU) ||
                       (code >= 0xAC00U && code <= 0xD7A3U) || (code >= 0xF900U && code <= 0xFAFFU) ||
                       (code >= 0xFE10U && code <= 0xFE6FU) || (code >= 0xFF01U && code <= 0xFF60U) ||
                       (code >= 0xFFE0U && code <= 0xFFE6U) || (code >= 0x1F300U && code <= 0x1FAFFU) ||
@@ -91,16 +86,16 @@ std::size_t displayWidth(const std::string_view text) {
 }
 
 std::string slotKey(const SaveSlot slot) {
-    if (slot == SaveSlot::Autosave)
-        return "A";
+    if (slot == SaveSlot::Autosave) return "A";
     return std::to_string(static_cast<int>(slot) + 1);
 }
 
 } // namespace
 
-ConsoleUI::ConsoleUI(std::ostream &output, const bool interactive, const bool ansiEnabled,
-                     const std::size_t width)
-    : destination_(output), interactive_(interactive), ansiEnabled_(ansiEnabled),
+ConsoleUI::ConsoleUI(std::ostream& output, const bool interactive, const bool ansiEnabled, const std::size_t width)
+    : destination_(output),
+      interactive_(interactive),
+      ansiEnabled_(ansiEnabled),
       width_(std::max<std::size_t>(width == 0U ? detectTerminalWidth() : width, 2U)),
       automaticWidth_(width == 0U) {}
 
@@ -117,11 +112,9 @@ bool ConsoleUI::initializeTerminal() {
     SetConsoleCP(CP_UTF8);
     SetConsoleOutputCP(CP_UTF8);
     const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (output == INVALID_HANDLE_VALUE)
-        return false;
+    if (output == INVALID_HANDLE_VALUE) return false;
     DWORD mode = 0;
-    if (GetConsoleMode(output, &mode) == 0)
-        return false;
+    if (GetConsoleMode(output, &mode) == 0) return false;
     return SetConsoleMode(output, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
 #else
     return true;
@@ -137,8 +130,7 @@ std::size_t ConsoleUI::detectTerminalWidth() {
     }
 #else
     winsize size{};
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0U)
-        return size.ws_col;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0U) return size.ws_col;
 #endif
     return 80U;
 }
@@ -153,8 +145,7 @@ void ConsoleUI::write(const UiColor color, const std::string_view text) {
 
 void ConsoleUI::writeCentered(const UiColor color, const std::string_view text) {
     const std::size_t textWidth = displayWidth(text);
-    if (textWidth < width_)
-        output_ << std::string((width_ - textWidth) / 2U, ' ');
+    if (textWidth < width_) output_ << std::string((width_ - textWidth) / 2U, ' ');
     write(color, text);
     output_ << '\n';
 }
@@ -171,10 +162,8 @@ void ConsoleUI::writeSection(const std::string_view title) {
 void ConsoleUI::clear() {
     output_.str({});
     output_.clear();
-    if (automaticWidth_)
-        width_ = std::max<std::size_t>(detectTerminalWidth(), 2U);
-    if (interactive_ && ansiEnabled_)
-        output_ << "\x1b[2J\x1b[H";
+    if (automaticWidth_) width_ = std::max<std::size_t>(detectTerminalWidth(), 2U);
+    if (interactive_ && ansiEnabled_) output_ << "\x1b[2J\x1b[H";
 }
 
 void ConsoleUI::flushPage() {
@@ -184,10 +173,8 @@ void ConsoleUI::flushPage() {
     for (std::size_t index = 0U; index < page.size();) {
         if (page[index] == '\x1b' && index + 1U < page.size() && page[index + 1U] == '[') {
             std::size_t end = index + 2U;
-            while (end < page.size() && (page[end] < '@' || page[end] > '~'))
-                ++end;
-            if (end < page.size())
-                ++end;
+            while (end < page.size() && (page[end] < '@' || page[end] > '~')) ++end;
+            if (end < page.size()) ++end;
             destination_ << page.substr(index, end - index);
             index = end;
             continue;
@@ -257,13 +244,13 @@ void ConsoleUI::renderModeMenu(const std::string_view message) {
     prompt("选择模式 > ");
 }
 
-void ConsoleUI::renderSaveMenu(const std::vector<SaveSummary> &saves, const std::string_view message) {
+void ConsoleUI::renderSaveMenu(const std::vector<SaveSummary>& saves, const std::string_view message) {
     clear();
     writeRule('=');
     writeCentered(UiColor::Title, "读取存档");
     writeCentered(UiColor::Dim, "从上次的火堆旁，继续你的旅程");
     writeRule('=');
-    for (const SaveSummary &save : saves) {
+    for (const SaveSummary& save : saves) {
         output_ << "  [" << slotKey(save.slot) << "] " << SaveRepository::slotName(save.slot) << "  ";
         if (save.status == SaveStatus::Empty) {
             write(UiColor::Dim, "[空档]\n");
@@ -276,14 +263,13 @@ void ConsoleUI::renderSaveMenu(const std::vector<SaveSummary> &saves, const std:
         write(save.status == SaveStatus::Recoverable ? UiColor::Warning : UiColor::Friendly,
               save.status == SaveStatus::Recoverable ? "[可从恢复文件读取]  " : "[可读取]  ");
         output_ << save.modifiedAt << '\n'
-                << "      " << save.mode << "  第" << save.season << '/' << save.seasonLimit << "季  "
-                << save.phase << "  " << save.tribeName << " · " << save.leaderName << '\n'
-                << "      人口 " << save.population << "  食物 " << save.food << "  木材 " << save.wood
-                << "  石料 " << save.stone << "  草药 " << save.herbs << '\n';
+                << "      " << save.mode << "  第" << save.season << '/' << save.seasonLimit << "季  " << save.phase
+                << "  " << save.tribeName << " · " << save.leaderName << '\n'
+                << "      人口 " << save.population << "  食物 " << save.food << "  木材 " << save.wood << "  石料 "
+                << save.stone << "  草药 " << save.herbs << '\n';
     }
     output_ << "\n  [B] 返回封面\n";
-    if (!message.empty())
-        write(UiColor::Warning, "\n  " + std::string(message) + "\n");
+    if (!message.empty()) write(UiColor::Warning, "\n  " + std::string(message) + "\n");
     writeRule();
     prompt("选择存档 > ");
 }
@@ -301,9 +287,10 @@ void ConsoleUI::renderHelpPage(const int topic) {
         writeSection("首次游玩");
         output_ << "  从封面选择开始游戏，再选择8、16或32季旅程。数字命令最适合新手。\n"
                 << "  每季行动点有限；先保证食物，再逐步探索、建设和外交。\n";
-        output_ << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看全地图，再用 5 派小队。\n"
-                << "  示例：5 → move forest → gather food → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
-                << "  三种模式都从第1季开始：快速8季、正式16季、长期32季。\n";
+        output_
+            << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看全地图，再用 5 派小队。\n"
+            << "  示例：5 → move forest → gather food → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
+            << "  三种模式都从第1季开始：快速8季、正式16季、长期32季。\n";
     } else if (topic == 2) {
         writeSection("经营建设");
         output_ << "  1 状态  2 地图  5 小队地图任务  8 结束季节\n"
@@ -348,25 +335,26 @@ void ConsoleUI::renderHelpPage(const int topic) {
     prompt(topic == 0 ? "\n输入1至6，或 B/Enter 返回 > " : "\n输入1至6切换分类，B/Enter 返回 > ");
 }
 
-void ConsoleUI::renderMission(const GameEngine &game, const std::string_view message) {
+void ConsoleUI::renderMission(const GameEngine& game, const std::string_view message) {
     clear();
-    const GameState &state = game.state();
+    const GameState& state = game.state();
     writeRule('=');
     writeCentered(UiColor::Title, "《燧火纪：部落黎明》· 小队地图");
     writeCentered(UiColor::Dim, "离开营地后，只听道路、风声与队友的脚步。输入指令继续探索。");
     writeRule('=');
 
-    const ExpansionState &mission = *state.activeMission;
-    const auto &locations = GameEngine::worldLocations();
-    const Character &captain = mission.squad.members[mission.squad.leaderIndex];
+    const ExpansionState& mission = *state.activeMission;
+    const auto& locations = GameEngine::worldLocations();
+    const Character& captain = mission.squad.members[mission.squad.leaderIndex];
     writeSection("道路总览");
     output_ << "  北↑  道路编号总览；当前位置与前哨状态见下方，地点详情以 look/查看 为准\n"
             << "             [8古老山隘]--[9岩牙要塞]\n"
             << " [6白羽]--[4芦苇]--[10盐风]--[12贝壳]--[11潮盐]\n"
             << "      [2苍林]--[1营地]--[3红土]--[5河鹿]--[15山前]--[16断崖]\n"
             << "                     [7矿场]--[13玄石谷]--[14玄石工坊]\n";
-    output_ << "  当前 " << (mission.worldLocation + 1) << '.' << locations[static_cast<std::size_t>(mission.worldLocation)].name
-            << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true) << "/16"
+    output_ << "  当前 " << (mission.worldLocation + 1) << '.'
+            << locations[static_cast<std::size_t>(mission.worldLocation)].name << "  已发现 "
+            << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true) << "/16"
             << "  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
 
     writeSection("任务指令");
@@ -378,14 +366,14 @@ void ConsoleUI::renderMission(const GameEngine &game, const std::string_view mes
     writeSection("现场记录");
     output_ << "  " << (message.empty() ? "道路延伸到视线之外，等待你的指令。" : std::string(message)) << "\n  "
             << ExpansionGame{mission}.lookText() << '\n';
-    output_ << "  队长 " << captain.name << "  生命 " << captain.life << "  疲劳 " << captain.fatigue
-            << "  任务回合 " << mission.turn << "  行动点 " << state.actionsLeft << '\n';
+    output_ << "  队长 " << captain.name << "  生命 " << captain.life << "  疲劳 " << captain.fatigue << "  任务回合 "
+            << mission.turn << "  行动点 " << state.actionsLeft << '\n';
     writeRule();
     prompt("地图指令 > ");
 }
 
-void ConsoleUI::renderGame(const GameEngine &game, const std::string_view message) {
-    const GameState &state = game.state();
+void ConsoleUI::renderGame(const GameEngine& game, const std::string_view message) {
+    const GameState& state = game.state();
     if (state.phase == GamePhase::Mission && state.activeMission) {
         renderMission(game, message);
         return;
@@ -394,18 +382,16 @@ void ConsoleUI::renderGame(const GameEngine &game, const std::string_view messag
     clear();
     writeRule('=');
     writeCentered(UiColor::Title, "《燧火纪：部落黎明》");
-    writeCentered(UiColor::Dim, GameEngine::modeName(state.mode) + "  |  第" + std::to_string(state.season) +
-                                    "/" + std::to_string(state.seasonLimit) + "季  |  " +
-                                    GameEngine::phaseName(state.phase) + "  |  行动点 " +
-                                    std::to_string(state.actionsLeft));
+    writeCentered(UiColor::Dim, GameEngine::modeName(state.mode) + "  |  第" + std::to_string(state.season) + "/" +
+                                    std::to_string(state.seasonLimit) + "季  |  " + GameEngine::phaseName(state.phase) +
+                                    "  |  行动点 " + std::to_string(state.actionsLeft));
     writeRule('=');
 
     writeSection("部落");
     output_ << "  " << state.tribeName << "  首领 " << state.leaderName;
-    if (!state.actingLeaderName.empty())
-        output_ << "（代理/继任 " << state.actingLeaderName << "）";
-    output_ << "  人口 " << state.population << "  战士 " << state.warriors << "  稳定 " << state.stability
-            << "  士气 " << state.morale << "  营地 " << state.campDurability << '\n';
+    if (!state.actingLeaderName.empty()) output_ << "（代理/继任 " << state.actingLeaderName << "）";
+    output_ << "  人口 " << state.population << "  战士 " << state.warriors << "  稳定 " << state.stability << "  士气 "
+            << state.morale << "  营地 " << state.campDurability << '\n';
 
     writeSection("资源");
     output_ << "  ";
@@ -416,47 +402,50 @@ void ConsoleUI::renderGame(const GameEngine &game, const std::string_view messag
     write(UiColor::Stone, "石料 " + std::to_string(state.stone));
     output_ << "   ";
     write(UiColor::Herbs, "草药 " + std::to_string(state.herbs));
-    output_ << "   兽皮 " << state.hides << "   贝币 " << state.shells << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
+    output_ << "   兽皮 " << state.hides << "   贝币 " << state.shells
+            << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
             << "  地点 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
             << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
             << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
-            << "  贸易 " << state.tradeCount << "  战争胜负 " << state.warsWon << '/' << state.warsLost
-            << '\n';
+            << "  贸易 " << state.tradeCount << "  战争胜负 " << state.warsWon << '/' << state.warsLost << '\n';
 
     writeSection("周边局势");
     output_ << "  ";
     for (std::size_t index = 1; index < kTribeCount; ++index) {
         const auto tribe = static_cast<TribeId>(index);
-        const DiplomacyRelation &relation = state.relations[index];
+        const DiplomacyRelation& relation = state.relations[index];
         const UiColor color = relation.atWar      ? UiColor::Enemy
                               : relation.alliance ? UiColor::Friendly
                                                   : UiColor::Neutral;
         write(color, GameEngine::tribeName(tribe) + " " + std::to_string(relation.relation));
-        if (relation.atWar) output_ << "[战]";
-        else if (relation.alliance) output_ << "[盟]";
-        else if (relation.tradeRoute) output_ << "[商]";
+        if (relation.atWar)
+            output_ << "[战]";
+        else if (relation.alliance)
+            output_ << "[盟]";
+        else if (relation.tradeRoute)
+            output_ << "[商]";
         output_ << (index + 1U == kTribeCount ? '\n' : ' ');
     }
 
     writeSection("当前局面");
     if (state.phase == GamePhase::War) {
-        output_ << "  部落战争：对" << GameEngine::tribeName(state.war.enemy)
-                << "，己方战力 " << state.war.playerPower << "，敌方战力 " << state.war.enemyPower << '\n';
+        output_ << "  部落战争：对" << GameEngine::tribeName(state.war.enemy) << "，己方战力 " << state.war.playerPower
+                << "，敌方战力 " << state.war.enemyPower << '\n';
     } else if (state.phase == GamePhase::Finished) {
         write(UiColor::Warning, "  结局已确定：" + GameEngine::endingName(state.ending) + "\n");
     } else {
         output_ << "  小队 " << state.squads.size();
         if (!state.squads.empty()) {
-            const PermanentSquad &squad = state.squads.front();
+            const PermanentSquad& squad = state.squads.front();
             output_ << "  " << squad.name << "  队长 " << squad.captain << "  疲劳 " << squad.fatigue;
-            if (squad.refusingOrders)
-                output_ << " [抗命]";
+            if (squad.refusingOrders) output_ << " [抗命]";
         }
         output_ << '\n';
-        output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew
-                << " 石料队" << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew
-                << "（下季行动上限 " << (3 + (state.workforce.foodCrew >= 2) + (state.workforce.woodCrew >= 2)
-                    + (state.workforce.stoneCrew >= 2) + (state.workforce.herbCrew >= 2)) << "/7）\n";
+        output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew << " 石料队"
+                << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew << "（下季行动上限 "
+                << (3 + (state.workforce.foodCrew >= 2) + (state.workforce.woodCrew >= 2) +
+                    (state.workforce.stoneCrew >= 2) + (state.workforce.herbCrew >= 2))
+                << "/7）\n";
     }
 
     writeSection("最近消息");

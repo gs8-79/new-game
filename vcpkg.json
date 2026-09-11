@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/scripts/vcpkg.schema.json",
+  "name": "tribe-dawn",
+  "version-semver": "2.0.0",
+  "description": "A C++17 console MUD course project.",
+  "builtin-baseline": "771b0a2e7c473c3a6bee56553be4d5bb32bb653c",
+  "dependencies": []
+}

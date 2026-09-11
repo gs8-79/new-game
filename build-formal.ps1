@@ -2,7 +2,9 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$EnableClangTidy,
+    [switch]$UseVcpkg
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,8 +51,37 @@ foreach ($line in $environmentLines) {
     }
 }
 
-$buildPath = Join-Path $PSScriptRoot "out\Formal-$Configuration"
-& $cmakePath -S $PSScriptRoot -B $buildPath -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_MAKE_PROGRAM=$ninjaPath"
+$buildFolder = "Formal-$Configuration"
+if ($UseVcpkg) {
+    $buildFolder += '-vcpkg'
+}
+$buildPath = Join-Path $PSScriptRoot "out\$buildFolder"
+$cmakeArguments = @(
+    '-S', $PSScriptRoot,
+    '-B', $buildPath,
+    '-G', 'Ninja',
+    "-DCMAKE_BUILD_TYPE=$Configuration",
+    "-DCMAKE_MAKE_PROGRAM=$ninjaPath"
+)
+
+if ($UseVcpkg) {
+    $vcpkgCandidates = @('D:\tools\vcpkg')
+    if ($env:VCPKG_ROOT) {
+        $vcpkgCandidates += $env:VCPKG_ROOT
+    }
+    $vcpkgRoot = $vcpkgCandidates | Where-Object {
+        Test-Path -LiteralPath (Join-Path $_ 'scripts\buildsystems\vcpkg.cmake')
+    } | Select-Object -First 1
+    if (-not $vcpkgRoot) {
+        throw '找不到 vcpkg。请设置 VCPKG_ROOT，或安装到 D:\tools\vcpkg。'
+    }
+    $vcpkgDownloads = Join-Path $PSScriptRoot 'out\vcpkg-downloads'
+    $env:VCPKG_DOWNLOADS = $vcpkgDownloads
+    $cmakeArguments += "-DCMAKE_TOOLCHAIN_FILE=$(Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake')"
+    $cmakeArguments += "-DVCPKG_DOWNLOADS=$vcpkgDownloads"
+}
+
+& $cmakePath @cmakeArguments
 if ($LASTEXITCODE -ne 0) { throw '正式版 CMake 配置失败。' }
 
 if ($Clean) { & $cmakePath --build $buildPath --clean-first }
@@ -59,5 +90,10 @@ if ($LASTEXITCODE -ne 0) { throw '正式版 C++ 编译失败。' }
 
 & $ctestPath --test-dir $buildPath --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw '正式版自动测试失败。' }
+
+if ($EnableClangTidy) {
+    & $cmakePath --build $buildPath --target tidy
+    if ($LASTEXITCODE -ne 0) { throw 'clang-tidy 静态检查未完成。' }
+}
 
 Write-Host "《燧火纪》正式版构建和测试通过：$Configuration" -ForegroundColor Green

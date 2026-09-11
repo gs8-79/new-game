@@ -22,8 +22,8 @@ tribe::ActionResult requireSuccess(tribe::GameEngine& game, const std::string& c
 
 std::string stateSnapshot(const tribe::GameState& state) {
     static unsigned int snapshotNumber = 0;
-    const std::filesystem::path root = std::filesystem::temp_directory_path()
-        / ("tribe-current-state-snapshot-" + std::to_string(++snapshotNumber));
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / ("tribe-current-state-snapshot-" + std::to_string(++snapshotNumber));
     tribe::SaveRepository saves{root};
     std::string error;
     if (!saves.save(state, tribe::SaveSlot::Slot1, error))

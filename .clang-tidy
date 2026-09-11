@@ -1,0 +1,31 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-deadcode.*,
+  bugprone-branch-clone,
+  bugprone-infinite-loop,
+  bugprone-narrowing-conversions,
+  bugprone-sizeof-expression,
+  bugprone-string-constructor,
+  bugprone-suspicious-memory-comparison,
+  bugprone-suspicious-missing-comma,
+  bugprone-suspicious-semicolon,
+  bugprone-suspicious-stringview-data-usage,
+  bugprone-unchecked-optional-access,
+  bugprone-use-after-move,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-member-init,
+  modernize-use-nullptr,
+  modernize-use-override,
+  performance-implicit-conversion-in-loop,
+  performance-move-const-arg,
+  performance-no-automatic-move,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param,
+  readability-implicit-bool-conversion
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[\\/](formal)[\\/](include|src)[\\/].*'
+FormatStyle: file
+...

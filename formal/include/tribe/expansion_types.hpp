@@ -37,17 +37,7 @@ struct Attributes {
 
 enum class Occupation { Hunter = 0, Warrior, Scout, Healer, Crafter, Envoy };
 
-enum class EquipmentSlot {
-    MainHand = 0,
-    OffHand,
-    Head,
-    Body,
-    Hands,
-    LegsFeet,
-    Tool,
-    Accessory,
-    Count
-};
+enum class EquipmentSlot { MainHand = 0, OffHand, Head, Body, Hands, LegsFeet, Tool, Accessory, Count };
 
 constexpr std::size_t kEquipmentSlotCount = static_cast<std::size_t>(EquipmentSlot::Count);
 
@@ -89,7 +79,7 @@ struct OperationResult {
 };
 
 class Inventory {
-public:
+   public:
     explicit Inventory(int weightLimit = 50, int slotLimit = 16);
 
     int weightLimit() const { return weightLimit_; }
@@ -101,7 +91,7 @@ public:
     OperationResult pickupFree(Item item);
     OperationResult take(std::string_view itemId, Item& item);
 
-private:
+   private:
     int weightLimit_ = 0;
     int slotLimit_ = 0;
     std::vector<Item> items_;

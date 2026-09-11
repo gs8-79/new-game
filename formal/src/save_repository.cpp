@@ -31,7 +31,7 @@ constexpr std::size_t kMaximumLeadershipEntries = 256U;
 constexpr std::size_t kMaximumChronicleEntries = 200U;
 
 class BufferWriter {
-public:
+   public:
     void writeByte(const std::uint8_t value) { data_.push_back(static_cast<char>(value)); }
 
     void writeU32(const std::uint32_t value) {
@@ -53,8 +53,8 @@ public:
     void writeRaw(const char* data, const std::size_t size) { data_.append(data, size); }
 
     void writeString(const std::string_view value) {
-        if (value.size() > kMaximumStringBytes
-            || value.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+        if (value.size() > kMaximumStringBytes ||
+            value.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
             valid_ = false;
             return;
         }
@@ -66,13 +66,13 @@ public:
     const std::string& data() const { return data_; }
     std::string take() { return std::move(data_); }
 
-private:
+   private:
     std::string data_;
     bool valid_ = true;
 };
 
 class BufferReader {
-public:
+   public:
     explicit BufferReader(const std::string_view data) : data_(data) {}
 
     bool readByte(std::uint8_t& value) {
@@ -126,7 +126,7 @@ public:
 
     bool finished() const { return offset_ == data_.size(); }
 
-private:
+   private:
     std::string_view data_;
     std::size_t offset_ = 0U;
 };
@@ -195,11 +195,10 @@ void writeItem(BufferWriter& writer, const Item& item) {
 
 bool readItem(BufferReader& reader, Item& item) {
     bool hasSlot = false;
-    if (!reader.readString(item.id) || !reader.readString(item.name)
-        || !readEnum(reader, item.quality, ItemQuality::Crude, ItemQuality::Legendary)
-        || !readEnum(reader, item.condition, ItemCondition::Intact, ItemCondition::Scrapped)
-        || !reader.readInt(item.weight) || !reader.readInt(item.slotCount)
-        || !reader.readBool(hasSlot)) {
+    if (!reader.readString(item.id) || !reader.readString(item.name) ||
+        !readEnum(reader, item.quality, ItemQuality::Crude, ItemQuality::Legendary) ||
+        !readEnum(reader, item.condition, ItemCondition::Intact, ItemCondition::Scrapped) ||
+        !reader.readInt(item.weight) || !reader.readInt(item.slotCount) || !reader.readBool(hasSlot)) {
         return false;
     }
     if (hasSlot) {
@@ -230,16 +229,16 @@ void writeCharacter(BufferWriter& writer, const Character& character) {
 }
 
 bool readCharacter(BufferReader& reader, Character& character) {
-    if (!reader.readString(character.name)
-        || !readEnum(reader, character.occupation, Occupation::Hunter, Occupation::Envoy)
-        || !reader.readInt(character.level) || !reader.readInt(character.experience)
-        || !reader.readInt(character.growthPoints) || !reader.readInt(character.life)
-        || !reader.readInt(character.fatigue) || !reader.readInt(character.loyalty)
-        || !readAttributes(reader, character.attributes)) {
+    if (!reader.readString(character.name) ||
+        !readEnum(reader, character.occupation, Occupation::Hunter, Occupation::Envoy) ||
+        !reader.readInt(character.level) || !reader.readInt(character.experience) ||
+        !reader.readInt(character.growthPoints) || !reader.readInt(character.life) ||
+        !reader.readInt(character.fatigue) || !reader.readInt(character.loyalty) ||
+        !readAttributes(reader, character.attributes)) {
         return false;
     }
-    if (character.name.empty() || character.level <= 0 || character.level > 1000000
-        || character.experience < 0 || character.growthPoints < 0) {
+    if (character.name.empty() || character.level <= 0 || character.level > 1000000 || character.experience < 0 ||
+        character.growthPoints < 0) {
         return false;
     }
     for (const int value : character.attributes.values) {
@@ -253,8 +252,7 @@ bool readCharacter(BufferReader& reader, Character& character) {
             continue;
         }
         Item item;
-        if (!readItem(reader, item) || !item.equipmentSlot
-            || static_cast<std::size_t>(*item.equipmentSlot) != index) {
+        if (!readItem(reader, item) || !item.equipmentSlot || static_cast<std::size_t>(*item.equipmentSlot) != index) {
             return false;
         }
         character.equipment[index] = std::move(item);
@@ -273,8 +271,8 @@ bool readInventory(BufferReader& reader, Inventory& inventory) {
     int weightLimit = 0;
     int slotLimit = 0;
     std::uint32_t count = 0;
-    if (!reader.readInt(weightLimit) || !reader.readInt(slotLimit) || !reader.readU32(count)
-        || weightLimit < 0 || slotLimit < 0 || count > kMaximumInventoryItems) {
+    if (!reader.readInt(weightLimit) || !reader.readInt(slotLimit) || !reader.readU32(count) || weightLimit < 0 ||
+        slotLimit < 0 || count > kMaximumInventoryItems) {
         return false;
     }
     Inventory parsed{weightLimit, slotLimit};
@@ -297,8 +295,8 @@ void writeExpansionSquad(BufferWriter& writer, const Squad& squad) {
 bool readExpansionSquad(BufferReader& reader, Squad& squad) {
     std::uint32_t count = 0;
     std::uint32_t leaderIndex = 0;
-    if (!reader.readString(squad.name) || !reader.readU32(count)
-        || count < kMinimumSquadSize || count > kMaximumSquadSize) {
+    if (!reader.readString(squad.name) || !reader.readU32(count) || count < kMinimumSquadSize ||
+        count > kMaximumSquadSize) {
         return false;
     }
     squad.members.clear();
@@ -341,17 +339,17 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
 }
 
 bool readExpansionState(BufferReader& reader, ExpansionState& state) {
-    if (!reader.readU32(state.seed) || !reader.readInt(state.turn)
-        || !readEnum(reader, state.phase, ExpansionPhase::Exploring, ExpansionPhase::Settled)
-        || !readExpansionSquad(reader, state.squad) || !readInventory(reader, state.backpack)
-        || !reader.readBool(state.settled)
-        || !reader.readInt(state.worldLocation) || !readBoolArray(reader, state.worldDiscovered)
-        || !readBoolArray(reader, state.outposts) || !reader.readInt(state.cargoFood)
-        || !reader.readInt(state.cargoWood) || !reader.readInt(state.cargoStone)
-        || !reader.readInt(state.cargoHerbs) || !reader.readInt(state.cargoHides) || !reader.readInt(state.harvestActions)
-        || !reader.readInt(state.cargoCapacity) || !reader.readInt(state.foodGatherBonus)
-        || !reader.readInt(state.herbGatherBonus) || !reader.readInt(state.assignedResource) || !reader.readInt(state.crewSize)
-        || !reader.readInt(state.encounterLife) || !reader.readBool(state.encounterDefeated)) {
+    if (!reader.readU32(state.seed) || !reader.readInt(state.turn) ||
+        !readEnum(reader, state.phase, ExpansionPhase::Exploring, ExpansionPhase::Settled) ||
+        !readExpansionSquad(reader, state.squad) || !readInventory(reader, state.backpack) ||
+        !reader.readBool(state.settled) || !reader.readInt(state.worldLocation) ||
+        !readBoolArray(reader, state.worldDiscovered) || !readBoolArray(reader, state.outposts) ||
+        !reader.readInt(state.cargoFood) || !reader.readInt(state.cargoWood) || !reader.readInt(state.cargoStone) ||
+        !reader.readInt(state.cargoHerbs) || !reader.readInt(state.cargoHides) ||
+        !reader.readInt(state.harvestActions) || !reader.readInt(state.cargoCapacity) ||
+        !reader.readInt(state.foodGatherBonus) || !reader.readInt(state.herbGatherBonus) ||
+        !reader.readInt(state.assignedResource) || !reader.readInt(state.crewSize) ||
+        !reader.readInt(state.encounterLife) || !reader.readBool(state.encounterDefeated)) {
         return false;
     }
     return static_cast<bool>(ExpansionGame::validateState(state));
@@ -367,10 +365,10 @@ void writeFaction(BufferWriter& writer, const FactionState& faction) {
 }
 
 bool readFaction(BufferReader& reader, FactionState& faction) {
-    return reader.readString(faction.name) && reader.readInt(faction.influence)
-        && reader.readInt(faction.satisfaction) && reader.readString(faction.demand)
-        && reader.readString(faction.candidate)
-        && readEnum(reader, faction.crisis, FactionCrisis::Calm, FactionCrisis::Coup);
+    return reader.readString(faction.name) && reader.readInt(faction.influence) &&
+           reader.readInt(faction.satisfaction) && reader.readString(faction.demand) &&
+           reader.readString(faction.candidate) &&
+           readEnum(reader, faction.crisis, FactionCrisis::Calm, FactionCrisis::Coup);
 }
 
 void writeTribeProfile(BufferWriter& writer, const TribeProfile& profile) {
@@ -386,11 +384,10 @@ void writeTribeProfile(BufferWriter& writer, const TribeProfile& profile) {
 
 bool readTribeProfile(BufferReader& reader, TribeProfile& profile) {
     std::uint32_t count = 0;
-    if (!readEnum(reader, profile.id, TribeId::Player, TribeId::Blackstone)
-        || !reader.readString(profile.name) || !reader.readString(profile.leader)
-        || !reader.readString(profile.actingLeader) || !reader.readString(profile.successor)
-        || !reader.readString(profile.personality) || !reader.readU32(count)
-        || count < 2U || count > kMaximumProfileFactions) {
+    if (!readEnum(reader, profile.id, TribeId::Player, TribeId::Blackstone) || !reader.readString(profile.name) ||
+        !reader.readString(profile.leader) || !reader.readString(profile.actingLeader) ||
+        !reader.readString(profile.successor) || !reader.readString(profile.personality) || !reader.readU32(count) ||
+        count < 2U || count > kMaximumProfileFactions) {
         return false;
     }
     profile.factions.clear();
@@ -418,12 +415,11 @@ void writeRelation(BufferWriter& writer, const DiplomacyRelation& relation) {
 }
 
 bool readRelation(BufferReader& reader, DiplomacyRelation& relation) {
-    return reader.readInt(relation.relation) && reader.readInt(relation.trust)
-        && reader.readInt(relation.fear) && reader.readInt(relation.tradeDependence)
-        && reader.readBool(relation.atWar) && reader.readBool(relation.truce)
-        && reader.readBool(relation.alliance) && reader.readBool(relation.marriage)
-        && reader.readBool(relation.playerPaysTribute) && reader.readBool(relation.otherPaysTribute)
-        && reader.readBool(relation.tradeRoute);
+    return reader.readInt(relation.relation) && reader.readInt(relation.trust) && reader.readInt(relation.fear) &&
+           reader.readInt(relation.tradeDependence) && reader.readBool(relation.atWar) &&
+           reader.readBool(relation.truce) && reader.readBool(relation.alliance) &&
+           reader.readBool(relation.marriage) && reader.readBool(relation.playerPaysTribute) &&
+           reader.readBool(relation.otherPaysTribute) && reader.readBool(relation.tradeRoute);
 }
 
 void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
@@ -440,8 +436,8 @@ void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
 
 bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
     std::uint32_t count = 0;
-    if (!reader.readString(squad.name) || !reader.readString(squad.captain)
-        || !reader.readU32(count) || count < 2U || count > kMaximumSquadMembers) {
+    if (!reader.readString(squad.name) || !reader.readString(squad.captain) || !reader.readU32(count) || count < 2U ||
+        count > kMaximumSquadMembers) {
         return false;
     }
     squad.members.clear();
@@ -451,10 +447,9 @@ bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
         if (!reader.readString(member)) return false;
         squad.members.push_back(std::move(member));
     }
-    return reader.readInt(squad.fatigue) && reader.readInt(squad.eliteExperience)
-        && reader.readBool(squad.personallyDeployedThisSeason)
-        && reader.readBool(squad.refusingOrders)
-        && readEnum(reader, squad.station, WorldLocationId::Camp, WorldLocationId::CliffTradeRoad);
+    return reader.readInt(squad.fatigue) && reader.readInt(squad.eliteExperience) &&
+           reader.readBool(squad.personallyDeployedThisSeason) && reader.readBool(squad.refusingOrders) &&
+           readEnum(reader, squad.station, WorldLocationId::Camp, WorldLocationId::CliffTradeRoad);
 }
 
 void writeWar(BufferWriter& writer, const WarState& war) {
@@ -477,14 +472,19 @@ void writeWar(BufferWriter& writer, const WarState& war) {
 
 bool readWar(BufferReader& reader, WarState& war) {
     std::uint32_t count = 0;
-    if (!reader.readBool(war.active) || !readEnum(reader, war.enemy, TribeId::Player, TribeId::Blackstone)
-        || !reader.readString(war.commander) || !reader.readInt(war.warriors) || !reader.readInt(war.militia)
-        || !reader.readInt(war.playerPower) || !reader.readInt(war.enemyPower)
-        || !readEnum(reader, war.order, WarOrder::Advance, WarOrder::Retreat) || !reader.readBool(war.riskConfirmed)
-        || !reader.readInt(war.spearMilitia) || !reader.readInt(war.shieldBearers) || !reader.readInt(war.heavySpears)
-        || !reader.readU32(count) || count > kMaximumInventoryItems) return false;
+    if (!reader.readBool(war.active) || !readEnum(reader, war.enemy, TribeId::Player, TribeId::Blackstone) ||
+        !reader.readString(war.commander) || !reader.readInt(war.warriors) || !reader.readInt(war.militia) ||
+        !reader.readInt(war.playerPower) || !reader.readInt(war.enemyPower) ||
+        !readEnum(reader, war.order, WarOrder::Advance, WarOrder::Retreat) || !reader.readBool(war.riskConfirmed) ||
+        !reader.readInt(war.spearMilitia) || !reader.readInt(war.shieldBearers) || !reader.readInt(war.heavySpears) ||
+        !reader.readU32(count) || count > kMaximumInventoryItems)
+        return false;
     war.lockedEquipment.clear();
-    for (std::uint32_t i = 0; i < count; ++i) { Item item; if (!readItem(reader, item)) return false; war.lockedEquipment.push_back(std::move(item)); }
+    for (std::uint32_t i = 0; i < count; ++i) {
+        Item item;
+        if (!readItem(reader, item)) return false;
+        war.lockedEquipment.push_back(std::move(item));
+    }
     return reader.readBool(war.defensive);
 }
 
@@ -496,8 +496,8 @@ void writeChronicle(BufferWriter& writer, const ChronicleEntry& entry) {
 }
 
 bool readChronicle(BufferReader& reader, ChronicleEntry& entry) {
-    return reader.readInt(entry.season) && reader.readInt(entry.importance)
-        && reader.readString(entry.title) && reader.readString(entry.detail);
+    return reader.readInt(entry.season) && reader.readInt(entry.importance) && reader.readString(entry.title) &&
+           reader.readString(entry.detail);
 }
 
 void writeGameState(BufferWriter& writer, const GameState& state) {
@@ -554,34 +554,46 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeU32(static_cast<std::uint32_t>(state.chronicle.size()));
     for (const ChronicleEntry& entry : state.chronicle) writeChronicle(writer, entry);
 
-    writer.writeInt(state.workforce.foodCrew); writer.writeInt(state.workforce.woodCrew); writer.writeInt(state.workforce.stoneCrew); writer.writeInt(state.workforce.herbCrew);
-    writer.writeInt(state.workforce.crafters); writer.writeInt(state.workforce.healers); writer.writeInt(state.workforce.scouts); writer.writeInt(state.workforce.envoys); writer.writeInt(state.workforce.campGuards);
-    writer.writeBool(state.pendingEvent.active); writer.writeString(state.pendingEvent.name); writer.writeString(state.pendingEvent.optionOne); writer.writeString(state.pendingEvent.optionTwo);
-    writer.writeString(state.workshopSupervisor); writer.writeString(state.healerSupervisor);
+    writer.writeInt(state.workforce.foodCrew);
+    writer.writeInt(state.workforce.woodCrew);
+    writer.writeInt(state.workforce.stoneCrew);
+    writer.writeInt(state.workforce.herbCrew);
+    writer.writeInt(state.workforce.crafters);
+    writer.writeInt(state.workforce.healers);
+    writer.writeInt(state.workforce.scouts);
+    writer.writeInt(state.workforce.envoys);
+    writer.writeInt(state.workforce.campGuards);
+    writer.writeBool(state.pendingEvent.active);
+    writer.writeString(state.pendingEvent.name);
+    writer.writeString(state.pendingEvent.optionOne);
+    writer.writeString(state.pendingEvent.optionTwo);
+    writer.writeString(state.workshopSupervisor);
+    writer.writeString(state.healerSupervisor);
     for (const int guard : state.workforce.outpostGuards) writer.writeInt(guard);
     for (const int idle : state.workforce.outpostIdleSeasons) writer.writeInt(idle);
-    writer.writeU32(static_cast<std::uint32_t>(state.stockpile.size())); for (const Item& item : state.stockpile) writeItem(writer, item);
-    for (const OccupationState& site : state.occupations) { writer.writeBool(site.occupied); writer.writeInt(site.garrison); writer.writeInt(site.unrest); }
+    writer.writeU32(static_cast<std::uint32_t>(state.stockpile.size()));
+    for (const Item& item : state.stockpile) writeItem(writer, item);
+    for (const OccupationState& site : state.occupations) {
+        writer.writeBool(site.occupied);
+        writer.writeInt(site.garrison);
+        writer.writeInt(site.unrest);
+    }
 }
 
 bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
-    if (!readEnum(reader, state.mode, GameMode::Quick, GameMode::Long)
-        || !readEnum(reader, state.phase, GamePhase::Managing, GamePhase::Sandbox)
-        || !reader.readU32(state.seed) || !reader.readInt(state.season)
-        || !reader.readInt(state.seasonLimit) || !reader.readInt(state.actionsLeft)
-        || !reader.readInt(state.population) || !reader.readInt(state.food)
-        || !reader.readInt(state.wood) || !reader.readInt(state.stone)
-        || !reader.readInt(state.herbs) || !reader.readInt(state.hides) || !reader.readInt(state.warriors)
-        || !reader.readInt(state.morale) || !reader.readInt(state.campDurability)
-        || !reader.readInt(state.stability) || !reader.readInt(state.shells)
-        || !reader.readInt(state.tradeCount) || !reader.readInt(state.warsWon)
-        || !reader.readInt(state.warsLost) || !reader.readInt(state.missionCount)
-        || !reader.readInt(state.missionDeaths) || !reader.readInt(state.highestLevel)
-        || !reader.readString(state.tribeName)
-        || !reader.readString(state.leaderName) || !reader.readString(state.actingLeaderName)
-        || !reader.readString(state.leaderFocus) || !readBoolArray(reader, state.discovered)
-        || !readBoolArray(reader, state.outposts)
-        || !readBoolArray(reader, state.buildings) || !readBoolArray(reader, state.technologies)) {
+    if (!readEnum(reader, state.mode, GameMode::Quick, GameMode::Long) ||
+        !readEnum(reader, state.phase, GamePhase::Managing, GamePhase::Sandbox) || !reader.readU32(state.seed) ||
+        !reader.readInt(state.season) || !reader.readInt(state.seasonLimit) || !reader.readInt(state.actionsLeft) ||
+        !reader.readInt(state.population) || !reader.readInt(state.food) || !reader.readInt(state.wood) ||
+        !reader.readInt(state.stone) || !reader.readInt(state.herbs) || !reader.readInt(state.hides) ||
+        !reader.readInt(state.warriors) || !reader.readInt(state.morale) || !reader.readInt(state.campDurability) ||
+        !reader.readInt(state.stability) || !reader.readInt(state.shells) || !reader.readInt(state.tradeCount) ||
+        !reader.readInt(state.warsWon) || !reader.readInt(state.warsLost) || !reader.readInt(state.missionCount) ||
+        !reader.readInt(state.missionDeaths) || !reader.readInt(state.highestLevel) ||
+        !reader.readString(state.tribeName) || !reader.readString(state.leaderName) ||
+        !reader.readString(state.actingLeaderName) || !reader.readString(state.leaderFocus) ||
+        !readBoolArray(reader, state.discovered) || !readBoolArray(reader, state.outposts) ||
+        !readBoolArray(reader, state.buildings) || !readBoolArray(reader, state.technologies)) {
         error = "存档基础字段损坏或不完整。";
         return false;
     }
@@ -655,16 +667,15 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
     } else {
         state.activeMission.reset();
     }
-    if (!readWar(reader, state.war) || !reader.readBool(state.currencyUnlocked)
-        || !reader.readBool(state.longModeFinalShown)
-        || !readEnum(reader, state.ending, GameEnding::None, GameEnding::Extinction)) {
+    if (!readWar(reader, state.war) || !reader.readBool(state.currencyUnlocked) ||
+        !reader.readBool(state.longModeFinalShown) ||
+        !readEnum(reader, state.ending, GameEnding::None, GameEnding::Extinction)) {
         error = "存档的任务、战争或结局字段损坏。";
         return false;
     }
 
     std::uint32_t leadershipCount = 0;
-    if (!reader.readU32(leadershipCount) || leadershipCount == 0U
-        || leadershipCount > kMaximumLeadershipEntries) {
+    if (!reader.readU32(leadershipCount) || leadershipCount == 0U || leadershipCount > kMaximumLeadershipEntries) {
         error = "存档的首领历史数量无效。";
         return false;
     }
@@ -680,8 +691,7 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
     }
 
     std::uint32_t chronicleCount = 0;
-    if (!reader.readU32(chronicleCount) || chronicleCount == 0U
-        || chronicleCount > kMaximumChronicleEntries) {
+    if (!reader.readU32(chronicleCount) || chronicleCount == 0U || chronicleCount > kMaximumChronicleEntries) {
         error = "存档的编年史数量无效。";
         return false;
     }
@@ -696,15 +706,46 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         state.chronicle.push_back(std::move(entry));
     }
 
-    if (!reader.readInt(state.workforce.foodCrew) || !reader.readInt(state.workforce.woodCrew) || !reader.readInt(state.workforce.stoneCrew) || !reader.readInt(state.workforce.herbCrew)
-        || !reader.readInt(state.workforce.crafters) || !reader.readInt(state.workforce.healers) || !reader.readInt(state.workforce.scouts) || !reader.readInt(state.workforce.envoys) || !reader.readInt(state.workforce.campGuards)
-        || !reader.readBool(state.pendingEvent.active) || !reader.readString(state.pendingEvent.name) || !reader.readString(state.pendingEvent.optionOne) || !reader.readString(state.pendingEvent.optionTwo)
-        || !reader.readString(state.workshopSupervisor) || !reader.readString(state.healerSupervisor)) { error = "存档的当前玩法字段损坏。"; return false; }
-    for (int& guard : state.workforce.outpostGuards) if (!reader.readInt(guard)) { error = "存档前哨守卫字段损坏。"; return false; }
-    for (int& idle : state.workforce.outpostIdleSeasons) if (!reader.readInt(idle)) { error = "存档前哨维护字段损坏。"; return false; }
-    std::uint32_t stockCount = 0; if (!reader.readU32(stockCount) || stockCount > kMaximumInventoryItems) { error = "存档仓库数量无效。"; return false; }
-    state.stockpile.clear(); for (std::uint32_t i=0;i<stockCount;++i) { Item item; if(!readItem(reader,item)){error="存档仓库物品损坏。";return false;} state.stockpile.push_back(std::move(item)); }
-    for (OccupationState& site : state.occupations) if (!reader.readBool(site.occupied) || !reader.readInt(site.garrison) || !reader.readInt(site.unrest)) { error="存档占领字段损坏。";return false; }
+    if (!reader.readInt(state.workforce.foodCrew) || !reader.readInt(state.workforce.woodCrew) ||
+        !reader.readInt(state.workforce.stoneCrew) || !reader.readInt(state.workforce.herbCrew) ||
+        !reader.readInt(state.workforce.crafters) || !reader.readInt(state.workforce.healers) ||
+        !reader.readInt(state.workforce.scouts) || !reader.readInt(state.workforce.envoys) ||
+        !reader.readInt(state.workforce.campGuards) || !reader.readBool(state.pendingEvent.active) ||
+        !reader.readString(state.pendingEvent.name) || !reader.readString(state.pendingEvent.optionOne) ||
+        !reader.readString(state.pendingEvent.optionTwo) || !reader.readString(state.workshopSupervisor) ||
+        !reader.readString(state.healerSupervisor)) {
+        error = "存档的当前玩法字段损坏。";
+        return false;
+    }
+    for (int& guard : state.workforce.outpostGuards)
+        if (!reader.readInt(guard)) {
+            error = "存档前哨守卫字段损坏。";
+            return false;
+        }
+    for (int& idle : state.workforce.outpostIdleSeasons)
+        if (!reader.readInt(idle)) {
+            error = "存档前哨维护字段损坏。";
+            return false;
+        }
+    std::uint32_t stockCount = 0;
+    if (!reader.readU32(stockCount) || stockCount > kMaximumInventoryItems) {
+        error = "存档仓库数量无效。";
+        return false;
+    }
+    state.stockpile.clear();
+    for (std::uint32_t i = 0; i < stockCount; ++i) {
+        Item item;
+        if (!readItem(reader, item)) {
+            error = "存档仓库物品损坏。";
+            return false;
+        }
+        state.stockpile.push_back(std::move(item));
+    }
+    for (OccupationState& site : state.occupations)
+        if (!reader.readBool(site.occupied) || !reader.readInt(site.garrison) || !reader.readInt(site.unrest)) {
+            error = "存档占领字段损坏。";
+            return false;
+        }
     if (!GameEngine::validateState(state, error)) return false;
     error.clear();
     return true;
@@ -713,8 +754,8 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
 bool serializeFile(const GameState& state, std::string& fileData, std::string& error) {
     BufferWriter payloadWriter;
     writeGameState(payloadWriter, state);
-    if (!payloadWriter.valid()
-        || payloadWriter.data().size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+    if (!payloadWriter.valid() ||
+        payloadWriter.data().size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
         error = "存档内容过大，无法安全写入。";
         return false;
     }
@@ -740,8 +781,8 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
     std::uint32_t version = 0;
     std::uint32_t payloadSize = 0;
     std::uint32_t storedChecksum = 0;
-    if (!fileReader.readBytes(kMagic.size(), magic)
-        || !std::equal(kMagic.begin(), kMagic.end(), magic.begin(), magic.end())) {
+    if (!fileReader.readBytes(kMagic.size(), magic) ||
+        !std::equal(kMagic.begin(), kMagic.end(), magic.begin(), magic.end())) {
         error = "不是《燧火纪》游戏存档。";
         return false;
     }
@@ -749,8 +790,7 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
         error = "旧版本存档不支持，需要新开局；原文件未被修改。";
         return false;
     }
-    if (!fileReader.readU32(payloadSize) || payloadSize > kMaximumSaveBytes
-        || !fileReader.readU32(storedChecksum)) {
+    if (!fileReader.readU32(payloadSize) || payloadSize > kMaximumSaveBytes || !fileReader.readU32(storedChecksum)) {
         error = "存档头损坏。";
         return false;
     }
@@ -840,8 +880,7 @@ bool restoreRecoveredFile(const std::filesystem::path& source, const std::filesy
 
 bool validSlot(const SaveSlot slot) {
     const int value = static_cast<int>(slot);
-    return value >= static_cast<int>(SaveSlot::Slot1)
-        && value <= static_cast<int>(SaveSlot::Autosave);
+    return value >= static_cast<int>(SaveSlot::Slot1) && value <= static_cast<int>(SaveSlot::Autosave);
 }
 
 std::string modificationTime(const std::filesystem::path& path) {
@@ -862,8 +901,8 @@ std::string modificationTime(const std::filesystem::path& path) {
     return output.str();
 }
 
-SaveSummary summaryFor(const SaveSlot slot, const SaveStatus status,
-    const std::filesystem::path& source, const GameState& state) {
+SaveSummary summaryFor(const SaveSlot slot, const SaveStatus status, const std::filesystem::path& source,
+                       const GameState& state) {
     SaveSummary summary;
     summary.slot = slot;
     summary.status = status;
@@ -888,19 +927,25 @@ SaveRepository::SaveRepository(std::filesystem::path root) : root_(std::move(roo
 
 std::filesystem::path SaveRepository::pathFor(const SaveSlot slot) const {
     switch (slot) {
-    case SaveSlot::Slot1: return root_ / "slot1.sav";
-    case SaveSlot::Slot2: return root_ / "slot2.sav";
-    case SaveSlot::Slot3: return root_ / "slot3.sav";
-    case SaveSlot::Slot4: return root_ / "slot4.sav";
-    case SaveSlot::Slot5: return root_ / "slot5.sav";
-    case SaveSlot::Slot6: return root_ / "slot6.sav";
-    case SaveSlot::Autosave: return root_ / "autosave.sav";
+        case SaveSlot::Slot1:
+            return root_ / "slot1.sav";
+        case SaveSlot::Slot2:
+            return root_ / "slot2.sav";
+        case SaveSlot::Slot3:
+            return root_ / "slot3.sav";
+        case SaveSlot::Slot4:
+            return root_ / "slot4.sav";
+        case SaveSlot::Slot5:
+            return root_ / "slot5.sav";
+        case SaveSlot::Slot6:
+            return root_ / "slot6.sav";
+        case SaveSlot::Autosave:
+            return root_ / "autosave.sav";
     }
     return root_ / "invalid.sav";
 }
 
-bool SaveRepository::save(const GameState& state, const SaveSlot slot,
-    std::string& error) const {
+bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::string& error) const {
     if (!validSlot(slot)) {
         error = "存档槽编号无效。";
         return false;
@@ -989,9 +1034,8 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot,
             std::filesystem::rename(backup, path, restoreCode);
             if (restoreCode) {
                 std::filesystem::remove(temporary, code);
-                error = "无法替换正式存档：" + renameError
-                    + "；恢复旧存档也失败：" + restoreCode.message()
-                    + "。旧数据仍保留在" + backup.filename().string() + "。";
+                error = "无法替换正式存档：" + renameError + "；恢复旧存档也失败：" + restoreCode.message() +
+                        "。旧数据仍保留在" + backup.filename().string() + "。";
                 return false;
             }
         }
@@ -1006,8 +1050,7 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot,
     return true;
 }
 
-bool SaveRepository::load(const SaveSlot slot, GameState& candidate,
-    std::string& error) const {
+bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error) const {
     if (!validSlot(slot)) {
         error = "存档槽编号无效。";
         return false;
@@ -1022,8 +1065,8 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate,
         return true;
     }
     if (primaryStatus == LoadFileStatus::Unavailable) {
-        error = "读取" + slotName(slot) + "失败。主文件暂时不可用：" + primaryError
-            + "。为避免误读旧备份，本次没有自动回退。";
+        error = "读取" + slotName(slot) + "失败。主文件暂时不可用：" + primaryError +
+                "。为避免误读旧备份，本次没有自动回退。";
         return false;
     }
 
@@ -1048,15 +1091,15 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate,
         return true;
     }
 
-    error = "读取" + slotName(slot) + "失败。主文件：" + primaryError
-        + "；备份文件：" + backupError + "；临时文件：" + temporaryError;
+    error = "读取" + slotName(slot) + "失败。主文件：" + primaryError + "；备份文件：" + backupError + "；临时文件：" +
+            temporaryError;
     return false;
 }
 
 std::vector<SaveSummary> SaveRepository::inspect() const {
     // 列表只解析文件，不调用可能修复主档的 load；候选顺序与实际读取一致。
-    constexpr std::array<SaveSlot, 7> slots{{SaveSlot::Autosave, SaveSlot::Slot1,
-        SaveSlot::Slot2, SaveSlot::Slot3, SaveSlot::Slot4, SaveSlot::Slot5, SaveSlot::Slot6}};
+    constexpr std::array<SaveSlot, 7> slots{{SaveSlot::Autosave, SaveSlot::Slot1, SaveSlot::Slot2, SaveSlot::Slot3,
+                                             SaveSlot::Slot4, SaveSlot::Slot5, SaveSlot::Slot6}};
     std::vector<SaveSummary> summaries;
     summaries.reserve(slots.size());
     for (const SaveSlot slot : slots) {
@@ -1096,9 +1139,8 @@ std::vector<SaveSummary> SaveRepository::inspect() const {
 
         SaveSummary summary;
         summary.slot = slot;
-        const bool allMissing = primaryStatus == LoadFileStatus::Missing
-            && backupStatus == LoadFileStatus::Missing
-            && temporaryStatus == LoadFileStatus::Missing;
+        const bool allMissing = primaryStatus == LoadFileStatus::Missing && backupStatus == LoadFileStatus::Missing &&
+                                temporaryStatus == LoadFileStatus::Missing;
         summary.status = allMissing ? SaveStatus::Empty : SaveStatus::Corrupt;
         summaries.push_back(std::move(summary));
     }
@@ -1120,13 +1162,20 @@ std::optional<SaveSlot> SaveRepository::parseSlot(const std::string_view text) {
 
 std::string SaveRepository::slotName(const SaveSlot slot) {
     switch (slot) {
-    case SaveSlot::Slot1: return "手动存档1";
-    case SaveSlot::Slot2: return "手动存档2";
-    case SaveSlot::Slot3: return "手动存档3";
-    case SaveSlot::Slot4: return "手动存档4";
-    case SaveSlot::Slot5: return "手动存档5";
-    case SaveSlot::Slot6: return "手动存档6";
-    case SaveSlot::Autosave: return "自动存档";
+        case SaveSlot::Slot1:
+            return "手动存档1";
+        case SaveSlot::Slot2:
+            return "手动存档2";
+        case SaveSlot::Slot3:
+            return "手动存档3";
+        case SaveSlot::Slot4:
+            return "手动存档4";
+        case SaveSlot::Slot5:
+            return "手动存档5";
+        case SaveSlot::Slot6:
+            return "手动存档6";
+        case SaveSlot::Autosave:
+            return "自动存档";
     }
     return "未知存档";
 }
