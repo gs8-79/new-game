@@ -644,7 +644,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
                                                              : rejected("任务类型：食物、木材、石料、草药或兽皮。");
     }
     if (command.verb == "5" && command.args.empty()) return startMission();
-    if (verbIs(command, {"workforce", "劳力"}) && command.args.empty())
+    if ((verbIs(command, {"workforce", "劳力"}) || command.verb == "3") && command.args.empty())
         return {true, true, false, false, false, false, workforceText()};
     if (verbIs(command, {"assign", "分配"}) && command.args.size() == 3U &&
         equalsAny(command.args[0], {"outpost", "前哨"})) {
@@ -659,7 +659,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
         return role && parseNonnegative(command.args[1], count) ? assignWorkforce(*role, count)
                                                                 : rejected("用法：assign <岗位> <人数>。");
     }
-    if (verbIs(command, {"inventory", "仓库"}) && command.args.empty())
+    if ((verbIs(command, {"inventory", "仓库"}) || command.verb == "4") && command.args.empty())
         return {true, true, false, false, false, false, inventoryText()};
     if (verbIs(command, {"people", "人物"}) && command.args.empty())
         return {true, true, false, false, false, false, peopleText()};
@@ -2659,7 +2659,8 @@ std::string GameEngine::chronicleText() const {
 }
 
 std::string GameEngine::helpText() const {
-    return "查询：1/status状态 2/map地图 6/diplomacy外交 factions派系 squads小队 objectives目标 chronicle编年史\n"
+    return "查询：1/status状态 2/map地图 3/workforce劳力 4/inventory仓库 6/diplomacy外交 factions派系 squads小队 "
+           "objectives目标 chronicle编年史\n"
            "经营：build/建造 <建筑>，research/研究 <技术>；资源和地点只能通过地图任务取得\n"
            "任务：5 或 mission；任务内使用move/移动、gather/采集、build outpost/建造前哨、settle/结算\n"
            "劳力：资源队可分配2至6人；工匠、医者、侦察、使者、守卫和前哨守卫只分配0或1人\n"

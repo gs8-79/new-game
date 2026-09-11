@@ -62,7 +62,7 @@ tribe::GameEngine preparedWorkshopGame() {
 
 TEST_CASE("direct gathering and scouting commands are absent outside the map") {
     tribe::GameEngine game{{tribe::GameMode::Quick, 11U}};
-    for (const std::string& command : {"gather wood", "采集 木材", "scout forest", "侦察 苍林", "3", "4"}) {
+    for (const std::string& command : {"gather wood", "采集 木材", "scout forest", "侦察 苍林"}) {
         const std::string before = stateSnapshot(game.state());
         const tribe::ActionResult result = game.execute(command);
         REQUIRE(!result.success);
@@ -79,6 +79,20 @@ TEST_CASE("help and workforce commands expose the current simplified rules") {
     REQUIRE(output.str().find("第9季") == std::string::npos);
 
     tribe::GameEngine game{{tribe::GameMode::Quick, 13U}};
+    ui.renderGame(game, {});
+    REQUIRE(output.str().find("3劳力") != std::string::npos);
+    REQUIRE(output.str().find("4仓库") != std::string::npos);
+
+    const tribe::ActionResult workforce = game.execute("3");
+    REQUIRE(workforce.success);
+    REQUIRE(!workforce.stateChanged);
+    REQUIRE(workforce.message.find("劳力分工") != std::string::npos);
+
+    const tribe::ActionResult inventory = game.execute("4");
+    REQUIRE(inventory.success);
+    REQUIRE(!inventory.stateChanged);
+    REQUIRE(inventory.message.find("共享装备仓库") != std::string::npos);
+
     requireRejectedWithoutChange(game, "assign crafters 2");
     requireSuccess(game, "assign crafters 1");
     REQUIRE(game.state().workforce.crafters == 1);

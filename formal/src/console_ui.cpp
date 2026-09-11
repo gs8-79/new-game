@@ -293,7 +293,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
             << "  三种模式都从第1季开始：快速8季、正式16季、长期32季。\n";
     } else if (topic == 2) {
         writeSection("经营建设");
-        output_ << "  1 状态  2 地图  5 小队地图任务  8 结束季节\n"
+        output_ << "  1 状态  2 地图  3 劳力  4 仓库  5 小队地图任务  8 结束季节\n"
                 << "  build/建造  research/研究；经营界面不能直接采集或侦察\n";
         output_ << "  资源与新地点必须由小队进入十六地点地图取得。\n"
                 << "  建造 <粮仓|木墙|武备工坊|医者小屋|瞭望塔|议事火坛>\n"
@@ -461,7 +461,7 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     } else if (state.phase == GamePhase::Finished) {
         output_ << "  重新播放  人物  编年史  继续沙盒  返回主菜单\n";
     } else {
-        output_ << "  1状态  2地图  5小队地图任务  workforce劳力  inventory仓库  people人物  8结束季节  9帮助\n"
+        output_ << "  1状态  2地图  3劳力  4仓库  5小队地图任务  6外交  7小队  8结束季节  9帮助\n"
                 << "  经营：建造 研究 制造 维修  分配  建筑清单 技术清单；mission outpost 前哨建设\n"
                 << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
     }
