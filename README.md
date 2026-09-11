@@ -26,7 +26,7 @@ Windows 下双击项目根目录的 `开始正式版.cmd`。它会构建并运�
 ```
 
 - 资源只能由小队在十六地点地图中装载后，回到燧火营地或有守卫的前哨结算获得；经营界面没有直接采集或侦察。
-- `workforce/劳力` 查看分工，`assign/分配 <岗位> <人数>` 调整资源队、工匠、医者、侦察、使者和营地守卫。已配置的资源队会提高下一季行动容量。
+- `workforce/劳力` 查看分工，`assign/分配 <岗位> <人数>` 调整岗位。资源队可分配 2 至 6 人并提高下一季行动容量；工匠、医者、侦察、使者、营地守卫和前哨守卫只区分未配置或已配置，使用 0 或 1。
 - 建筑与技术的材料、前置和收益可用 `buildings/建筑清单`、`technologies/技术清单` 查询。武备工坊需要至少一名工匠，才能制造或维修装备。
 - `inventory/仓库` 查看共享装备；`craft/制造`、`repair/维修`、`equip/装备` 将物品在仓库、人物、任务背包和军队间按唯一所有权流转。
 - `formarmy/组建军队` 按未锁定装备自动配发兵种；`war targets/战争目标`、`power/战力` 展示占领目标与完整战力计算；占领后要用 `garrison/驻军` 维持据点。
@@ -68,7 +68,7 @@ Windows PowerShell：
 .\run-formal.ps1 -Configuration Release -SkipBuild
 ```
 
-构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖地图采集与失败原子性、前哨、劳力、装备、军队、草药、事件、存档和三种模式的季数。
+构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖地图采集与失败原子性、前哨、劳力规则、装备、军队、草药、资源贸易、事件、存档和三种模式的季数。
 
 macOS 安装 CMake 与 Xcode Command Line Tools 后：
 

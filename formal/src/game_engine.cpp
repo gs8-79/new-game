@@ -362,13 +362,13 @@ const std::array<WorldLocationInfo, kWorldLocationCount>& GameEngine::worldLocat
         {WorldLocationId::Quarry, "燧石矿场", "石料、武器和玄石路线", {WorldLocationId::RedPlain, WorldLocationId::BlackstoneValley}},
         {WorldLocationId::OldPass, "古老山隘", "岩牙要塞入口和迁徙道路", {WorldLocationId::CliffTradeRoad, WorldLocationId::RockfangFort}},
         {WorldLocationId::RockfangFort, "岩牙要塞", "岩牙战争与征服目标", {WorldLocationId::OldPass}},
-        {WorldLocationId::SaltwindCoast, "盐风海岸", "盐、渔获和海风事件", {WorldLocationId::Marsh, WorldLocationId::ShellBeach}},
-        {WorldLocationId::TidesaltHarbor, "潮盐港", "航运、贝币与潮盐部落", {WorldLocationId::ShellBeach, WorldLocationId::MountainMarket}},
-        {WorldLocationId::ShellBeach, "贝壳滩", "贝壳资源和港口前哨", {WorldLocationId::SaltwindCoast, WorldLocationId::TidesaltHarbor}},
-        {WorldLocationId::BlackstoneValley, "玄石谷", "矿脉、雇佣兵和工坊路线", {WorldLocationId::Quarry, WorldLocationId::BlackstoneWorkshop}},
-        {WorldLocationId::BlackstoneWorkshop, "玄石工坊", "高级装备和玄石部落", {WorldLocationId::BlackstoneValley, WorldLocationId::CliffTradeRoad}},
-        {WorldLocationId::MountainMarket, "山前集市", "三路交汇的贸易与情报中心", {WorldLocationId::RiverFord, WorldLocationId::TidesaltHarbor, WorldLocationId::CliffTradeRoad}},
-        {WorldLocationId::CliffTradeRoad, "断崖商道", "山路贸易、护送和伏击", {WorldLocationId::BlackstoneWorkshop, WorldLocationId::MountainMarket, WorldLocationId::OldPass}},
+        {WorldLocationId::SaltwindCoast, "盐风海岸", "远程食物采集与海岸路线", {WorldLocationId::Marsh, WorldLocationId::ShellBeach}},
+        {WorldLocationId::TidesaltHarbor, "潮盐港", "潮盐部落接触与贸易路线", {WorldLocationId::ShellBeach, WorldLocationId::MountainMarket}},
+        {WorldLocationId::ShellBeach, "贝壳滩", "通往潮盐港的海岸节点", {WorldLocationId::SaltwindCoast, WorldLocationId::TidesaltHarbor}},
+        {WorldLocationId::BlackstoneValley, "玄石谷", "石料采集与玄石工坊路线", {WorldLocationId::Quarry, WorldLocationId::BlackstoneWorkshop}},
+        {WorldLocationId::BlackstoneWorkshop, "玄石工坊", "玄石部落接触与工坊路线", {WorldLocationId::BlackstoneValley, WorldLocationId::CliffTradeRoad}},
+        {WorldLocationId::MountainMarket, "山前集市", "三路交汇的贸易道路", {WorldLocationId::RiverFord, WorldLocationId::TidesaltHarbor, WorldLocationId::CliffTradeRoad}},
+        {WorldLocationId::CliffTradeRoad, "断崖商道", "连接山路、工坊与山隘", {WorldLocationId::BlackstoneWorkshop, WorldLocationId::MountainMarket, WorldLocationId::OldPass}},
     }};
     return locations;
 }
@@ -1022,9 +1022,7 @@ ActionResult GameEngine::trade(const TribeId tribe, const ResourceKind offered, 
         return rejected("尚未解锁贝币，只能以物易物。");
     }
     const int offeredAmount = offered == ResourceKind::Shells ? 8 : 4;
-    if ((offered == ResourceKind::Food ? state_.food : offered == ResourceKind::Wood ? state_.wood
-            : offered == ResourceKind::Stone ? state_.stone : offered == ResourceKind::Herbs ? state_.herbs : state_.shells)
-        < offeredAmount) return rejected("给出的资源不足。");
+    if (resourceRef(state_, offered) < offeredAmount) return rejected("给出的资源不足。");
 
     GameState candidate = state_;
     const int relationBonus = std::max(0, relation.relation) / 25;
@@ -1662,6 +1660,10 @@ ActionResult GameEngine::assignWorkforce(const WorkforceRole role, const int cou
     if (count < 0 || count > 6) return rejected("每个岗位人数为0至6；资源队非零时至少2人。 ");
     if ((role == WorkforceRole::FoodCrew || role == WorkforceRole::WoodCrew || role == WorkforceRole::StoneCrew || role == WorkforceRole::HerbCrew)
         && count == 1) return rejected("资源队必须配置2至6人，或设为0。 ");
+    if ((role == WorkforceRole::Crafters || role == WorkforceRole::Healers || role == WorkforceRole::Scouts
+         || role == WorkforceRole::Envoys || role == WorkforceRole::CampGuards) && count > 1) {
+        return rejected("工匠、医者、侦察、使者和营地守卫当前只区分未配置或已配置，请输入0或1。 ");
+    }
     GameState candidate = state_;
     int* target = nullptr;
     switch (role) {
@@ -1683,8 +1685,8 @@ ActionResult GameEngine::assignWorkforce(const WorkforceRole role, const int cou
 }
 
 ActionResult GameEngine::assignOutpostGuards(const WorldLocationId location, const int count) {
-    if (location == WorldLocationId::Camp || count < 0 || count > 6) {
-        return rejected("前哨守卫人数为0至6，且营地不使用此前哨命令。 ");
+    if (location == WorldLocationId::Camp || count < 0 || count > 1) {
+        return rejected("前哨守卫当前只区分无人或有人维护，请输入0或1，且营地不使用此前哨命令。 ");
     }
     if (!state_.outposts[indexOf(location)]) return rejected("只能为已建前哨配置守卫。 ");
     GameState candidate = state_;
@@ -2092,7 +2094,9 @@ std::string GameEngine::workforceText() const {
     std::ostringstream out;
     out << "劳力分工（仅决定任务能力，不在经营界面产出资源）\n"
         << "食物队" << w.foodCrew << " 木材队" << w.woodCrew << " 石料队" << w.stoneCrew << " 草药队" << w.herbCrew
-        << "\n工匠" << w.crafters << " 医者" << w.healers << " 侦察" << w.scouts << " 使者" << w.envoys << " 营地守卫" << w.campGuards
+        << "\n支持岗位（0未配置/1已配置）：工匠" << (w.crafters > 0 ? 1 : 0)
+        << " 医者" << (w.healers > 0 ? 1 : 0) << " 侦察" << (w.scouts > 0 ? 1 : 0)
+        << " 使者" << (w.envoys > 0 ? 1 : 0) << " 营地守卫" << (w.campGuards > 0 ? 1 : 0)
         << "\n前哨守卫：";
     bool hasOutpostGuard = false;
     for (std::size_t index = 1; index < kWorldLocationCount; ++index) {
@@ -2102,7 +2106,8 @@ std::string GameEngine::workforceText() const {
     }
     if (!hasOutpostGuard) out << "无";
     out << "\n当前/下季行动容量：" << state_.actionsLeft << '/' << availableTeams(state_) << "（基础3，每支2至6人的资源队+1，最高7）"
-        << "\n用法：assign <岗位> <人数>；assign outpost <地点> <人数>。";
+        << "\n资源队可分配2至6人；支持岗位与前哨守卫只分配0或1人。"
+        << "\n用法：assign <岗位> <人数>；assign outpost <地点> <0|1>。";
     return out.str();
 }
 
@@ -2248,6 +2253,7 @@ std::string GameEngine::helpText() const {
         "查询：1/status状态 2/map地图 6/diplomacy外交 factions派系 squads小队 objectives目标 chronicle编年史\n"
         "经营：build/建造 <建筑>，research/研究 <技术>；资源和地点只能通过地图任务取得\n"
         "任务：5 或 mission；任务内使用move/移动、gather/采集、build outpost/建造前哨、settle/结算\n"
+        "劳力：资源队可分配2至6人；工匠、医者、侦察、使者、守卫和前哨守卫只分配0或1人\n"
         "小队：squadrest 小队休整；巡逻、侦察和使者效果由劳力岗位在季末结算\n"
         "外交：talk gift trade <部落> <给出资源> <换取资源> openroute marry tribute demand ally declare truce raid\n"
         "内政：appease <1至3>；战争：formarmy <战士> <民兵>，war <部落>，战中attack/defend/order/retreat\n"

@@ -303,7 +303,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  每季行动点有限；先保证食物，再逐步探索、建设和外交。\n";
         output_ << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看全地图，再用 5 派小队。\n"
                 << "  示例：5 → move forest → gather food → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
-                << "  快速模式从第9季开始，到第16季结束；正式从第1季开始。\n";
+                << "  三种模式都从第1季开始：快速8季、正式16季、长期32季。\n";
     } else if (topic == 2) {
         writeSection("经营建设");
         output_ << "  1 状态  2 地图  5 小队地图任务  8 结束季节\n"
@@ -312,7 +312,8 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  建造 <粮仓|木墙|武备工坊|医者小屋|瞭望塔|议事火坛>\n"
                 << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
-                << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n";
+                << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n"
+                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
         output_ << "  5 或 mission <资源> 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
@@ -358,42 +359,22 @@ void ConsoleUI::renderMission(const GameEngine &game, const std::string_view mes
     const ExpansionState &mission = *state.activeMission;
     const auto &locations = GameEngine::worldLocations();
     const Character &captain = mission.squad.members[mission.squad.leaderIndex];
-    writeSection("道路地图");
-    output_ << "  北↑  图例：◎当前位置  ●已发现  ▲已建前哨  ◆占领据点  ？未发现\n"
+    writeSection("道路总览");
+    output_ << "  北↑  道路编号总览；当前位置与前哨状态见下方，地点详情以 look/查看 为准\n"
             << "             [8古老山隘]--[9岩牙要塞]\n"
             << " [6白羽]--[4芦苇]--[10盐风]--[12贝壳]--[11潮盐]\n"
             << "      [2苍林]--[1营地]--[3红土]--[5河鹿]--[15山前]--[16断崖]\n"
             << "                     [7矿场]--[13玄石谷]--[14玄石工坊]\n";
-    for (std::size_t index = 0; index < locations.size(); ++index) {
-        const bool here = mission.worldLocation == static_cast<int>(index);
-        const char *marker = here ? "◎" : mission.outposts[index] ? "▲" : mission.worldDiscovered[index] ? "●" : "？";
-        output_ << "  " << marker << ' ' << (index + 1U) << '.';
-        if (mission.worldDiscovered[index] || here) {
-            output_ << locations[index].name << "  → ";
-            bool first = true;
-            for (const WorldLocationId neighbor : locations[index].neighbors) {
-                if (!first) output_ << "、";
-                const std::size_t neighborIndex = indexOf(neighbor);
-                output_ << (neighborIndex + 1U);
-                if (mission.worldDiscovered[neighborIndex]) output_ << '.' << locations[neighborIndex].name;
-                first = false;
-            }
-        } else {
-            output_ << "未知地点";
-        }
-        output_ << '\n';
-    }
+    output_ << "  当前 " << (mission.worldLocation + 1) << '.' << locations[static_cast<std::size_t>(mission.worldLocation)].name
+            << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true) << "/16"
+            << "  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
 
     writeSection("任务指令");
-    output_ << "  look/查看                 查看当前位置、可采资源和最近结算点\n"
-            << "  move/移动 <编号或地点>    沿相邻道路前进，例如：move 2\n"
-            << "  gather/采集 <资源>        按本次劳力分工在对应地点装载资源\n"
-            << "  build outpost/建造 前哨   前哨建设任务携带木材6、石料4，现场建立结算点\n"
-            << "  settle/结算               仅在营地或前哨结算并返回部落\n"
-            << "  talk/gift/trade 等         在部落接触地点外交；对象由当前位置确定\n"
-            << "  attack/defend/retreat      岩牙要塞遭遇；装备会影响战斗\n"
-            << "  abort/放弃任务            放弃载货并返回营地（稳定-2）\n"
-            << "  save/保存 <1至6>  quit/退出\n";
+    output_ << "  look/查看：当前位置、资源、结算点    move/移动 <编号或地点>：沿相邻道路前进\n"
+            << "  gather/采集 <资源>：按劳力装载        settle/结算：仅营地或前哨\n"
+            << "  build outpost/建造 前哨：建设任务现场建立结算点\n"
+            << "  talk/gift/trade 等：接触点外交        attack/defend/retreat：岩牙遭遇\n"
+            << "  abort/放弃任务：丢弃载货回营（稳定-2）  save <1至6>  quit\n";
     writeSection("现场记录");
     output_ << "  " << (message.empty() ? "道路延伸到视线之外，等待你的指令。" : std::string(message)) << "\n  "
             << ExpansionGame{mission}.lookText() << '\n';
