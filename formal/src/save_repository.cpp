@@ -332,7 +332,8 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeInt(state.cargoCapacity);
     writer.writeInt(state.foodGatherBonus);
     writer.writeInt(state.herbGatherBonus);
-    writer.writeInt(state.assignedResource);
+    writeEnum(writer, state.missionKind);
+    writeEnum(writer, state.assignedResource);
     writer.writeInt(state.crewSize);
     writer.writeInt(state.encounterLife);
     writer.writeBool(state.encounterDefeated);
@@ -348,8 +349,10 @@ bool readExpansionState(BufferReader& reader, ExpansionState& state) {
         !reader.readInt(state.cargoHerbs) || !reader.readInt(state.cargoHides) ||
         !reader.readInt(state.harvestActions) || !reader.readInt(state.cargoCapacity) ||
         !reader.readInt(state.foodGatherBonus) || !reader.readInt(state.herbGatherBonus) ||
-        !reader.readInt(state.assignedResource) || !reader.readInt(state.crewSize) ||
-        !reader.readInt(state.encounterLife) || !reader.readBool(state.encounterDefeated)) {
+        !readEnum(reader, state.missionKind, MissionKind::Gather, MissionKind::OutpostConstruction) ||
+        !readEnum(reader, state.assignedResource, ResourceKind::Food, ResourceKind::Hides) ||
+        !reader.readInt(state.crewSize) || !reader.readInt(state.encounterLife) ||
+        !reader.readBool(state.encounterDefeated)) {
         return false;
     }
     return static_cast<bool>(ExpansionGame::validateState(state));
@@ -465,6 +468,7 @@ void writeWar(BufferWriter& writer, const WarState& war) {
     writer.writeInt(war.spearMilitia);
     writer.writeInt(war.shieldBearers);
     writer.writeInt(war.heavySpears);
+    writer.writeInt(war.craftsmanshipPower);
     writer.writeU32(static_cast<std::uint32_t>(war.lockedEquipment.size()));
     for (const Item& item : war.lockedEquipment) writeItem(writer, item);
     writer.writeBool(war.defensive);
@@ -477,7 +481,7 @@ bool readWar(BufferReader& reader, WarState& war) {
         !reader.readInt(war.playerPower) || !reader.readInt(war.enemyPower) ||
         !readEnum(reader, war.order, WarOrder::Advance, WarOrder::Retreat) || !reader.readBool(war.riskConfirmed) ||
         !reader.readInt(war.spearMilitia) || !reader.readInt(war.shieldBearers) || !reader.readInt(war.heavySpears) ||
-        !reader.readU32(count) || count > kMaximumInventoryItems)
+        !reader.readInt(war.craftsmanshipPower) || !reader.readU32(count) || count > kMaximumInventoryItems)
         return false;
     war.lockedEquipment.clear();
     for (std::uint32_t i = 0; i < count; ++i) {
@@ -517,7 +521,6 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeInt(state.morale);
     writer.writeInt(state.campDurability);
     writer.writeInt(state.stability);
-    writer.writeInt(state.shells);
     writer.writeInt(state.tradeCount);
     writer.writeInt(state.warsWon);
     writer.writeInt(state.warsLost);
@@ -545,7 +548,6 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeBool(state.activeMission.has_value());
     if (state.activeMission) writeExpansionState(writer, *state.activeMission);
     writeWar(writer, state.war);
-    writer.writeBool(state.currencyUnlocked);
     writer.writeBool(state.longModeFinalShown);
     writeEnum(writer, state.ending);
 
@@ -564,9 +566,8 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
     writer.writeInt(state.workforce.envoys);
     writer.writeInt(state.workforce.campGuards);
     writer.writeBool(state.pendingEvent.active);
-    writer.writeString(state.pendingEvent.name);
-    writer.writeString(state.pendingEvent.optionOne);
-    writer.writeString(state.pendingEvent.optionTwo);
+    writeEnum(writer, state.pendingEvent.kind);
+    writer.writeBool(state.workforceReassignmentRequired);
     writer.writeString(state.workshopSupervisor);
     writer.writeString(state.healerSupervisor);
     for (const int guard : state.workforce.outpostGuards) writer.writeInt(guard);
@@ -587,8 +588,8 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         !reader.readInt(state.population) || !reader.readInt(state.food) || !reader.readInt(state.wood) ||
         !reader.readInt(state.stone) || !reader.readInt(state.herbs) || !reader.readInt(state.hides) ||
         !reader.readInt(state.warriors) || !reader.readInt(state.morale) || !reader.readInt(state.campDurability) ||
-        !reader.readInt(state.stability) || !reader.readInt(state.shells) || !reader.readInt(state.tradeCount) ||
-        !reader.readInt(state.warsWon) || !reader.readInt(state.warsLost) || !reader.readInt(state.missionCount) ||
+        !reader.readInt(state.stability) || !reader.readInt(state.tradeCount) || !reader.readInt(state.warsWon) ||
+        !reader.readInt(state.warsLost) || !reader.readInt(state.missionCount) ||
         !reader.readInt(state.missionDeaths) || !reader.readInt(state.highestLevel) ||
         !reader.readString(state.tribeName) || !reader.readString(state.leaderName) ||
         !reader.readString(state.actingLeaderName) || !reader.readString(state.leaderFocus) ||
@@ -667,8 +668,7 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
     } else {
         state.activeMission.reset();
     }
-    if (!readWar(reader, state.war) || !reader.readBool(state.currencyUnlocked) ||
-        !reader.readBool(state.longModeFinalShown) ||
+    if (!readWar(reader, state.war) || !reader.readBool(state.longModeFinalShown) ||
         !readEnum(reader, state.ending, GameEnding::None, GameEnding::Extinction)) {
         error = "存档的任务、战争或结局字段损坏。";
         return false;
@@ -711,8 +711,8 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
         !reader.readInt(state.workforce.crafters) || !reader.readInt(state.workforce.healers) ||
         !reader.readInt(state.workforce.scouts) || !reader.readInt(state.workforce.envoys) ||
         !reader.readInt(state.workforce.campGuards) || !reader.readBool(state.pendingEvent.active) ||
-        !reader.readString(state.pendingEvent.name) || !reader.readString(state.pendingEvent.optionOne) ||
-        !reader.readString(state.pendingEvent.optionTwo) || !reader.readString(state.workshopSupervisor) ||
+        !readEnum(reader, state.pendingEvent.kind, PendingEventKind::Refugees, PendingEventKind::FactionDemand) ||
+        !reader.readBool(state.workforceReassignmentRequired) || !reader.readString(state.workshopSupervisor) ||
         !reader.readString(state.healerSupervisor)) {
         error = "存档的当前玩法字段损坏。";
         return false;

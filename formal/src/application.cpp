@@ -36,7 +36,7 @@ Words words(const std::string& input) {
     stream >> parsed.verb;
     parsed.verb = asciiLower(parsed.verb);
     std::string argument;
-    while (stream >> argument) parsed.args.push_back(asciiLower(std::move(argument)));
+    while (stream >> argument) parsed.args.push_back(asciiLower(argument));
     return parsed;
 }
 

@@ -67,7 +67,6 @@ std::optional<ResourceKind> parseResource(const std::string_view text) {
     if (equalsAny(text, {"stone", "石料", "石头"})) return ResourceKind::Stone;
     if (equalsAny(text, {"herbs", "herb", "草药"})) return ResourceKind::Herbs;
     if (equalsAny(text, {"hides", "hide", "兽皮"})) return ResourceKind::Hides;
-    if (equalsAny(text, {"shells", "shell", "贝币", "货币"})) return ResourceKind::Shells;
     return std::nullopt;
 }
 
@@ -307,7 +306,7 @@ int permanentSquadFatigue(const PermanentSquad& squad, const std::vector<Charact
     int count = 0;
     for (const std::string& name : squad.members) {
         const Character* member = findRosterCharacter(roster, name);
-        if (!member) continue;
+        if (member == nullptr) continue;
         total += member->fatigue;
         ++count;
     }
@@ -378,64 +377,265 @@ int countTrue(const Container& values) {
     return static_cast<int>(std::count(values.begin(), values.end(), true));
 }
 
+int itemQualityTier(const ItemQuality quality) {
+    switch (quality) {
+        case ItemQuality::Fine:
+            return 1;
+        case ItemQuality::Rare:
+            return 2;
+        case ItemQuality::Legendary:
+            return 3;
+        case ItemQuality::Crude:
+        case ItemQuality::Common:
+            return 0;
+    }
+    return 0;
+}
+
+std::string itemQualityName(const ItemQuality quality) {
+    switch (quality) {
+        case ItemQuality::Crude:
+            return "粗制";
+        case ItemQuality::Common:
+            return "普通";
+        case ItemQuality::Fine:
+            return "精良";
+        case ItemQuality::Rare:
+            return "稀有";
+        case ItemQuality::Legendary:
+            return "传说";
+    }
+    return "未知";
+}
+
+std::string occupationName(const Occupation occupation) {
+    switch (occupation) {
+        case Occupation::Hunter:
+            return "猎手";
+        case Occupation::Warrior:
+            return "战士";
+        case Occupation::Scout:
+            return "侦察";
+        case Occupation::Healer:
+            return "医者";
+        case Occupation::Crafter:
+            return "工匠";
+        case Occupation::Envoy:
+            return "使者";
+    }
+    return "未知";
+}
+
+std::string locationRoleName(const LocationRole role) {
+    switch (role) {
+        case LocationRole::Camp:
+            return "营地";
+        case LocationRole::Resource:
+            return "资源";
+        case LocationRole::Diplomacy:
+            return "外交";
+        case LocationRole::Route:
+            return "路线";
+        case LocationRole::War:
+            return "战争";
+    }
+    return "未知";
+}
+
+int workforceAllocation(const WorkforceState& workforce) {
+    int allocated = workforce.foodCrew + workforce.woodCrew + workforce.stoneCrew + workforce.herbCrew +
+                    workforce.crafters + workforce.healers + workforce.scouts + workforce.envoys + workforce.campGuards;
+    for (const int guard : workforce.outpostGuards) allocated += guard;
+    return allocated;
+}
+
+int garrisonAllocation(const GameState& state) {
+    return std::accumulate(state.occupations.begin() + 1, state.occupations.end(), 0,
+                           [](const int total, const OccupationState& site) { return total + site.garrison; });
+}
+
+bool hasPreparedArmy(const GameState& state) { return !state.war.commander.empty(); }
+
+int committedPopulation(const GameState& state) {
+    const int army = hasPreparedArmy(state) ? state.war.warriors + state.war.militia : 0;
+    const int missionMembers = state.activeMission ? static_cast<int>(state.activeMission->squad.members.size()) : 0;
+    return workforceAllocation(state.workforce) + garrisonAllocation(state) + army + missionMembers;
+}
+
+int populationCapacity(const GameState& state) { return std::max(0, state.population - 2); }
+
+int populationOverage(const GameState& state) {
+    return std::max(0, committedPopulation(state) - populationCapacity(state));
+}
+
+void refreshWorkforceReassignment(GameState& state) {
+    state.workforceReassignmentRequired = populationOverage(state) > 0;
+}
+
+bool isPermanentSquadMember(const GameState& state, const std::string_view name) {
+    return std::any_of(state.squads.begin(), state.squads.end(), [&](const PermanentSquad& squad) {
+        return std::find(squad.members.begin(), squad.members.end(), name) != squad.members.end();
+    });
+}
+
+int craftRankFor(const Character* supervisor) {
+    if (supervisor == nullptr) return 0;
+    return std::clamp(
+        (supervisor->attributes[Attribute::Endurance] + supervisor->attributes[Attribute::Perception] - 10) / 4, 0, 3);
+}
+
+int craftSupervisorRank(const GameState& state) {
+    return craftRankFor(findRosterCharacter(state.roster, state.workshopSupervisor));
+}
+
+int craftRank(const GameState& state) {
+    if (state.workforce.crafters == 0 || !state.buildings[indexOf(BuildingId::Workshop)]) return 0;
+    return craftSupervisorRank(state);
+}
+
+int medicineRankFor(const Character* supervisor) {
+    if (supervisor == nullptr) return 0;
+    return std::clamp(
+        (supervisor->attributes[Attribute::Survival] + supervisor->attributes[Attribute::Willpower] - 10) / 5, 0, 3);
+}
+
+int medicineSupervisorRank(const GameState& state) {
+    return medicineRankFor(findRosterCharacter(state.roster, state.healerSupervisor));
+}
+
+int medicineRank(const GameState& state) {
+    if (state.workforce.healers == 0 || !state.buildings[indexOf(BuildingId::HealerHut)]) return 0;
+    return medicineSupervisorRank(state);
+}
+
+std::string eventName(const PendingEventKind kind) {
+    switch (kind) {
+        case PendingEventKind::Refugees:
+            return "难民来访";
+        case PendingEventKind::Disease:
+            return "疾病蔓延";
+        case PendingEventKind::Extortion:
+            return "边境勒索";
+        case PendingEventKind::FactionDemand:
+            return "派系诉求";
+    }
+    return "未知事件";
+}
+
+int extortionDamage(const GameState& state) {
+    const bool tower = state.buildings[indexOf(BuildingId::Watchtower)] && state.workforce.scouts > 0;
+    const bool wall = state.buildings[indexOf(BuildingId::Wall)] && state.workforce.campGuards > 0;
+    return std::max(0, 3 - (tower ? 1 : 0) - (wall ? 1 : 0));
+}
+
+std::string eventText(const GameState& state) {
+    if (!state.pendingEvent.active) return "本季暂无待决事件。";
+    std::ostringstream out;
+    out << eventName(state.pendingEvent.kind) << '\n';
+    switch (state.pendingEvent.kind) {
+        case PendingEventKind::Refugees:
+            out << "1. 接纳：食物-4、人口+1、稳定+2\n2. 拒绝：稳定-3";
+            break;
+        case PendingEventKind::Disease: {
+            const bool staffed = state.buildings[indexOf(BuildingId::HealerHut)] && state.workforce.healers > 0;
+            out << "1. 医治：草药-" << (staffed ? 1 : 2) << "、稳定+2\n2. 隔离失败：人口-1、稳定-4";
+            break;
+        }
+        case PendingEventKind::Extortion:
+            out << "1. 缴纳：食物-4、稳定+3\n2. 抵抗：稳定-2、营地耐久-" << extortionDamage(state);
+            break;
+        case PendingEventKind::FactionDemand: {
+            const bool council = state.buildings[indexOf(BuildingId::CouncilFire)] && state.workforce.envoys > 0;
+            out << "1. 让步：食物-3、全派系满意+" << (council ? 8 : 5) << "\n2. 拒绝：全派系满意-6、稳定-2";
+            break;
+        }
+    }
+    return out.str();
+}
+
 } // namespace
 
 const std::array<WorldLocationInfo, kWorldLocationCount>& GameEngine::worldLocations() {
     static const std::array<WorldLocationInfo, kWorldLocationCount> locations{{
         {WorldLocationId::Camp,
          "燧火营地",
-         "部落管理、建设与休整",
+         "部落管理、建设与结算",
+         LocationRole::Camp,
          {WorldLocationId::Forest, WorldLocationId::RedPlain}},
-        {WorldLocationId::Forest, "苍林", "狩猎、木材和草药", {WorldLocationId::Camp, WorldLocationId::Marsh}},
+        {WorldLocationId::Forest,
+         "苍林",
+         "食物、木材、草药与兽皮",
+         LocationRole::Resource,
+         {WorldLocationId::Camp, WorldLocationId::Marsh}},
         {WorldLocationId::RedPlain,
          "红土原",
-         "狩猎、训练和难民事件",
+         "食物与兽皮采集，通往渡口和矿场",
+         LocationRole::Resource,
          {WorldLocationId::Camp, WorldLocationId::RiverFord, WorldLocationId::Quarry}},
         {WorldLocationId::Marsh,
          "芦苇沼泽",
-         "草药、白羽线与海岸路线",
+         "木材与草药采集，连接白羽与海岸",
+         LocationRole::Resource,
          {WorldLocationId::Forest, WorldLocationId::WhiteFeatherCamp, WorldLocationId::SaltwindCoast}},
         {WorldLocationId::RiverFord,
          "河鹿渡口",
-         "河鹿外交和粮食贸易",
+         "河鹿部落交谈、贸易与商路",
+         LocationRole::Diplomacy,
          {WorldLocationId::RedPlain, WorldLocationId::MountainMarket}},
-        {WorldLocationId::WhiteFeatherCamp, "白羽营地", "医治、侦察与救助", {WorldLocationId::Marsh}},
+        {WorldLocationId::WhiteFeatherCamp,
+         "白羽营地",
+         "白羽部落交谈、贸易与联盟",
+         LocationRole::Diplomacy,
+         {WorldLocationId::Marsh}},
         {WorldLocationId::Quarry,
          "燧石矿场",
-         "石料、武器和玄石路线",
+         "石料采集，通往玄石谷",
+         LocationRole::Resource,
          {WorldLocationId::RedPlain, WorldLocationId::BlackstoneValley}},
         {WorldLocationId::OldPass,
          "古老山隘",
-         "岩牙要塞入口和迁徙道路",
+         "连接岩牙要塞的山路",
+         LocationRole::Route,
          {WorldLocationId::CliffTradeRoad, WorldLocationId::RockfangFort}},
-        {WorldLocationId::RockfangFort, "岩牙要塞", "岩牙战争与征服目标", {WorldLocationId::OldPass}},
+        {WorldLocationId::RockfangFort,
+         "岩牙要塞",
+         "岩牙巡逻与征服目标",
+         LocationRole::War,
+         {WorldLocationId::OldPass}},
         {WorldLocationId::SaltwindCoast,
          "盐风海岸",
-         "远程食物采集与海岸路线",
+         "远程食物采集，通往潮盐港",
+         LocationRole::Resource,
          {WorldLocationId::Marsh, WorldLocationId::ShellBeach}},
         {WorldLocationId::TidesaltHarbor,
          "潮盐港",
-         "潮盐部落接触与贸易路线",
+         "潮盐部落交谈、贸易与商路",
+         LocationRole::Diplomacy,
          {WorldLocationId::ShellBeach, WorldLocationId::MountainMarket}},
         {WorldLocationId::ShellBeach,
          "贝壳滩",
-         "通往潮盐港的海岸节点",
+         "连接海岸与潮盐港的潮汐通道",
+         LocationRole::Route,
          {WorldLocationId::SaltwindCoast, WorldLocationId::TidesaltHarbor}},
         {WorldLocationId::BlackstoneValley,
          "玄石谷",
-         "石料采集与玄石工坊路线",
+         "石料采集，通往玄石工坊",
+         LocationRole::Resource,
          {WorldLocationId::Quarry, WorldLocationId::BlackstoneWorkshop}},
         {WorldLocationId::BlackstoneWorkshop,
          "玄石工坊",
-         "玄石部落接触与工坊路线",
+         "玄石部落交谈、贸易与联盟",
+         LocationRole::Diplomacy,
          {WorldLocationId::BlackstoneValley, WorldLocationId::CliffTradeRoad}},
         {WorldLocationId::MountainMarket,
          "山前集市",
-         "三路交汇的贸易道路",
+         "三路交汇，开通商路的交通节点",
+         LocationRole::Route,
          {WorldLocationId::RiverFord, WorldLocationId::TidesaltHarbor, WorldLocationId::CliffTradeRoad}},
         {WorldLocationId::CliffTradeRoad,
          "断崖商道",
-         "连接山路、工坊与山隘",
+         "连接集市、玄石与山隘的商路",
+         LocationRole::Route,
          {WorldLocationId::BlackstoneWorkshop, WorldLocationId::MountainMarket, WorldLocationId::OldPass}},
     }};
     return locations;
@@ -534,7 +734,7 @@ GameEngine::GameEngine(GameConfig config) {
     };
     const OperationResult equipped = equipItem(state_.roster.front(), EquipmentSlot::MainHand, makeCampaignLeaderBow());
     if (!equipped) throw std::logic_error("长期人物初始装备失败：" + equipped.message);
-    state_.squads.push_back({"晨火队", "青枝", {"青枝", "石刃", "苍眼", "白榆"}, 0, 0, false, false});
+    state_.squads.push_back({"晨火队", "青枝", {"青枝", "石刃", "苍眼", "芦风"}, 0, 0, false, false});
     state_.leadershipHistory.push_back(state_.leaderName + "（初代首领）");
     addChronicle(state_, 3, "燧火新议", state_.leaderName + "召集族人，决定走向更广阔的世界。");
 
@@ -596,6 +796,10 @@ ActionResult GameEngine::execute(const std::string_view input) {
         return command.args.empty() ? ActionResult{true, true, false, false, false, false, factionText()}
                                     : rejected("用法：factions / 派系");
     }
+    if (verbIs(command, {"squad", "小队配置"}) && command.args.size() >= 3U &&
+        equalsAny(command.args.front(), {"configure", "配置"})) {
+        return configureSquad(std::vector<std::string>(command.args.begin() + 1, command.args.end()));
+    }
     if (verbIs(command, {"squads", "小队"}) || command.verb == "7") {
         return command.args.empty() ? ActionResult{true, true, false, false, false, false, squadText()}
                                     : rejected("用法：squads / 小队");
@@ -623,7 +827,20 @@ ActionResult GameEngine::execute(const std::string_view input) {
         }
         return rejected("当前必须先查看目标并选择结局：choose <alliance|conquest|prosperity|migration>。");
     }
-    if (state_.pendingEvent.active && !verbIs(command, {"event", "事件"})) {
+    if (state_.workforceReassignmentRequired) {
+        const bool loweringRole = verbIs(command, {"assign", "分配"}) && command.args.size() == 2U &&
+                                  parseWorkforceRole(command.args[0]).has_value();
+        const bool loweringOutpost = verbIs(command, {"assign", "分配"}) && command.args.size() == 3U &&
+                                     equalsAny(command.args[0], {"outpost", "前哨"});
+        const bool loweringGarrison = verbIs(command, {"garrison", "驻军"}) && command.args.size() == 2U;
+        const bool releasingArmy = verbIs(command, {"disbandarmy", "解散军队"}) && command.args.empty();
+        const bool viewingEvent = verbIs(command, {"event", "事件"}) && command.args.empty();
+        if (!loweringRole && !loweringOutpost && !loweringGarrison && !releasingArmy && !viewingEvent) {
+            return rejected(
+                "人口已不足以维持现有岗位。请降低劳力或驻军，或用 disbandarmy / 解散军队释放军队后再行动。");
+        }
+    }
+    if (state_.pendingEvent.active && !state_.workforceReassignmentRequired && !verbIs(command, {"event", "事件"})) {
         return rejected("本季有待决事件；请先输入 event 查看并选择 event <1|2>。 ");
     }
 
@@ -638,10 +855,9 @@ ActionResult GameEngine::execute(const std::string_view input) {
     if (verbIs(command, {"mission", "出任务"}) && command.args.size() <= 1U) {
         if (command.args.empty() || equalsAny(command.args.front(), {"world", "map", "地图", "探索"}))
             return startMission();
-        if (equalsAny(command.args.front(), {"outpost", "前哨"})) return startMission(ResourceKind::Shells);
+        if (equalsAny(command.args.front(), {"outpost", "前哨"})) return startOutpostMission();
         const auto resource = parseResource(command.args.front());
-        return resource && *resource != ResourceKind::Shells ? startMission(*resource)
-                                                             : rejected("任务类型：食物、木材、石料、草药或兽皮。");
+        return resource ? startMission(*resource) : rejected("任务类型：食物、木材、石料、草药或兽皮。");
     }
     if (command.verb == "5" && command.args.empty()) return startMission();
     if ((verbIs(command, {"workforce", "劳力"}) || command.verb == "3") && command.args.empty())
@@ -678,6 +894,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
         return unequipPerson(command.args[0], command.args[1]);
     if (verbIs(command, {"appoint", "任命"}) && command.args.size() == 2U)
         return appoint(command.args[0], command.args[1]);
+    if (verbIs(command, {"unappoint", "卸任"}) && command.args.size() == 1U) return unappoint(command.args[0]);
     if (verbIs(command, {"treat", "医治"}) && command.args.size() == 1U) return treat(command.args[0]);
     if (verbIs(command, {"war", "战争"}) && command.args.size() == 1U &&
         equalsAny(command.args[0], {"targets", "目标"}))
@@ -691,16 +908,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
                                                                  : rejected("用法：garrison <部落> <战士数>。");
     }
     if (verbIs(command, {"event", "事件"})) {
-        if (command.args.empty())
-            return {true,
-                    true,
-                    false,
-                    false,
-                    false,
-                    false,
-                    state_.pendingEvent.active ? state_.pendingEvent.name + "\n1. " + state_.pendingEvent.optionOne +
-                                                     "\n2. " + state_.pendingEvent.optionTwo
-                                               : "本季暂无待决事件。"};
+        if (command.args.empty()) return {true, true, false, false, false, false, eventText(state_)};
         int option = 0;
         return command.args.size() == 1U && parseNonnegative(command.args[0], option) ? chooseEvent(option)
                                                                                       : rejected("用法：event <1|2>。");
@@ -769,6 +977,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
                    ? formArmy(warriors, militia, command.args.size() == 3U ? command.args[0] : "")
                    : rejected("用法：formarmy <统帅> <战士数> <民兵数>。");
     }
+    if (verbIs(command, {"disbandarmy", "解散军队"}) && command.args.empty()) return disbandArmy();
     if (verbIs(command, {"war", "出征"}) && command.args.size() == 1U) {
         const auto tribe = parseTribe(command.args.front());
         return tribe ? startWar(*tribe) : rejected("未知部落。");
@@ -852,22 +1061,32 @@ ActionResult GameEngine::restSquad() {
     if (!canSpendAction(result)) return result;
     if (state_.squads.empty() || state_.squads.front().fatigue == 0) return rejected("小队当前无需休整。");
     GameState candidate = state_;
-    const int recovery = candidate.buildings[indexOf(BuildingId::HealerHut)] ? 45 : 30;
+    const bool staffedHealerHut =
+        candidate.buildings[indexOf(BuildingId::HealerHut)] && candidate.workforce.healers > 0;
+    const int recovery = (staffedHealerHut ? 40 : 30) + 5 * medicineRank(candidate);
     PermanentSquad& squad = candidate.squads.front();
     for (const std::string& name : squad.members) {
         Character* member = findRosterCharacter(candidate.roster, name);
-        if (member) member->fatigue = std::max(0, member->fatigue - recovery);
+        if (member != nullptr) member->fatigue = std::max(0, member->fatigue - recovery);
     }
     squad.fatigue = permanentSquadFatigue(squad, candidate.roster);
     spendAction(candidate);
-    return commit(std::move(candidate), "小队在营地休整，疲劳下降。", true);
+    return commit(std::move(candidate), "小队在营地休整，疲劳恢复" + std::to_string(recovery) + "。", true);
 }
 
 ActionResult GameEngine::startMission(const ResourceKind resource) {
+    return startMission(MissionKind::Gather, resource);
+}
+
+ActionResult GameEngine::startOutpostMission() {
+    return startMission(MissionKind::OutpostConstruction, ResourceKind::Wood);
+}
+
+ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind resource) {
     ActionResult result;
     if (!canSpendAction(result)) return result;
     if (state_.squads.empty()) return rejected("当前没有可出发的小队。");
-    const bool constructionMission = resource == ResourceKind::Shells;
+    const bool constructionMission = kind == MissionKind::OutpostConstruction;
     const int crewSize = [&] {
         if (constructionMission) return std::max(state_.workforce.woodCrew, state_.workforce.stoneCrew);
         switch (resource) {
@@ -906,7 +1125,7 @@ ActionResult GameEngine::startMission(const ResourceKind resource) {
     missionState.squad.members.reserve(permanent.members.size());
     for (const std::string& name : permanent.members) {
         const Character* character = findRosterCharacter(candidate.roster, name);
-        if (!character || character->life <= 0) return rejected("小队成员缺失或已阵亡，任务未开始。");
+        if (character == nullptr || character->life <= 0) return rejected("小队成员缺失或已阵亡，任务未开始。");
         missionState.squad.members.push_back(*character);
     }
     const auto captain = std::find_if(missionState.squad.members.begin(), missionState.squad.members.end(),
@@ -923,7 +1142,8 @@ ActionResult GameEngine::startMission(const ResourceKind resource) {
     missionState.foodGatherBonus = (candidate.technologies[indexOf(TechnologyId::FoodPreservation)] ? 2 : 0) +
                                    (candidate.technologies[indexOf(TechnologyId::Irrigation)] ? 3 : 0);
     missionState.herbGatherBonus = candidate.technologies[indexOf(TechnologyId::HerbalKnowledge)] ? 2 : 0;
-    missionState.assignedResource = static_cast<int>(resource);
+    missionState.missionKind = kind;
+    missionState.assignedResource = resource;
     missionState.crewSize = crewSize;
     missionState.cargoCapacity = 16 + crewSize * 4;
     if (constructionMission) {
@@ -938,6 +1158,9 @@ ActionResult GameEngine::startMission(const ResourceKind resource) {
                         missionValid.message);
     candidate.activeMission = std::move(missionState);
     candidate.phase = GamePhase::Mission;
+    if (committedPopulation(candidate) > populationCapacity(candidate)) {
+        return rejected("统一人口池不足：劳力、驻军、已组建军队和出任务小队合计不能超过人口-2。 ");
+    }
     permanent.personallyDeployedThisSeason = true;
     spendAction(candidate);
     const std::string taskName = constructionMission ? "前哨建设" : resourceName(resource) + "采集";
@@ -969,7 +1192,7 @@ ActionResult GameEngine::executeMission(const std::string_view input) {
         GameEngine proxy{std::move(proxyState)};
         std::string proxyInput = command.verb + " " + tribeCommandName(*tribe);
         if (isTrade) proxyInput += " " + command.args[0] + " " + command.args[1];
-        const ActionResult diplomatic = proxy.execute(proxyInput);
+        ActionResult diplomatic = proxy.execute(proxyInput);
         if (!diplomatic.success) return diplomatic;
 
         GameState candidate = proxy.state();
@@ -991,7 +1214,7 @@ ActionResult GameEngine::executeMission(const std::string_view input) {
     candidate.activeMission = mission.state();
     std::string message = result.message;
     if (mission.state().phase == ExpansionPhase::Settled) {
-        const ExpansionState settled = mission.state();
+        const ExpansionState& settled = mission.state();
         ++candidate.missionCount;
         PermanentSquad& squad = candidate.squads.front();
         candidate.discovered = settled.worldDiscovered;
@@ -1014,7 +1237,7 @@ ActionResult GameEngine::executeMission(const std::string_view input) {
         std::unordered_set<std::string> deadNames;
         for (const Character& member : settled.squad.members) {
             Character* permanent = findRosterCharacter(candidate.roster, member.name);
-            if (!permanent || !deployedNames.insert(member.name).second) {
+            if (permanent == nullptr || !deployedNames.insert(member.name).second) {
                 return rejected("任务成员与长期角色名单不一致，回营结算已原子取消。");
             }
             if (member.life <= 0)
@@ -1145,14 +1368,12 @@ int GameEngine::resourceValue(const GameState& state, const ResourceKind resourc
                        : resource == ResourceKind::Wood  ? state.wood
                        : resource == ResourceKind::Stone ? state.stone
                        : resource == ResourceKind::Herbs ? state.herbs
-                       : resource == ResourceKind::Hides ? state.hides
-                                                         : state.shells;
+                                                         : state.hides;
     const int base = resource == ResourceKind::Food    ? 3
                      : resource == ResourceKind::Wood  ? 2
                      : resource == ResourceKind::Stone ? 4
                      : resource == ResourceKind::Herbs ? 5
-                     : resource == ResourceKind::Hides ? 4
-                                                       : 1;
+                                                       : 4;
     return std::max(1, base + (amount < 10 ? 3 : amount < 20 ? 1 : 0));
 }
 
@@ -1168,8 +1389,6 @@ int& GameEngine::resourceRef(GameState& state, const ResourceKind resource) cons
             return state.herbs;
         case ResourceKind::Hides:
             return state.hides;
-        case ResourceKind::Shells:
-            return state.shells;
     }
     return state.food;
 }
@@ -1183,10 +1402,7 @@ ActionResult GameEngine::trade(const TribeId tribe, const ResourceKind offered, 
     const auto& relation = state_.relations[indexOf(tribe)];
     if (relation.atWar) return rejected("战争中不能贸易。");
     if (relation.relation < -10) return rejected("关系过低，对方拒绝贸易。");
-    if ((offered == ResourceKind::Shells || requested == ResourceKind::Shells) && !state_.currencyUnlocked) {
-        return rejected("尚未解锁贝币，只能以物易物。");
-    }
-    const int offeredAmount = offered == ResourceKind::Shells ? 8 : 4;
+    const int offeredAmount = 4;
     if (resourceRef(state_, offered) < offeredAmount) return rejected("给出的资源不足。");
 
     GameState candidate = state_;
@@ -1201,12 +1417,10 @@ ActionResult GameEngine::trade(const TribeId tribe, const ResourceKind offered, 
     changed.tradeDependence = percentClamp(changed.tradeDependence + 8);
     ++candidate.tradeCount;
     candidate.tradePartners[indexOf(tribe)] = true;
-    if (candidate.currencyUnlocked && requested != ResourceKind::Shells) ++candidate.shells;
     spendAction(candidate);
     std::string message = "与" + tribeName(tribe) + "以" + std::to_string(offeredAmount) + resourceName(offered) +
                           "换得" + std::to_string(requestedAmount) + resourceName(requested) +
                           "。价格受稀缺、关系和依赖影响。";
-    unlockCurrencyIfEligible(candidate, message);
     return finalizeDiplomacy(tribe, commit(std::move(candidate), std::move(message), true));
 }
 
@@ -1403,18 +1617,20 @@ ActionResult GameEngine::appeaseFaction(const std::size_t faction) {
                     [](const FactionState& state) { return state.crisis == FactionCrisis::Refusal; });
     for (PermanentSquad& squad : candidate.squads) squad.refusingOrders = refusalRemains;
     spendAction(candidate);
-    return commit(std::move(candidate), "公平分配缓和了" + changed.name + "的不满：满意+20、稳定+8。", true);
+    const std::string message = "公平分配缓和了" + changed.name + "的不满：满意+20、稳定+8。";
+    return commit(std::move(candidate), message, true);
 }
 
 ActionResult GameEngine::formArmy(const int warriors, const int militia, const std::string_view commander) {
     ActionResult result;
     if (!canSpendAction(result)) return result;
-    if (warriors <= 0 || warriors > state_.warriors) return rejected("正式战士数量必须为1至现有战士数。");
-    if (militia < 0 || militia > std::max(0, state_.population - 6))
-        return rejected("民兵征召会影响人口，当前数量不合法。");
+    if (hasPreparedArmy(state_)) return rejected("已有一支已组建军队；请先解散军队以归还锁定装备。 ");
+    const int availableWarriors = std::max(0, state_.warriors - garrisonAllocation(state_));
+    if (warriors <= 0 || warriors > availableWarriors) return rejected("正式战士数量必须为1至未驻军的受训战士数。 ");
+    if (militia < 0) return rejected("民兵数量不能为负数。 ");
     GameState candidate = state_;
     const std::string selectedCommander = commander.empty() ? "石刃" : std::string(commander);
-    if (!findRosterCharacter(candidate.roster, selectedCommander)) return rejected("统帅必须是具名人物。 ");
+    if (findRosterCharacter(candidate.roster, selectedCommander) == nullptr) return rejected("统帅必须是具名人物。 ");
     candidate.war = {};
     candidate.war.commander = selectedCommander;
     candidate.war.warriors = warriors;
@@ -1435,13 +1651,28 @@ ActionResult GameEngine::formArmy(const int warriors, const int militia, const s
     }
     candidate.war.heavySpears = std::min({candidate.war.spearMilitia, candidate.war.shieldBearers,
                                           std::max(0, warriors + militia - candidate.war.spearMilitia)});
-    candidate.war.playerPower +=
-        candidate.war.spearMilitia * 2 + candidate.war.shieldBearers + candidate.war.heavySpears * 2;
+    candidate.war.craftsmanshipPower = std::min(
+        4, std::accumulate(candidate.war.lockedEquipment.begin(), candidate.war.lockedEquipment.end(), 0,
+                           [](const int total, const Item& item) { return total + itemQualityTier(item.quality); }));
+    candidate.war.playerPower += candidate.war.spearMilitia * 2 + candidate.war.shieldBearers +
+                                 candidate.war.heavySpears * 2 + candidate.war.craftsmanshipPower;
+    if (committedPopulation(candidate) > populationCapacity(candidate)) {
+        return rejected("统一人口池不足：已组建军队会与劳力、驻军及出任务小队共同占用人口。 ");
+    }
     spendAction(candidate);
     return commit(std::move(candidate),
                   "军队已组建：统帅" + selectedCommander + "，正式战士" + std::to_string(warriors) + "，民兵" +
                       std::to_string(militia) + "；装备已锁定，可用 power 查看兵种。",
                   true);
+}
+
+ActionResult GameEngine::disbandArmy() {
+    if (state_.war.active) return rejected("战争进行中不能解散军队；请先撤退、获胜或等待溃败结算。 ");
+    if (!hasPreparedArmy(state_)) return rejected("当前没有已组建的军队。 ");
+    GameState candidate = state_;
+    releaseWarEquipment(candidate, false);
+    candidate.war = {};
+    return commit(std::move(candidate), "军队已解散，幸存者回归人口池，锁定装备已归还仓库。", false);
 }
 
 ActionResult GameEngine::startWar(const TribeId enemy) {
@@ -1456,9 +1687,11 @@ ActionResult GameEngine::startWar(const TribeId enemy) {
     candidate.war.enemy = enemy;
     candidate.war.enemyPower = enemyBasePower(enemy);
     candidate.war.riskConfirmed = true;
+    const int expectedEnemyPower = candidate.war.enemyPower;
+    const int expectedPlayerPower = candidate.war.playerPower;
     return commit(std::move(candidate),
-                  "出征开始。预计风险：敌方战力" + std::to_string(candidate.war.enemyPower) + "，己方" +
-                      std::to_string(candidate.war.playerPower) + "；民兵伤亡会减少人口与稳定。",
+                  "出征开始。预计风险：敌方战力" + std::to_string(expectedEnemyPower) + "，己方" +
+                      std::to_string(expectedPlayerPower) + "；民兵伤亡会减少人口与稳定。",
                   false);
 }
 
@@ -1523,9 +1756,9 @@ ActionResult GameEngine::warAttack() {
             message += " 反击造成" + std::to_string(actualLosses) + "人伤亡。";
         }
         if (candidate.war.warriors + candidate.war.militia <= 0 || candidate.war.playerPower <= 0) {
-            candidate.war.active = false;
             candidate.phase = GamePhase::Managing;
             releaseWarEquipment(candidate, true);
+            candidate.war = {};
             ++candidate.warsLost;
             candidate.morale = std::max(0, candidate.morale - 15);
             candidate.stability = std::max(0, candidate.stability - 10);
@@ -1559,7 +1792,6 @@ ActionResult GameEngine::warDefend() {
 
 void GameEngine::concludeWarVictory(GameState& candidate, std::string& message) const {
     const TribeId enemy = candidate.war.enemy;
-    candidate.war.active = false;
     candidate.phase = GamePhase::Managing;
     ++candidate.warsWon;
     auto& relation = candidate.relations[indexOf(enemy)];
@@ -1567,6 +1799,7 @@ void GameEngine::concludeWarVictory(GameState& candidate, std::string& message) 
     relation.relation = relationClamp(relation.relation - 10);
     candidate.occupations[indexOf(enemy)] = {true, 0, 0};
     releaseWarEquipment(candidate, false);
+    candidate.war = {};
     candidate.morale = std::min(100, candidate.morale + 8);
     candidate.stability = std::min(100, candidate.stability + 5);
     addChronicle(candidate, 4, "战争胜利", "石刃率军击败" + tribeName(enemy) + "并占领其据点，等待驻军维持秩序。");
@@ -1576,12 +1809,12 @@ void GameEngine::concludeWarVictory(GameState& candidate, std::string& message) 
 ActionResult GameEngine::warRetreat() {
     if (!state_.war.active) return rejected("当前没有进行中的战争。");
     GameState candidate = state_;
-    candidate.war.active = false;
     candidate.phase = GamePhase::Managing;
     candidate.food = std::max(0, candidate.food - 4);
     candidate.morale = std::max(0, candidate.morale - 6);
     candidate.stability = std::max(0, candidate.stability - 3);
     releaseWarEquipment(candidate, false);
+    candidate.war = {};
     addChronicle(candidate, 2, "军队撤退", "统帅保住主力，但消耗补给并打击士气。");
     return commit(std::move(candidate), "全军撤退：食物-4、士气-6、稳定-3。", false);
 }
@@ -1646,11 +1879,15 @@ void GameEngine::settleAutonomousTribes(GameState& candidate, std::string& messa
             reason + "双方关系" + std::to_string(relation.relation) + "且固定商路畅通，因此商队送来2食物，贸易依赖+2。";
     } else if (relation.relation < 0 && (aggressive || choice == 2)) {
         relation.fear = percentClamp(relation.fear + 4);
-        const int protection = (candidate.workforce.campGuards > 0 ? 1 : 0) + (candidate.workforce.scouts > 0 ? 1 : 0);
+        const bool towerWarning =
+            candidate.buildings[indexOf(BuildingId::Watchtower)] && candidate.workforce.scouts > 0;
+        const int protection = (candidate.workforce.campGuards > 0 ? 1 : 0) + (candidate.workforce.scouts > 0 ? 1 : 0) +
+                               (towerWarning ? 1 : 0);
         const int damage = std::max(0, 2 - protection);
         candidate.campDurability = std::max(0, candidate.campDurability - damage);
         message += reason + "双方关系仅" + std::to_string(relation.relation) +
-                   "且尚无固定商路，因此发动边境骚扰，恐惧+4、营地耐久-" + std::to_string(damage) + "。";
+                   "且尚无固定商路，因此发动边境骚扰，恐惧+4、营地耐久-" + std::to_string(damage) +
+                   (towerWarning ? "；瞭望塔提前预警，额外抵消1点损失。" : "。");
     } else if (conciliatory || tradeDriven || relation.relation >= 15 || relation.trust >= 20 || choice == 0) {
         const int relationBefore = relation.relation;
         const int trustBefore = relation.trust;
@@ -1672,8 +1909,11 @@ void GameEngine::settleAutonomousTribes(GameState& candidate, std::string& messa
 }
 
 void GameEngine::settleFactions(GameState& candidate, std::string& message) const {
+    const bool councilRelief = candidate.buildings[indexOf(BuildingId::CouncilFire)] && candidate.workforce.envoys > 0;
+    const bool councilReliefApplied = councilRelief && (candidate.food == 0 || candidate.stability < 40);
     for (FactionState& faction : candidate.playerFactions) {
-        const int pressure = candidate.food == 0 ? 12 : candidate.stability < 40 ? 8 : -2;
+        const int basePressure = candidate.food == 0 ? 12 : candidate.stability < 40 ? 8 : -2;
+        const int pressure = councilReliefApplied ? std::max(0, basePressure - 2) : basePressure;
         faction.satisfaction = percentClamp(faction.satisfaction - pressure);
         int stage = static_cast<int>(faction.crisis);
         if (faction.satisfaction < 25 || candidate.stability < 25)
@@ -1702,6 +1942,7 @@ void GameEngine::settleFactions(GameState& candidate, std::string& message) cons
             addChronicle(candidate, 4, "部落政变", faction.candidate + "在危机中接替原首领。");
         }
     }
+    if (councilReliefApplied) message += " 议事火坛由使者主持，派系满意流失-2。";
     const bool refusing =
         std::any_of(candidate.playerFactions.begin(), candidate.playerFactions.end(),
                     [](const FactionState& faction) { return faction.crisis == FactionCrisis::Refusal; });
@@ -1709,62 +1950,8 @@ void GameEngine::settleFactions(GameState& candidate, std::string& message) cons
 }
 
 void GameEngine::settleEvent(GameState& candidate, std::string& message) const {
-    const int event = static_cast<int>((candidate.seed + static_cast<std::uint32_t>(candidate.season * 17)) % 6U);
-    switch (event) {
-        case 0:
-            candidate.food += 5;
-            message += " 天气温和，狩猎食物+5。";
-            break;
-        case 1:
-            if (candidate.buildings[indexOf(BuildingId::HealerHut)])
-                message += " 医者小屋控制了疾病。";
-            else {
-                candidate.population = std::max(0, candidate.population - 1);
-                candidate.warriors = std::min(candidate.warriors, candidate.population);
-                candidate.stability = std::max(0, candidate.stability - 4);
-                message += " 疾病使人口-1、稳定-4。";
-            }
-            break;
-        case 2:
-            if (candidate.food >= 4) {
-                candidate.food -= 4;
-                candidate.population += 2;
-                candidate.stability = std::min(100, candidate.stability + 4);
-                message += " 接纳难民：食物-4、人口+2、稳定+4。";
-            } else
-                message += " 无力接纳难民，他们继续远行。";
-            break;
-        case 3:
-            candidate.wood += 4;
-            candidate.stone += 2;
-            message += " 游商交换情报并留下木材4、石料2。";
-            break;
-        case 4: {
-            const int protection =
-                (candidate.buildings[indexOf(BuildingId::Wall)] && candidate.workforce.campGuards > 0 ? 3 : 0) +
-                (candidate.workforce.scouts > 0 ? 1 : 0);
-            const int damage = std::max(0, 4 - protection);
-            candidate.campDurability = std::max(0, candidate.campDurability - damage);
-            message += " 野兽冲击营地，耐久-" + std::to_string(damage) + "。";
-            break;
-        }
-        case 5:
-            candidate.herbs += 3;
-            message += " 草药花期到来，草药+3。";
-            break;
-    }
-}
-
-void GameEngine::unlockCurrencyIfEligible(GameState& candidate, std::string& message) const {
-    if (candidate.currencyUnlocked) return;
-    const int partners =
-        countTrue(candidate.tradePartners) - (candidate.tradePartners[indexOf(TribeId::Player)] ? 1 : 0);
-    if (candidate.tradeCount >= 8 && partners >= 3 && candidate.technologies[indexOf(TechnologyId::SharedLanguage)]) {
-        candidate.currencyUnlocked = true;
-        candidate.shells += 20;
-        message += " 完成8次贸易、连接3个部落并掌握共同语言，统一度量事件触发，贝币解锁并获得20枚。";
-        addChronicle(candidate, 4, "贝币诞生", "多部落接受统一贝壳度量，以物易物仍被保留。");
-    }
+    (void)candidate;
+    (void)message;
 }
 
 void GameEngine::finishExtinction(GameState& candidate, std::string& message) const {
@@ -1772,7 +1959,8 @@ void GameEngine::finishExtinction(GameState& candidate, std::string& message) co
     candidate.phase = GamePhase::Finished;
     candidate.ending = GameEnding::Extinction;
     candidate.activeMission.reset();
-    candidate.war.active = false;
+    releaseWarEquipment(candidate, true);
+    candidate.war = {};
     message += " 部落人口或营地耐久归零，燧火熄灭。";
     addChronicle(candidate, 5, "部落覆灭", "最后的火坛在风中熄灭。");
 }
@@ -1821,15 +2009,9 @@ ActionResult GameEngine::endSeason() {
     if (!candidate.pendingEvent.active) {
         const int kind = static_cast<int>((candidate.seed + candidate.season) % 4U);
         candidate.pendingEvent.active = true;
-        candidate.pendingEvent.name = kind == 0   ? "难民来访"
-                                      : kind == 1 ? "疾病蔓延"
-                                      : kind == 2 ? "边境勒索"
-                                                  : "派系诉求";
-        candidate.pendingEvent.optionOne = "付出3食物，稳定+4";
-        candidate.pendingEvent.optionTwo = "拒绝代价：人口-1、稳定-2";
+        candidate.pendingEvent.kind = static_cast<PendingEventKind>(kind);
         message += " 新的必须抉择事件已出现（输入 event 查看）。";
     }
-    unlockCurrencyIfEligible(candidate, message);
     finishExtinction(candidate, message);
     if (candidate.phase == GamePhase::Finished)
         return commit(std::move(candidate), std::move(message), false, true, true);
@@ -1941,11 +2123,12 @@ ActionResult GameEngine::assignWorkforce(const WorkforceRole role, const int cou
             target = &candidate.workforce.campGuards;
             break;
     }
+    const int previous = *target;
+    if (state_.workforceReassignmentRequired && count >= previous) {
+        return rejected("劳力待重分配时只能降低岗位人数。 ");
+    }
     *target = count;
-    std::string error;
-    if (!validateState(candidate, error)) return rejected("无法这样分配：" + error);
-    state_ = std::move(candidate);
-    return {true, true, true, false, false, false, "劳力分配已调整；下季行动容量会按已配置资源队重新计算。"};
+    return commit(std::move(candidate), "劳力分配已调整；下季行动容量会按已配置资源队重新计算。", false);
 }
 
 ActionResult GameEngine::assignOutpostGuards(const WorldLocationId location, const int count) {
@@ -1953,12 +2136,12 @@ ActionResult GameEngine::assignOutpostGuards(const WorldLocationId location, con
         return rejected("前哨守卫当前只区分无人或有人维护，请输入0或1，且营地不使用此前哨命令。 ");
     }
     if (!state_.outposts[indexOf(location)]) return rejected("只能为已建前哨配置守卫。 ");
+    if (state_.workforceReassignmentRequired && count >= state_.workforce.outpostGuards[indexOf(location)]) {
+        return rejected("劳力待重分配时只能降低前哨守卫人数。 ");
+    }
     GameState candidate = state_;
     candidate.workforce.outpostGuards[indexOf(location)] = count;
-    std::string error;
-    if (!validateState(candidate, error)) return rejected("无法这样分配：" + error);
-    state_ = std::move(candidate);
-    return {true, true, true, false, false, false, "前哨守卫已调整；无人前哨连续两季会荒废。"};
+    return commit(std::move(candidate), "前哨守卫已调整；无人前哨连续两季会荒废。", false);
 }
 
 ActionResult GameEngine::craft(const std::string_view recipe) {
@@ -2012,10 +2195,24 @@ ActionResult GameEngine::craft(const std::string_view recipe) {
     item.weight = 2;
     item.equipmentSlot = found->slot;
     item.bonuses[found->attribute] = found->bonus;
-    item.quality = candidate.workshopSupervisor.empty() ? ItemQuality::Common : ItemQuality::Fine;
+    switch (craftRank(candidate)) {
+        case 1:
+            item.quality = ItemQuality::Fine;
+            break;
+        case 2:
+            item.quality = ItemQuality::Rare;
+            break;
+        case 3:
+            item.quality = ItemQuality::Legendary;
+            break;
+        default:
+            item.quality = ItemQuality::Common;
+            break;
+    }
+    const std::string qualityName = itemQualityName(item.quality);
     candidate.stockpile.push_back(std::move(item));
     spendAction(candidate);
-    return commit(std::move(candidate), "武备工坊完成制造，物品已进入共享仓库。", true);
+    return commit(std::move(candidate), "武备工坊完成制造，物品已进入共享仓库，品质为" + qualityName + "。", true);
 }
 
 ActionResult GameEngine::repair(const std::string_view itemId) {
@@ -2053,7 +2250,7 @@ ActionResult GameEngine::equipPerson(const std::string_view person, const std::s
     if (!slot) return rejected("未知装备栏。 ");
     GameState candidate = state_;
     Character* character = findRosterCharacter(candidate.roster, person);
-    if (!character) return rejected("没有这个人物。 ");
+    if (character == nullptr) return rejected("没有这个人物。 ");
     auto item = std::find_if(candidate.stockpile.begin(), candidate.stockpile.end(),
                              [&](const Item& value) { return value.id == itemId; });
     if (item == candidate.stockpile.end() || item->condition == ItemCondition::Scrapped)
@@ -2071,7 +2268,7 @@ ActionResult GameEngine::unequipPerson(const std::string_view person, const std:
     if (!slot) return rejected("未知装备栏。 ");
     GameState candidate = state_;
     Character* character = findRosterCharacter(candidate.roster, person);
-    if (!character || !character->equipment[indexOf(*slot)]) return rejected("该人物此栏没有装备。 ");
+    if (character == nullptr || !character->equipment[indexOf(*slot)]) return rejected("该人物此栏没有装备。 ");
     candidate.stockpile.push_back(*character->equipment[indexOf(*slot)]);
     character->equipment[indexOf(*slot)].reset();
     return commit(std::move(candidate), "装备已卸回共享仓库。", false);
@@ -2080,18 +2277,35 @@ ActionResult GameEngine::unequipPerson(const std::string_view person, const std:
 ActionResult GameEngine::appoint(const std::string_view person, const std::string_view role) {
     GameState candidate = state_;
     Character* character = findRosterCharacter(candidate.roster, person);
-    if (!character) return rejected("没有这个人物。 ");
-    if (std::any_of(candidate.squads.begin(), candidate.squads.end(), [&](const PermanentSquad& squad) {
-            return std::find(squad.members.begin(), squad.members.end(), person) != squad.members.end();
-        }))
-        return rejected("小队成员不能同时担任管理岗位。 ");
-    if (equalsAny(role, {"workshop", "武备工坊"}))
+    if (character == nullptr) return rejected("没有这个人物。 ");
+    if (isPermanentSquadMember(candidate, person)) return rejected("小队成员不能同时担任管理岗位。 ");
+    if (equalsAny(role, {"workshop", "武备工坊"})) {
+        if (!candidate.buildings[indexOf(BuildingId::Workshop)] || candidate.workforce.crafters == 0)
+            return rejected("任命工坊负责人需要已建武备工坊并配置工匠。 ");
+        if (character->occupation != Occupation::Crafter) return rejected("武备工坊负责人必须是工匠。 ");
         candidate.workshopSupervisor = character->name;
-    else if (equalsAny(role, {"healer", "医者小屋"}))
+    } else if (equalsAny(role, {"healer", "医者小屋"})) {
+        if (!candidate.buildings[indexOf(BuildingId::HealerHut)] || candidate.workforce.healers == 0)
+            return rejected("任命医者负责人需要已建医者小屋并配置医者。 ");
+        if (character->occupation != Occupation::Healer) return rejected("医者小屋负责人必须是医者。 ");
         candidate.healerSupervisor = character->name;
-    else
+    } else
         return rejected("可任命岗位：武备工坊、医者小屋。 ");
     return commit(std::move(candidate), "具名人物已任命为建筑负责人。", false);
+}
+
+ActionResult GameEngine::unappoint(const std::string_view role) {
+    GameState candidate = state_;
+    if (equalsAny(role, {"workshop", "武备工坊"})) {
+        if (candidate.workshopSupervisor.empty()) return rejected("武备工坊当前没有负责人。 ");
+        candidate.workshopSupervisor.clear();
+    } else if (equalsAny(role, {"healer", "医者小屋"})) {
+        if (candidate.healerSupervisor.empty()) return rejected("医者小屋当前没有负责人。 ");
+        candidate.healerSupervisor.clear();
+    } else {
+        return rejected("可卸任岗位：武备工坊、医者小屋。 ");
+    }
+    return commit(std::move(candidate), "负责人已卸任。", false);
 }
 
 ActionResult GameEngine::configureSquad(const std::vector<std::string>& args) {
@@ -2102,6 +2316,12 @@ ActionResult GameEngine::configureSquad(const std::vector<std::string>& args) {
     squad.members.assign(args.begin() + 1, args.end());
     if (std::find(squad.members.begin(), squad.members.end(), squad.captain) == squad.members.end())
         squad.members.insert(squad.members.begin(), squad.captain);
+    if ((!candidate.workshopSupervisor.empty() &&
+         std::find(squad.members.begin(), squad.members.end(), candidate.workshopSupervisor) != squad.members.end()) ||
+        (!candidate.healerSupervisor.empty() &&
+         std::find(squad.members.begin(), squad.members.end(), candidate.healerSupervisor) != squad.members.end())) {
+        return rejected("现任建筑负责人不能编入永久小队；请先卸任。 ");
+    }
     std::string error;
     if (!validateState(candidate, error)) return rejected("小队编制不合法：" + error);
     return commit(std::move(candidate), "小队编制已更新。", false);
@@ -2119,8 +2339,8 @@ ActionResult GameEngine::treat(const std::string_view squadName) {
     --candidate.herbs;
     for (const std::string& member : squad->members)
         if (Character* character = findRosterCharacter(candidate.roster, member)) {
-            character->life = std::min(maximumLife(*character), character->life + 20);
-            character->fatigue = std::max(0, character->fatigue - 25);
+            character->life = std::min(maximumLife(*character), character->life + 20 + 5 * medicineRank(candidate));
+            character->fatigue = std::max(0, character->fatigue - 25 - 5 * medicineRank(candidate));
         }
     squad->fatigue = permanentSquadFatigue(*squad, candidate.roster);
     spendAction(candidate);
@@ -2131,18 +2351,69 @@ ActionResult GameEngine::chooseEvent(const int option) {
     if (!state_.pendingEvent.active) return rejected("本季没有待选择事件。 ");
     if (option != 1 && option != 2) return rejected("事件只能选择1或2。 ");
     GameState candidate = state_;
-    if (option == 1) {
-        candidate.food = std::max(0, candidate.food - 3);
-        candidate.stability = std::min(100, candidate.stability + 4);
-    } else {
-        candidate.population = std::max(0, candidate.population - 1);
-        candidate.stability = std::max(0, candidate.stability - 2);
+    std::string outcome;
+    switch (candidate.pendingEvent.kind) {
+        case PendingEventKind::Refugees:
+            if (option == 1) {
+                if (candidate.food < 4) return rejected("接纳难民需要4食物，物资不足，事件未改变。 ");
+                candidate.food -= 4;
+                ++candidate.population;
+                candidate.stability = std::min(100, candidate.stability + 2);
+                outcome = "接纳难民：食物-4、人口+1、稳定+2。";
+            } else {
+                candidate.stability = std::max(0, candidate.stability - 3);
+                outcome = "拒绝难民：稳定-3。";
+            }
+            break;
+        case PendingEventKind::Disease:
+            if (option == 1) {
+                const int herbCost =
+                    candidate.buildings[indexOf(BuildingId::HealerHut)] && candidate.workforce.healers > 0 ? 1 : 2;
+                if (candidate.herbs < herbCost) return rejected("医治疾病的草药不足，事件未改变。 ");
+                candidate.herbs -= herbCost;
+                candidate.stability = std::min(100, candidate.stability + 2);
+                outcome = "医治疾病：草药-" + std::to_string(herbCost) + "、稳定+2。";
+            } else {
+                candidate.population = std::max(0, candidate.population - 1);
+                candidate.warriors = std::min(candidate.warriors, candidate.population);
+                candidate.stability = std::max(0, candidate.stability - 4);
+                outcome = "隔离失败：人口-1、稳定-4。";
+            }
+            break;
+        case PendingEventKind::Extortion:
+            if (option == 1) {
+                if (candidate.food < 4) return rejected("缴纳勒索需要4食物，物资不足，事件未改变。 ");
+                candidate.food -= 4;
+                candidate.stability = std::min(100, candidate.stability + 3);
+                outcome = "缴纳勒索：食物-4、稳定+3。";
+            } else {
+                const int damage = extortionDamage(candidate);
+                candidate.stability = std::max(0, candidate.stability - 2);
+                candidate.campDurability = std::max(0, candidate.campDurability - damage);
+                outcome = "抵抗勒索：稳定-2、营地耐久-" + std::to_string(damage) + "。";
+            }
+            break;
+        case PendingEventKind::FactionDemand:
+            if (option == 1) {
+                if (candidate.food < 3) return rejected("让步需要3食物，物资不足，事件未改变。 ");
+                const bool council =
+                    candidate.buildings[indexOf(BuildingId::CouncilFire)] && candidate.workforce.envoys > 0;
+                const int satisfaction = council ? 8 : 5;
+                candidate.food -= 3;
+                for (FactionState& faction : candidate.playerFactions)
+                    faction.satisfaction = std::min(100, faction.satisfaction + satisfaction);
+                outcome = "接受派系诉求：食物-3、全派系满意+" + std::to_string(satisfaction) + "。";
+            } else {
+                for (FactionState& faction : candidate.playerFactions)
+                    faction.satisfaction = std::max(0, faction.satisfaction - 6);
+                candidate.stability = std::max(0, candidate.stability - 2);
+                outcome = "拒绝派系诉求：全派系满意-6、稳定-2。";
+            }
+            break;
     }
     candidate.pendingEvent.active = false;
-    return commit(
-        std::move(candidate),
-        "事件抉择已执行：" + std::string(option == 1 ? "承担物资代价以求安稳。" : "保存物资但承受人员与稳定代价。"),
-        false);
+    finishExtinction(candidate, outcome);
+    return commit(std::move(candidate), "事件抉择已执行：" + outcome, false);
 }
 
 ActionResult GameEngine::garrison(const TribeId tribe, const int warriors) {
@@ -2150,16 +2421,22 @@ ActionResult GameEngine::garrison(const TribeId tribe, const int warriors) {
     GameState candidate = state_;
     OccupationState& site = candidate.occupations[indexOf(tribe)];
     if (!site.occupied) return rejected("该据点尚未被占领。 ");
+    if (state_.workforceReassignmentRequired && warriors >= site.garrison) {
+        return rejected("劳力待重分配时只能降低驻军人数。 ");
+    }
     const int totalOther = std::accumulate(candidate.occupations.begin() + 1, candidate.occupations.end(), 0,
                                            [&](int value, const OccupationState& x) { return value + x.garrison; }) -
                            site.garrison;
-    if (warriors + totalOther > candidate.warriors) return rejected("驻军不能超过现有战士。 ");
+    const int armyWarriors = hasPreparedArmy(candidate) ? candidate.war.warriors : 0;
+    if (warriors + totalOther + armyWarriors > candidate.warriors)
+        return rejected("驻军不能与已组建军队重复使用同一批受训战士。 ");
     site.garrison = warriors;
     return commit(std::move(candidate), "驻军已调整。", false);
 }
 
 ActionResult GameEngine::commit(GameState candidate, std::string message, const bool consumesAction,
                                 const bool seasonAdvanced, const bool endingReached) {
+    refreshWorkforceReassignment(candidate);
     std::string error;
     if (!validateState(candidate, error)) return rejected("行动后的状态未通过校验，已原子取消：" + error);
     state_ = std::move(candidate);
@@ -2225,11 +2502,11 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         error = "种子、季节或行动点范围无效。";
         return false;
     }
-    const std::array<int, 18> nonnegative{
-        {candidate.population, candidate.food, candidate.wood, candidate.stone, candidate.herbs, candidate.hides,
-         candidate.warriors, candidate.morale, candidate.campDurability, candidate.stability, candidate.shells,
-         candidate.tradeCount, candidate.warsWon, candidate.warsLost, candidate.missionCount, candidate.missionDeaths,
-         candidate.highestLevel, candidate.seasonLimit}};
+    const std::array<int, 17> nonnegative{{candidate.population, candidate.food, candidate.wood, candidate.stone,
+                                           candidate.herbs, candidate.hides, candidate.warriors, candidate.morale,
+                                           candidate.campDurability, candidate.stability, candidate.tradeCount,
+                                           candidate.warsWon, candidate.warsLost, candidate.missionCount,
+                                           candidate.missionDeaths, candidate.highestLevel, candidate.seasonLimit}};
     if (std::any_of(nonnegative.begin(), nonnegative.end(), [](const int value) { return value < 0; }) ||
         candidate.morale > 100 || candidate.stability > 100 || candidate.campDurability > 100) {
         error = "资源或百分比超出范围。";
@@ -2245,23 +2522,26 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
                                          workforce.envoys, workforce.campGuards}};
     if (std::any_of(workValues.begin(), workValues.end(), [](int value) { return value < 0 || value > 6; }) ||
         (workforce.foodCrew != 0 && workforce.foodCrew < 2) || (workforce.woodCrew != 0 && workforce.woodCrew < 2) ||
-        (workforce.stoneCrew != 0 && workforce.stoneCrew < 2) || (workforce.herbCrew != 0 && workforce.herbCrew < 2)) {
+        (workforce.stoneCrew != 0 && workforce.stoneCrew < 2) || (workforce.herbCrew != 0 && workforce.herbCrew < 2) ||
+        workforce.crafters > 1 || workforce.healers > 1 || workforce.scouts > 1 || workforce.envoys > 1 ||
+        workforce.campGuards > 1) {
         error = "劳力岗位数量无效。";
         return false;
     }
-    int allocated = std::accumulate(workValues.begin(), workValues.end(), 0);
     for (std::size_t index = 0; index < kWorldLocationCount; ++index) {
-        if (workforce.outpostGuards[index] < 0 || workforce.outpostGuards[index] > 6 ||
+        if (workforce.outpostGuards[index] < 0 || workforce.outpostGuards[index] > 1 ||
             workforce.outpostIdleSeasons[index] < 0 || workforce.outpostIdleSeasons[index] > 2) {
             error = "前哨守卫字段无效。";
             return false;
         }
-        allocated += workforce.outpostGuards[index];
     }
-    // 具名人物、正式战士与普通劳力在当前存档格式中并非一一对应；分配时
-    // 保留至少两名留守人口，避免用旧档重算人口后把合法存档误判为损坏。
-    if (allocated + 2 > candidate.population + candidate.warriors) {
-        error = "劳力分配超过可留守人口。";
+    const int overage = populationOverage(candidate);
+    if (candidate.workforceReassignmentRequired != (overage > 0)) {
+        error = "劳力待重分配标记与统一人口池不一致。";
+        return false;
+    }
+    if (overage > 0 && !candidate.workforceReassignmentRequired) {
+        error = "人口占用超过人口-2。";
         return false;
     }
     if (candidate.tribeName.empty() || candidate.leaderName.empty() || candidate.leaderFocus.empty()) {
@@ -2354,16 +2634,35 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         std::unordered_set<std::string> members;
         for (const std::string& member : squad.members) {
             const Character* character = findRosterCharacter(candidate.roster, member);
-            if (!character || character->life <= 0 || !members.insert(member).second ||
+            if (character == nullptr || character->life <= 0 || !members.insert(member).second ||
                 !assignedMembers.insert(member).second) {
                 error = "小队成员不在角色名单、已阵亡或重复。";
                 return false;
             }
         }
-        if (!members.count(squad.captain)) {
+        if (members.count(squad.captain) == 0U) {
             error = "小队长必须属于小队。";
             return false;
         }
+    }
+    const auto validateSupervisor = [&](const std::string& name, const BuildingId building, const Occupation occupation,
+                                        const char* label) {
+        if (name.empty()) return true;
+        const Character* person = findRosterCharacter(candidate.roster, name);
+        if (!person || person->occupation != occupation || !candidate.buildings[indexOf(building)] ||
+            assignedMembers.count(name) != 0U) {
+            error = std::string(label) + "负责人不满足职业、建筑或小队条件。";
+            return false;
+        }
+        return true;
+    };
+    if (!validateSupervisor(candidate.workshopSupervisor, BuildingId::Workshop, Occupation::Crafter, "武备工坊") ||
+        !validateSupervisor(candidate.healerSupervisor, BuildingId::HealerHut, Occupation::Healer, "医者小屋")) {
+        return false;
+    }
+    if (!enumInRange(candidate.pendingEvent.kind, PendingEventKind::Refugees, PendingEventKind::FactionDemand)) {
+        error = "待决事件类型无效。";
+        return false;
     }
     for (const Item& item : candidate.stockpile) {
         if (item.id.empty() || item.name.empty() || !itemOwners.insert(item.id).second) {
@@ -2395,7 +2694,7 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         for (const Character& member : candidate.activeMission->squad.members) {
             if (std::find(candidate.squads.front().members.begin(), candidate.squads.front().members.end(),
                           member.name) == candidate.squads.front().members.end() ||
-                !findRosterCharacter(candidate.roster, member.name)) {
+                findRosterCharacter(candidate.roster, member.name) == nullptr) {
                 error = "活动地图任务成员不属于出发小队。";
                 return false;
             }
@@ -2415,6 +2714,18 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         }
     } else if (candidate.activeMission) {
         error = "非任务阶段不能保留活动任务。";
+        return false;
+    }
+    const bool preparedArmy = hasPreparedArmy(candidate);
+    if (preparedArmy && (candidate.war.warriors <= 0 || candidate.war.militia < 0 ||
+                         candidate.war.warriors + garrisonAllocation(candidate) > candidate.warriors ||
+                         candidate.war.craftsmanshipPower < 0 || candidate.war.craftsmanshipPower > 4)) {
+        error = "已组建军队字段或受训战士分配无效。";
+        return false;
+    }
+    if (!preparedArmy && (candidate.war.warriors != 0 || candidate.war.militia != 0 ||
+                          !candidate.war.lockedEquipment.empty() || candidate.war.craftsmanshipPower != 0)) {
+        error = "未组建军队不能保留兵力或锁定装备。";
         return false;
     }
     if (candidate.phase == GamePhase::War) {
@@ -2454,8 +2765,11 @@ std::string GameEngine::statusText() const {
            << "人口：" << state_.population << "  食物：" << state_.food << "  木材：" << state_.wood << "  石料："
            << state_.stone << "  草药：" << state_.herbs << "  兽皮：" << state_.hides << "  战士：" << state_.warriors
            << "\n"
-           << "营地耐久：" << state_.campDurability << "  贝币：" << state_.shells
-           << (state_.currencyUnlocked ? "（已流通）" : "（未解锁）") << "  贸易次数：" << state_.tradeCount << "\n"
+           << "营地耐久：" << state_.campDurability << "  贸易次数：" << state_.tradeCount << "\n"
+           << "统一人口池：已占用" << committedPopulation(state_) << '/' << populationCapacity(state_)
+           << "（劳力、前哨、驻军、军队、出任务小队；首领与基础留守2人不分配）";
+    if (state_.workforceReassignmentRequired) output << " [劳力待重分配]";
+    output << "\n"
            << "建筑：" << countTrue(state_.buildings) << "/6  技术：" << countTrue(state_.technologies)
            << "/9  已发现地点：" << countTrue(state_.discovered) << "/16  战争胜负：" << state_.warsWon << "/"
            << state_.warsLost;
@@ -2465,7 +2779,7 @@ std::string GameEngine::statusText() const {
 std::string GameEngine::workforceText() const {
     const WorkforceState& w = state_.workforce;
     std::ostringstream out;
-    out << "劳力分工（仅决定任务能力，不在经营界面产出资源）\n"
+    out << "劳力分工（资源只能由地图任务带回；所有岗位均占用统一人口池）\n"
         << "食物队" << w.foodCrew << " 木材队" << w.woodCrew << " 石料队" << w.stoneCrew << " 草药队" << w.herbCrew
         << "\n支持岗位（0未配置/1已配置）：工匠" << (w.crafters > 0 ? 1 : 0) << " 医者" << (w.healers > 0 ? 1 : 0)
         << " 侦察" << (w.scouts > 0 ? 1 : 0) << " 使者" << (w.envoys > 0 ? 1 : 0) << " 营地守卫"
@@ -2477,57 +2791,123 @@ std::string GameEngine::workforceText() const {
         hasOutpostGuard = true;
     }
     if (!hasOutpostGuard) out << "无";
-    out << "\n当前/下季行动容量：" << state_.actionsLeft << '/' << availableTeams(state_)
-        << "（基础3，每支2至6人的资源队+1，最高7）"
+    out << "\n人口占用：" << committedPopulation(state_) << '/' << populationCapacity(state_) << "；当前/下季行动容量："
+        << state_.actionsLeft << '/' << availableTeams(state_) << "（基础3，每支2至6人的资源队+1，最高7）"
         << "\n资源队可分配2至6人；支持岗位与前哨守卫只分配0或1人。"
-        << "\n用法：assign <岗位> <人数>；assign outpost <地点> <0|1>。";
+        << "\n已激活效果：";
+    bool hasSupportEffect = false;
+    if (w.crafters > 0) {
+        out << (state_.buildings[indexOf(BuildingId::Workshop)] ? "工坊可制造、维修" : "工匠等待武备工坊");
+        hasSupportEffect = true;
+    }
+    if (w.healers > 0) {
+        out << (hasSupportEffect ? "；" : "")
+            << (state_.buildings[indexOf(BuildingId::HealerHut)] ? "医者维护疾病防护并可治疗" : "医者等待医者小屋");
+        hasSupportEffect = true;
+    }
+    if (w.scouts > 0) {
+        out << (hasSupportEffect ? "；" : "") << "侦察降低袭扰与野兽风险";
+        hasSupportEffect = true;
+    }
+    if (w.envoys > 0) {
+        out << (hasSupportEffect ? "；" : "") << "使者维持外交";
+        if (state_.buildings[indexOf(BuildingId::CouncilFire)]) out << "、主持议事火坛";
+        hasSupportEffect = true;
+    }
+    if (w.campGuards > 0) {
+        out << (hasSupportEffect ? "；" : "") << "营地守卫抵御袭扰";
+        hasSupportEffect = true;
+    }
+    if (!hasSupportEffect) out << "尚未激活支持岗位";
+    out << "\n负责人：工坊"
+        << (state_.workshopSupervisor.empty()
+                ? "未任命"
+                : state_.workshopSupervisor + "（工艺等级" + std::to_string(craftSupervisorRank(state_)) + "）" +
+                      (w.crafters == 0 ? "[未配置劳力，停工]" : ""))
+        << "；医者"
+        << (state_.healerSupervisor.empty()
+                ? "未任命"
+                : state_.healerSupervisor + "（医疗等级" + std::to_string(medicineSupervisorRank(state_)) + "）" +
+                      (w.healers == 0 ? "[未配置劳力，停工]" : ""));
+    if (state_.workforceReassignmentRequired)
+        out << "\n[劳力待重分配] 仅可降低劳力或驻军，或解散军队，直到人口占用恢复合法。";
+    out << "\n用法：assign <岗位> <人数>；assign outpost <地点> <0|1>。";
     return out.str();
 }
 
 std::string GameEngine::inventoryText() const {
     std::ostringstream out;
     out << "共享装备仓库（" << state_.stockpile.size() << "件）：\n";
-    for (const Item& item : state_.stockpile)
+    for (const Item& item : state_.stockpile) {
         out << item.id << "  " << item.name << "  状态"
             << (item.condition == ItemCondition::Intact    ? "完好"
                 : item.condition == ItemCondition::Damaged ? "损坏"
                                                            : "报废")
-            << '\n';
+            << "  品质" << itemQualityName(item.quality) << "  实际属性";
+        bool hasBonus = false;
+        const int divisor = item.condition == ItemCondition::Damaged ? 2 : 1;
+        const int quality = itemQualityTier(item.quality);
+        for (std::size_t index = 0; index < kAttributeCount; ++index) {
+            const int base = item.bonuses.values[index];
+            const int effective = (base > 0 ? base + quality : base) / divisor;
+            if (effective == 0) continue;
+            out << (hasBonus ? "," : "") << "属性" << (index + 1U) << (effective > 0 ? "+" : "") << effective;
+            hasBonus = true;
+        }
+        if (!hasBonus) out << "无";
+        out << '\n';
+    }
     if (state_.stockpile.empty()) out << "（空）\n";
     return out.str();
 }
 
 std::string GameEngine::peopleText() const {
     std::ostringstream out;
-    out << "人物档案：\n";
+    out << "人物档案：工坊负责人"
+        << (state_.workshopSupervisor.empty()
+                ? "未任命"
+                : state_.workshopSupervisor + "（工艺等级" + std::to_string(craftSupervisorRank(state_)) +
+                      (state_.workforce.crafters == 0 ? "，停工）" : "）"))
+        << "；医者负责人"
+        << (state_.healerSupervisor.empty()
+                ? "未任命"
+                : state_.healerSupervisor + "（医疗等级" + std::to_string(medicineSupervisorRank(state_)) +
+                      (state_.workforce.healers == 0 ? "，停工）" : "）"))
+        << "\n";
     for (const Character& character : state_.roster)
         out << character.name << " 等级" << character.level << " 生命" << character.life << " 疲劳" << character.fatigue
-            << " 忠诚" << character.loyalty << '\n';
+            << " 忠诚" << character.loyalty << " 职业" << occupationName(character.occupation)
+            << (character.name == state_.workshopSupervisor ? " [工坊负责人]" : "")
+            << (character.name == state_.healerSupervisor ? " [医者负责人]" : "") << '\n';
     return out.str();
 }
 
 std::string GameEngine::personText(const std::string_view name) const {
     const Character* person = findRosterCharacter(state_.roster, name);
-    if (!person) return "没有这个人物。";
+    if (person == nullptr) return "没有这个人物。";
     std::ostringstream out;
-    out << person->name << " 等级" << person->level << " 经验" << person->experience << " 生命" << person->life
-        << " 疲劳" << person->fatigue << " 忠诚" << person->loyalty << "\n八项属性：";
+    out << person->name << " 职业" << occupationName(person->occupation) << " 等级" << person->level << " 经验"
+        << person->experience << " 生命" << person->life << " 疲劳" << person->fatigue << " 忠诚" << person->loyalty
+        << "\n八项属性：";
     for (int value : person->attributes.values) out << ' ' << value;
     out << "\n装备：";
     bool any = false;
-    for (std::size_t i = 0; i < person->equipment.size(); ++i)
-        if (person->equipment[i]) {
-            out << equipmentSlotName(static_cast<EquipmentSlot>(i)) << ':' << person->equipment[i]->name << ' ';
-            any = true;
-        }
+    for (std::size_t i = 0; i < person->equipment.size(); ++i) {
+        const auto& equipped = person->equipment[i];
+        if (!equipped.has_value()) continue;
+        const Item& item = equipped.value();
+        out << equipmentSlotName(static_cast<EquipmentSlot>(i)) << ':' << item.name << ' ';
+        any = true;
+    }
     if (!any) out << "无";
     return out.str();
 }
 
 std::string GameEngine::buildingsText() const {
     return "建筑清单（木材/石料/行动/维护/收益）\n粮仓 8/2/1/无/降低粮食风险\n木墙 10/2/1/营地守卫/提高防御\n武备工坊 "
-           "8/6/1/工匠/制造、维修、三阶技术\n医者小屋 6/2/1/医者/草药医治\n瞭望塔 8/4/1/侦察/预警并减袭扰\n议事火坛 "
-           "6/4/1/使者/降低派系满意流失";
+           "8/6/1/工匠/制造、维修、三阶技术；工匠负责人决定装备品质\n医者小屋 "
+           "6/2/1/医者/医者维护疾病防护、草药医治；医者负责人强化治疗与休整\n瞭望塔 "
+           "8/4/1/侦察/预警，袭扰与野兽伤害-1\n议事火坛 6/4/1/使者/派系满意流失-2";
 }
 
 std::string GameEngine::technologiesText() const {
@@ -2554,7 +2934,10 @@ std::string GameEngine::powerText() const {
     std::ostringstream out;
     out << "军队战力：正式战士" << war.warriors << " 民兵" << war.militia << " 长矛" << war.spearMilitia << " 盾兵"
         << war.shieldBearers << " 重装长矛" << war.heavySpears << "\n锁定装备" << war.lockedEquipment.size()
-        << "件；攻击/防御基础=正式战士×2+民兵+士气÷10，长矛+2、盾+1、重装组合再+2；当前战力" << war.playerPower;
+        << "件，工坊负责人" << (state_.workshopSupervisor.empty() ? "未任命" : state_.workshopSupervisor)
+        << "，品质战力+" << war.craftsmanshipPower
+        << "（品质总和最多+4）；攻击/防御基础=正式战士×2+民兵+士气÷10，长矛+2、盾+1、重装组合再+2；当前战力"
+        << war.playerPower;
     return out.str();
 }
 
@@ -2564,7 +2947,7 @@ std::string GameEngine::worldText() const {
     for (std::size_t index = 0; index < kWorldLocationCount; ++index) {
         const auto& location = worldLocations()[index];
         output << (index + 1) << ". " << (state_.discovered[index] ? location.name : "????")
-               << (state_.discovered[index] ? " — " + location.feature : "")
+               << (state_.discovered[index] ? " [" + locationRoleName(location.role) + "] — " + location.feature : "")
                << (state_.outposts[index] ? " [结算点]" : "") << '\n';
     }
     return output.str();
@@ -2663,10 +3046,12 @@ std::string GameEngine::helpText() const {
            "objectives目标 chronicle编年史\n"
            "经营：build/建造 <建筑>，research/研究 <技术>；资源和地点只能通过地图任务取得\n"
            "任务：5 或 mission；任务内使用move/移动、gather/采集、build outpost/建造前哨、settle/结算\n"
-           "劳力：资源队可分配2至6人；工匠、医者、侦察、使者、守卫和前哨守卫只分配0或1人\n"
-           "小队：squadrest 小队休整；巡逻、侦察和使者效果由劳力岗位在季末结算\n"
+           "劳力：资源队可分配2至6人；工匠、医者、侦察、使者、守卫和前哨守卫只分配0或1人；所有岗位、驻军、军队和出任务"
+           "小队共用人口-2\n"
+           "小队：squadrest 小队休整；appoint/unappoint <workshop|healer> 任免负责人；负责人不可加入小队\n"
            "外交：talk gift trade <部落> <给出资源> <换取资源> openroute marry tribute demand ally declare truce raid\n"
-           "内政：appease <1至3>；战争：formarmy <战士> <民兵>，war <部落>，战中attack/defend/order/retreat\n"
+           "内政：appease <1至3>；战争：formarmy <战士> <民兵>，disbandarmy 解散军队，war "
+           "<部落>，战中attack/defend/order/retreat\n"
            "季节：8/endturn；结局：choose <alliance|conquest|prosperity|migration>；长期结局后sandbox。";
 }
 
@@ -2702,7 +3087,7 @@ EndingSummary GameEngine::endingSummary() const {
             std::to_string(countTrue(state_.technologies)),
         "小队任务/阵亡：" + std::to_string(state_.missionCount) + "/" + std::to_string(state_.missionDeaths),
         "战争胜负：" + std::to_string(state_.warsWon) + "/" + std::to_string(state_.warsLost),
-        "贸易次数/贝币：" + std::to_string(state_.tradeCount) + "/" + std::to_string(state_.shells),
+        "贸易次数：" + std::to_string(state_.tradeCount),
         "最终首领：" + state_.leaderName + "，历任记录" + std::to_string(state_.leadershipHistory.size()) + "条",
     };
     for (const GameEnding ending : availableEndings()) {
@@ -2797,8 +3182,6 @@ std::string GameEngine::resourceName(const ResourceKind resource) {
             return "草药";
         case ResourceKind::Hides:
             return "兽皮";
-        case ResourceKind::Shells:
-            return "贝币";
     }
     return "未知资源";
 }

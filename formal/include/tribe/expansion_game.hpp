@@ -13,6 +13,8 @@ namespace tribe {
 constexpr std::size_t kExpeditionWorldLocationCount = 16U;
 
 enum class ExpansionPhase { Exploring = 0, Settled };
+enum class ResourceKind { Food = 0, Wood, Stone, Herbs, Hides };
+enum class MissionKind { Gather = 0, OutpostConstruction };
 
 struct ExpansionCommandResult {
     bool recognized = false;
@@ -42,7 +44,8 @@ struct ExpansionState {
     int cargoCapacity = 24;
     int foodGatherBonus = 0;
     int herbGatherBonus = 0;
-    int assignedResource = 0;
+    MissionKind missionKind = MissionKind::Gather;
+    ResourceKind assignedResource = ResourceKind::Food;
     int crewSize = 2;
     int encounterLife = 0;
     bool encounterDefeated = false;

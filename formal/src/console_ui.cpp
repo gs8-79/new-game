@@ -90,6 +90,32 @@ std::string slotKey(const SaveSlot slot) {
     return std::to_string(static_cast<int>(slot) + 1);
 }
 
+std::string firstSeasonGoal(const GameState& state) {
+    if (state.season != 1 || state.phase != GamePhase::Managing) return {};
+    if (state.missionCount > 0) return {};
+    if (state.workforce.woodCrew < 2) return "先建立补给路线：输入 assign wood 2，安排木材队。";
+    return "带回第一批木材：mission wood → move forest → gather wood → move camp → settle。";
+}
+
+std::string roadProgress(const GameState& state) {
+    if (state.missionCount == 0) return {};
+    const int alliances =
+        static_cast<int>(std::count_if(state.relations.begin() + 1, state.relations.end(),
+                                       [](const DiplomacyRelation& relation) { return relation.alliance; }));
+    const int occupied = static_cast<int>(std::count_if(state.occupations.begin() + 1, state.occupations.end(),
+                                                        [](const OccupationState& site) { return site.occupied; }));
+    const int buildings = static_cast<int>(std::count(state.buildings.begin(), state.buildings.end(), true));
+    const int technologies = static_cast<int>(std::count(state.technologies.begin(), state.technologies.end(), true));
+    std::ostringstream output;
+    output << "联盟：河鹿关系" << state.relations[indexOf(TribeId::RiverDeer)].relation << "/70，白羽关系"
+           << state.relations[indexOf(TribeId::WhiteFeather)].relation << "/70，联盟" << alliances << "/2，部落联盟技术"
+           << (state.technologies[indexOf(TechnologyId::Confederation)] ? "已完成" : "未完成") << "\n征服：据点"
+           << occupied << "/2，战士" << state.warriors << "/5，士气" << state.morale << "/55"
+           << "\n繁荣：人口" << state.population << "/20，食物" << state.food << "/40，建筑" << buildings << "/4，技术"
+           << technologies << "/4";
+    return output.str();
+}
+
 } // namespace
 
 ConsoleUI::ConsoleUI(std::ostream& output, const bool interactive, const bool ansiEnabled, const std::size_t width)
@@ -300,7 +326,9 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
                 << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n"
-                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n";
+                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n"
+                << "  劳力、前哨守卫、驻军、已组建军队和任务小队共用人口-2；人口减少后先重分配。\n"
+                << "  建成并配置岗位后，可任命工匠为工坊负责人、医者为医者负责人；负责人不可入小队。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
         output_ << "  5 或 mission <资源> 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
@@ -317,7 +345,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  factions 查看派系；appease <1至3> 安抚派系。未知部落需要先探索。\n";
     } else if (topic == 5) {
         writeSection("战争与结局");
-        output_ << "  formarmy/组建军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
+        output_ << "  formarmy/组建军队  disbandarmy/解散军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
                 << "  季节上限到达后，按已满足条件选择联盟、征服、繁荣或迁徙。\n";
         output_ << "  组建军队 <战士人数> <民兵人数>；先 declare <部落> 宣战，再 出征 <部落>。\n"
                 << "  下令 <推进|坚守|集火|包抄|掩护|撤退>；retreat/撤退。\n"
@@ -402,8 +430,8 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     write(UiColor::Stone, "石料 " + std::to_string(state.stone));
     output_ << "   ";
     write(UiColor::Herbs, "草药 " + std::to_string(state.herbs));
-    output_ << "   兽皮 " << state.hides << "   贝币 " << state.shells
-            << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
+    output_ << "   兽皮 " << state.hides;
+    output_ << '\n'
             << "  地点 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
             << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
             << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
@@ -443,9 +471,25 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
         output_ << '\n';
         output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew << " 石料队"
                 << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew << "（下季行动上限 "
-                << (3 + (state.workforce.foodCrew >= 2) + (state.workforce.woodCrew >= 2) +
-                    (state.workforce.stoneCrew >= 2) + (state.workforce.herbCrew >= 2))
+                << (3 + static_cast<int>(state.workforce.foodCrew >= 2) +
+                    static_cast<int>(state.workforce.woodCrew >= 2) + static_cast<int>(state.workforce.stoneCrew >= 2) +
+                    static_cast<int>(state.workforce.herbCrew >= 2))
                 << "/7）\n";
+    }
+
+    const std::string firstGoal = firstSeasonGoal(state);
+    if (!firstGoal.empty()) {
+        writeSection("首季目标");
+        write(UiColor::Accent, "  " + firstGoal + "\n");
+    }
+    const std::string roads = roadProgress(state);
+    if (!roads.empty()) {
+        writeSection("道路进展");
+        write(UiColor::Accent, "  " + roads + "\n");
+    }
+    if (state.workforceReassignmentRequired) {
+        writeSection("劳力待重分配");
+        write(UiColor::Warning, "  人口不足以维持当前占用；仅可降低劳力或驻军，或解散军队。\n");
     }
 
     writeSection("最近消息");
