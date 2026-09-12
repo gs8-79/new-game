@@ -218,29 +218,30 @@ ExpansionCommandResult ExpansionGame::move(std::string_view target) {
 
 ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
     if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
+    if (state_.missionKind != MissionKind::Gather) return rejected("前哨建设任务只能运输建材，不能额外采集。");
     if (state_.harvestActions >= 4) return rejected("本次任务的采集时段已用完，请前往营地或前哨结算。");
-    enum class Cargo { Food = 0, Wood, Stone, Herbs, Hides };
     const int at = state_.worldLocation;
-    std::optional<Cargo> kind;
+    std::optional<ResourceKind> kind;
     int base = 0;
     if (any(resource, {"food", "食物", "粮食"}) && (at == 1 || at == 2 || at == 4 || at == 9)) {
-        kind = Cargo::Food;
+        kind = ResourceKind::Food;
         base = 6 + state_.foodGatherBonus;
     } else if (any(resource, {"wood", "木材"}) && (at == 1 || at == 3)) {
-        kind = Cargo::Wood;
+        kind = ResourceKind::Wood;
         base = 6;
     } else if (any(resource, {"stone", "石料", "石头"}) && (at == 6 || at == 7 || at == 12)) {
-        kind = Cargo::Stone;
+        kind = ResourceKind::Stone;
         base = 5;
     } else if (any(resource, {"herb", "herbs", "草药"}) && (at == 1 || at == 3 || at == 5)) {
-        kind = Cargo::Herbs;
+        kind = ResourceKind::Herbs;
         base = 4 + state_.herbGatherBonus;
     } else if (any(resource, {"hide", "hides", "兽皮"}) && (at == 1 || at == 2)) {
-        kind = Cargo::Hides;
+        kind = ResourceKind::Hides;
         base = 4;
     } else
         return rejected("当前地点没有这种资源。");
-    if (static_cast<int>(*kind) != state_.assignedResource && !(*kind == Cargo::Hides && state_.assignedResource == 0))
+    if (*kind != state_.assignedResource &&
+        !(*kind == ResourceKind::Hides && state_.assignedResource == ResourceKind::Food))
         return rejected("本次任务由指定资源队执行，不能混采。");
     const int room = state_.cargoCapacity - cargoTotal(state_);
     if (room <= 0) return rejected("小队载货已满，请结算。");
@@ -248,23 +249,23 @@ ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
     const int gain = std::min(room, base + std::max(0, candidate.crewSize - 2));
     std::string_view cargoName;
     switch (*kind) {
-        case Cargo::Food:
+        case ResourceKind::Food:
             candidate.cargoFood += gain;
             cargoName = "食物";
             break;
-        case Cargo::Wood:
+        case ResourceKind::Wood:
             candidate.cargoWood += gain;
             cargoName = "木材";
             break;
-        case Cargo::Stone:
+        case ResourceKind::Stone:
             candidate.cargoStone += gain;
             cargoName = "石料";
             break;
-        case Cargo::Herbs:
+        case ResourceKind::Herbs:
             candidate.cargoHerbs += gain;
             cargoName = "草药";
             break;
-        case Cargo::Hides:
+        case ResourceKind::Hides:
             candidate.cargoHides += gain;
             cargoName = "兽皮";
             break;
@@ -404,8 +405,11 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
     if (state.turn < 0 || state.cargoFood < 0 || state.cargoWood < 0 || state.cargoStone < 0 || state.cargoHerbs < 0 ||
         state.cargoHides < 0 || state.harvestActions < 0 || state.harvestActions > 4 || state.cargoCapacity <= 0 ||
         cargoTotal(state) > state.cargoCapacity || state.foodGatherBonus < 0 || state.herbGatherBonus < 0 ||
-        state.assignedResource < 0 || state.assignedResource > 5 || state.crewSize < 2 || state.crewSize > 6 ||
-        state.encounterLife < 0)
+        static_cast<int>(state.missionKind) < static_cast<int>(MissionKind::Gather) ||
+        static_cast<int>(state.missionKind) > static_cast<int>(MissionKind::OutpostConstruction) ||
+        static_cast<int>(state.assignedResource) < static_cast<int>(ResourceKind::Food) ||
+        static_cast<int>(state.assignedResource) > static_cast<int>(ResourceKind::Hides) || state.crewSize < 2 ||
+        state.crewSize > 6 || state.encounterLife < 0)
         return invalid("载货、劳力或遭遇字段无效。");
     const OperationResult squad = validateSquad(state.squad);
     if (!squad) return invalid("小队无效：" + squad.message);

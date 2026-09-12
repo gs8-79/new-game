@@ -17,6 +17,21 @@ bool validAttribute(const Attribute attribute) { return attributeIndex(attribute
 
 bool validEquipmentSlot(const EquipmentSlot slot) { return equipmentIndex(slot) < kEquipmentSlotCount; }
 
+int qualityBonus(const ItemQuality quality) {
+    switch (quality) {
+        case ItemQuality::Fine:
+            return 1;
+        case ItemQuality::Rare:
+            return 2;
+        case ItemQuality::Legendary:
+            return 3;
+        case ItemQuality::Crude:
+        case ItemQuality::Common:
+            return 0;
+    }
+    return 0;
+}
+
 const std::array<Attribute, kAttributeCount>& prioritiesFor(const Occupation occupation) {
     static const std::array<Attribute, kAttributeCount> hunter{
         {Attribute::Perception, Attribute::Survival, Attribute::Agility, Attribute::Endurance, Attribute::Willpower,
@@ -187,10 +202,14 @@ OperationResult equipItem(Character& character, const EquipmentSlot slot, const 
 Attributes effectiveAttributes(const Character& character) {
     Attributes result = character.attributes;
     for (const auto& equipped : character.equipment) {
-        if (!equipped || equipped->condition == ItemCondition::Scrapped) continue;
-        const int divisor = equipped->condition == ItemCondition::Damaged ? 2 : 1;
+        if (!equipped.has_value()) continue;
+        const Item& item = equipped.value();
+        if (item.condition == ItemCondition::Scrapped) continue;
+        const int divisor = item.condition == ItemCondition::Damaged ? 2 : 1;
+        const int quality = qualityBonus(item.quality);
         for (std::size_t index = 0; index < kAttributeCount; ++index) {
-            result.values[index] += equipped->bonuses.values[index] / divisor;
+            const int base = item.bonuses.values[index];
+            result.values[index] += (base > 0 ? base + quality : base) / divisor;
         }
     }
     return result;

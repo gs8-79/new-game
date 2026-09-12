@@ -155,6 +155,7 @@ void writeFrame(const EndingSummary& summary, const std::string& frame, std::ost
 
 } // namespace
 
+// NOLINTBEGIN(bugprone-suspicious-missing-comma)
 std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) {
     switch (ending) {
         case GameEnding::Alliance:
@@ -270,6 +271,7 @@ std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) 
     }
     return {".-----------------------.\n|    ENDING PENDING     |\n'-----------------------'"};
 }
+// NOLINTEND(bugprone-suspicious-missing-comma)
 
 std::string EndingPresentation::renderStatic(const GameEnding ending) {
     const auto frames = framesFor(ending);
