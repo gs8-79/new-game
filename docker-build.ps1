@@ -3,13 +3,13 @@ param(
     [string]$Tag = 'tribe-dawn:latest'
 )
 
-$ErrorActionPreference = 'Stop'
+# 用 Continue：docker 的构建进度会写到 stderr，Stop 会误判为失败。成败看 $LASTEXITCODE。
+$ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot 'docker-common.ps1')
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw '找不到 docker 命令，请先安装 Docker Desktop 并启动。'
-}
+$docker = Resolve-Docker
 
-docker build -t $Tag $PSScriptRoot
+& $docker build -t $Tag $PSScriptRoot
 if ($LASTEXITCODE -ne 0) { throw 'Docker 镜像构建失败。' }
 
 Write-Host "《燧火纪》Docker 镜像构建完成：$Tag" -ForegroundColor Green

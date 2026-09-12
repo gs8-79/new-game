@@ -38,6 +38,8 @@ bash docker-run.sh
 
 也可以使用 Compose：`docker compose run --rm tribe-dawn`。
 
+双击 `开始Docker版.cmd` 时若 Docker Desktop 尚未运行，脚本会自动启动它并等待引擎就绪。国内网络拉取基础镜像若超时或过慢，可在 Docker Desktop 的 Settings → Docker Engine 中加入 `registry-mirrors` 镜像加速地址后重启引擎。
+
 存档通过目录挂载与宿主机互通：容器内 `/game/saves` 对应项目根目录的 `saves/`，删除容器不丢存档；本机构建版与 Docker 版共用同一套存档文件。终端窗口同样建议至少 80 列、30 行。
 
 ## 操作与存档
