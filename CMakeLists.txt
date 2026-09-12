@@ -23,6 +23,9 @@ endif()
 add_library(tribe_formal_lib
     formal/src/expansion_types.cpp
     formal/src/expansion_game.cpp
+    formal/src/population_rules.cpp
+    formal/src/seasonal_event_rules.cpp
+    formal/src/war_rules.cpp
     formal/src/game_engine.cpp
     formal/src/save_repository.cpp
     formal/src/ending_presentation.cpp
@@ -49,6 +52,9 @@ endif()
 add_executable(tribe-formal-tests
     tests/test_main.cpp
     formal/tests/current_game_tests.cpp
+    formal/tests/map_mission_tests.cpp
+    formal/tests/save_repository_tests.cpp
+    formal/tests/application_workflow_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
 target_include_directories(tribe-formal-tests PRIVATE tests)
@@ -76,8 +82,17 @@ set(TRIBE_FORMAT_SOURCES
     formal/src/expansion_types.cpp
     formal/src/game_engine.cpp
     formal/src/main.cpp
+    formal/src/population_rules.hpp
+    formal/src/population_rules.cpp
+    formal/src/seasonal_event_rules.hpp
+    formal/src/seasonal_event_rules.cpp
     formal/src/save_repository.cpp
+    formal/src/war_rules.hpp
+    formal/src/war_rules.cpp
+    formal/tests/application_workflow_tests.cpp
     formal/tests/current_game_tests.cpp
+    formal/tests/map_mission_tests.cpp
+    formal/tests/save_repository_tests.cpp
     tests/test_harness.hpp
     tests/test_main.cpp
 )

@@ -101,10 +101,11 @@ void playEnding(const GameEngine& game, ConsoleUI& ui, std::istream& input, std:
 }
 
 bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::istream& input, std::ostream& output,
-             const bool saveInitial, std::string& exitMessage) {
+             const bool saveInitial, std::string& exitMessage, std::string initialMessage = {}) {
     exitMessage.clear();
-    std::string message =
-        GameEngine::modeName(game.state().mode) + "已经开始。输入1查看状态，输入9或帮助查看完整命令。";
+    std::string message = std::move(initialMessage);
+    if (message.empty())
+        message = GameEngine::modeName(game.state().mode) + "已经开始。输入1查看状态，输入9或帮助查看完整命令。";
     if (saveInitial) {
         std::string error;
         if (!saves.save(game.state(), SaveSlot::Autosave, error)) message += "\n自动保存失败：" + error;
@@ -250,8 +251,9 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
     }
 }
 
-std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, std::istream& input,
-                                    bool& inputClosed) {
+std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, std::istream& input, bool& inputClosed,
+                                    std::string& loadedMessage) {
+    loadedMessage.clear();
     std::string message;
     std::string line;
     for (;;) {
@@ -279,6 +281,7 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
             message = error;
             continue;
         }
+        loadedMessage = "已读取" + SaveRepository::slotName(*slot) + "。";
         return loaded;
     }
 }
@@ -310,14 +313,15 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
         }
         if (command.args.empty() && verbIs(command, {"2", "load", "读取", "读取存档"})) {
             bool inputClosed = false;
-            auto loaded = chooseSave(saves, ui, input, inputClosed);
+            auto loaded = chooseSave(saves, ui, input, inputClosed, menuMessage);
             if (inputClosed) break;
             if (!loaded) {
                 menuMessage.clear();
                 continue;
             }
             GameEngine game(std::move(*loaded));
-            if (!runGame(game, saves, ui, input, output, false, menuMessage)) break;
+            const std::string loadedMessage = menuMessage;
+            if (!runGame(game, saves, ui, input, output, false, menuMessage, loadedMessage)) break;
             continue;
         }
         if (command.args.empty() && verbIs(command, {"3", "h", "help", "帮助", "游戏帮助"})) {
