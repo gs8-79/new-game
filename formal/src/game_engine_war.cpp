@@ -37,11 +37,14 @@ void GameEngine::releaseWarEquipment(GameState& candidate, const bool damaged) c
 
 ActionResult GameEngine::formArmy(const int warriors, const int militia, const std::string_view commander) {
     ActionResult result;
-    if (!canSpendAction(result)) return result;
     if (population_rules::hasPreparedArmy(state_)) return rejected("已有一支已组建军队；请先解散军队以归还锁定装备。 ");
     const int availableWarriors = std::max(0, state_.warriors - population_rules::garrisonAllocation(state_));
     if (warriors <= 0 || warriors > availableWarriors) return rejected("正式战士数量必须为1至未驻军的受训战士数。 ");
     if (militia < 0) return rejected("民兵数量不能为负数。 ");
+    const int actionCost = warriors + militia;
+    if (actionCost <= 0 || actionCost > 7) return rejected("组建军队需要投入等同于军队规模的行动力，当前上限为7人。 ");
+    if (!canSpendAction(result, actionCost)) return result;
+    if (actionCost > population_rules::availablePopulation(state_)) return rejected("可用人口不足，无法组建这支军队。 ");
     GameState candidate = state_;
     const std::string selectedCommander = commander.empty() ? "石刃" : std::string(commander);
     if (findRosterCharacter(candidate.roster, selectedCommander) == nullptr) return rejected("统帅必须是具名人物。 ");
@@ -76,7 +79,7 @@ ActionResult GameEngine::formArmy(const int warriors, const int militia, const s
     if (population_rules::committedPopulation(candidate) > population_rules::populationCapacity(candidate)) {
         return rejected("统一人口池不足：已组建军队会与劳力、驻军及出任务小队共同占用人口。 ");
     }
-    spendAction(candidate);
+    spendAction(candidate, actionCost);
     return commit(std::move(candidate),
                   "军队已组建：统帅" + selectedCommander + "，正式战士" + std::to_string(warriors) + "，民兵" +
                       std::to_string(militia) + "；装备已锁定，可用 power 查看兵种。",

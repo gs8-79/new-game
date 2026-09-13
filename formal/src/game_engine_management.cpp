@@ -28,12 +28,14 @@ using command_parser::Command;
 using command_parser::equalsAny;
 using command_parser::parse;
 using command_parser::verbIs;
-ActionResult GameEngine::build(const BuildingId building) {
+ActionResult GameEngine::build(const BuildingId building, const int workers) {
     ActionResult result;
-    if (!canSpendAction(result)) return result;
+    if (workers < 2 || workers > 7) return rejected("建造投入人数必须为2至7人。用法：建造 <建筑> [投入人数]。 ");
+    if (!canSpendAction(result, workers)) return result;
+    if (workers > population_rules::availablePopulation(state_)) return rejected("可用人口不足，无法投入这么多人建造。 ");
     if (state_.buildings[indexOf(building)]) return rejected("该唯一建筑已经建成。");
-    static const std::array<int, kBuildingCount> woodCosts{{8, 10, 8, 6, 8, 6}};
-    static const std::array<int, kBuildingCount> stoneCosts{{2, 2, 6, 2, 4, 4}};
+    static const std::array<int, kBuildingCount> woodCosts{{8, 10, 8, 6, 8, 6, 12}};
+    static const std::array<int, kBuildingCount> stoneCosts{{2, 2, 6, 2, 4, 4, 4}};
     const int woodCost = woodCosts[indexOf(building)];
     const int stoneCost = stoneCosts[indexOf(building)];
     if (state_.wood < woodCost || state_.stone < stoneCost) {
@@ -45,13 +47,12 @@ ActionResult GameEngine::build(const BuildingId building) {
     candidate.stone -= stoneCost;
     candidate.buildings[indexOf(building)] = true;
     candidate.stability = std::min(100, candidate.stability + 2);
-    spendAction(candidate);
-    return commit(std::move(candidate), "建筑完成，部落稳定提高2。", true);
+    spendAction(candidate, workers);
+    return commit(std::move(candidate), "建筑完成，投入" + std::to_string(workers) + "人口，部落稳定提高2。", true);
 }
 
-ActionResult GameEngine::research(const TechnologyId technology) {
+ActionResult GameEngine::research(const TechnologyId technology, const int workers) {
     ActionResult result;
-    if (!canSpendAction(result)) return result;
     if (state_.technologies[indexOf(technology)]) return rejected("该技术已经研究完成。");
     const int raw = static_cast<int>(technology);
     const int tier = raw % 3;
@@ -60,13 +61,19 @@ ActionResult GameEngine::research(const TechnologyId technology) {
     if (tier == 2 && !state_.buildings[indexOf(BuildingId::Workshop)]) return rejected("高级技术需要先建武备工坊。");
     const int foodCost = 3 + tier * 2;
     const int woodCost = 2 + tier;
+    const int requiredWorkers = 2 + tier;
+    const int actualWorkers = workers == 0 ? requiredWorkers : workers;
+    if (actualWorkers < requiredWorkers || actualWorkers > 7)
+        return rejected("研究投入人数必须为" + std::to_string(requiredWorkers) + "至7人。 ");
+    if (!canSpendAction(result, actualWorkers)) return result;
+    if (actualWorkers > population_rules::availablePopulation(state_)) return rejected("可用人口不足，无法投入这么多人研究。 ");
     if (state_.food < foodCost || state_.wood < woodCost) return rejected("研究所需食物或木材不足。");
     GameState candidate = state_;
     candidate.food -= foodCost;
     candidate.wood -= woodCost;
     candidate.technologies[indexOf(technology)] = true;
-    spendAction(candidate);
-    return commit(std::move(candidate), "研究完成，新的部落知识已经记录。", true);
+    spendAction(candidate, actualWorkers);
+    return commit(std::move(candidate), "研究完成，投入" + std::to_string(actualWorkers) + "人口。", true);
 }
 
 ActionResult GameEngine::restSquad() {
@@ -88,11 +95,7 @@ ActionResult GameEngine::restSquad() {
 }
 
 ActionResult GameEngine::assignWorkforce(const WorkforceRole role, const int count) {
-    if (count < 0 || count > 6) return rejected("每个岗位人数为0至6；资源队非零时至少2人。 ");
-    if ((role == WorkforceRole::FoodCrew || role == WorkforceRole::WoodCrew || role == WorkforceRole::StoneCrew ||
-         role == WorkforceRole::HerbCrew) &&
-        count == 1)
-        return rejected("资源队必须配置2至6人，或设为0。 ");
+    if (count < 0 || count > 6) return rejected("岗位人数为0至6。 ");
     if ((role == WorkforceRole::Crafters || role == WorkforceRole::Healers || role == WorkforceRole::Scouts ||
          role == WorkforceRole::Envoys || role == WorkforceRole::CampGuards) &&
         count > 1) {
@@ -128,13 +131,20 @@ ActionResult GameEngine::assignWorkforce(const WorkforceRole role, const int cou
         case WorkforceRole::CampGuards:
             target = &candidate.workforce.campGuards;
             break;
+        case WorkforceRole::Housing:
+            target = &candidate.workforce.housing;
+            break;
     }
     const int previous = *target;
     if (state_.workforceReassignmentRequired && count >= previous) {
         return rejected("劳力待重分配时只能降低岗位人数。 ");
     }
     *target = count;
-    return commit(std::move(candidate), "劳力分配已调整；下季行动容量会按已配置资源队重新计算。", false);
+    const bool legacyResourceRole = role == WorkforceRole::FoodCrew || role == WorkforceRole::WoodCrew ||
+                                    role == WorkforceRole::StoneCrew || role == WorkforceRole::HerbCrew;
+    return commit(std::move(candidate), legacyResourceRole ? "旧资源队配置已记录但不再限制采集；任务请直接指定资源和人数。"
+                                                           : "人口岗位分配已调整。",
+                  false);
 }
 
 ActionResult GameEngine::assignOutpostGuards(const WorldLocationId location, const int count) {

@@ -16,6 +16,10 @@ bool hasPreparedArmy(const GameState& state);
 int committedPopulation(const GameState& state);
 /// 用途：计算可投入岗位的人口容量。输出：非负人数；无状态修改。
 int populationCapacity(const GameState& state);
+/// 用途：计算扣除常驻岗位、驻军、军队和任务后的可派遣人口。输出：非负人数；无状态修改。
+int availablePopulation(const GameState& state);
+/// 用途：计算本季最多可用的行动力。输出：0至7；无状态修改。
+int actionCapacity(const GameState& state);
 /// 用途：计算超过容量的人口数。输出：非负人数；无状态修改。
 int populationOverage(const GameState& state);
 /// 用途：刷新待重分配标志。状态影响：仅修改 state 标志；不变量：标志等于 overage 是否大于零。

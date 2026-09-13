@@ -172,9 +172,21 @@ void GameEngine::finishExtinction(GameState& candidate, std::string& message) co
 ActionResult GameEngine::endSeason() {
     if (state_.phase != GamePhase::Managing && state_.phase != GamePhase::Sandbox)
         return rejected("当前不能结束季节。");
+    if (state_.pendingEvent.active || !state_.pendingEvents.empty())
+        return rejected("本季事件尚未处理完，请先输入 event 查看并逐个处理。 ");
     GameState candidate = state_;
     std::string message = "第" + std::to_string(candidate.season) + "季结算：";
     settleFoodAndTribute(candidate, message);
+    if (candidate.buildings[indexOf(BuildingId::Longhouse)]) {
+        if (candidate.workforce.housing > 0 && candidate.population < candidate.populationLimit && candidate.food >= 2) {
+            candidate.food -= 2;
+            ++candidate.population;
+            message += " 长屋在住房岗位维护下接纳1名新成员（食物-2）。";
+        } else if (candidate.workforce.housing == 0) {
+            candidate.stability = std::max(0, candidate.stability - 2);
+            message += " 长屋无人维护，住房失效且稳定-2。";
+        }
+    }
     settleAutonomousTribes(candidate, message);
     settleFactions(candidate, message);
     for (std::size_t index = 1; index < kTribeCount; ++index) {
@@ -209,12 +221,21 @@ ActionResult GameEngine::endSeason() {
                 message += " 一座无人前哨荒废。";
             }
         }
-    if (!candidate.pendingEvent.active) {
-        const int kind = static_cast<int>((candidate.seed + candidate.season) % 4U);
-        candidate.pendingEvent.active = true;
-        candidate.pendingEvent.kind = static_cast<PendingEventKind>(kind);
-        message += " 新的必须抉择事件已出现（输入 event 查看）。";
-    }
+    candidate.pendingEvents.clear();
+    const int firstKind = static_cast<int>((candidate.seed + static_cast<std::uint32_t>(candidate.season)) % 4U);
+    candidate.pendingEvents.push_back(static_cast<PendingEventKind>(firstKind));
+    candidate.pendingEvents.push_back(static_cast<PendingEventKind>((firstKind + 1 + candidate.season) % 4));
+    const bool factionCrisis = std::any_of(
+        candidate.playerFactions.begin(), candidate.playerFactions.end(), [](const FactionState& faction) {
+            return static_cast<int>(faction.crisis) >= static_cast<int>(FactionCrisis::Refusal);
+        });
+    const bool highRisk = candidate.stability < 45 || candidate.campDurability < 12 || factionCrisis ||
+                          ((candidate.seed + static_cast<std::uint32_t>(candidate.season * 31)) % 5U == 0U);
+    if (highRisk) candidate.pendingEvents.push_back(static_cast<PendingEventKind>((firstKind + 2) % 4));
+    candidate.pendingEvent.active = true;
+    candidate.pendingEvent.kind = candidate.pendingEvents.front();
+    message += " 新的季度事件已出现，共" + std::to_string(candidate.pendingEvents.size()) +
+               "个（输入 event 查看并按顺序处理）。";
     finishExtinction(candidate, message);
     if (candidate.phase == GamePhase::Finished)
         return commit(std::move(candidate), std::move(message), false, true, true);

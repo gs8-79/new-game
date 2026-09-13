@@ -40,7 +40,9 @@ void GameEngine::finalizeDiplomacy(GameState& candidate, const TribeId tribe) co
     addChronicle(candidate, 1, "本季外交：" + tribeName(tribe), "该部落本季的主动外交已经完成。");
 }
 
-void GameEngine::spendAction(GameState& candidate) const { --candidate.actionsLeft; }
+void GameEngine::spendAction(GameState& candidate, const int cost) const {
+    candidate.actionsLeft = std::max(0, candidate.actionsLeft - cost);
+}
 
 ActionResult GameEngine::talk(const TribeId tribe) {
     ActionResult result;

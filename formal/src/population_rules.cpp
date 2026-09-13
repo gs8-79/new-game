@@ -7,8 +7,9 @@
 namespace tribe::population_rules {
 
 int workforceAllocation(const WorkforceState& workforce) {
-    int allocated = workforce.foodCrew + workforce.woodCrew + workforce.stoneCrew + workforce.herbCrew +
-                    workforce.crafters + workforce.healers + workforce.scouts + workforce.envoys + workforce.campGuards;
+    // 资源采集不再绑定常驻资源队；四个旧字段只为旧存档/旧命令兼容保留，不应继续占用人口。
+    int allocated = workforce.crafters + workforce.healers + workforce.scouts + workforce.envoys + workforce.campGuards +
+                    workforce.housing;
     for (const int guard : workforce.outpostGuards) allocated += guard;
     return allocated;
 }
@@ -28,6 +29,12 @@ int committedPopulation(const GameState& state) {
 
 int populationCapacity(const GameState& state) { return std::max(0, state.population - 2); }
 
+int availablePopulation(const GameState& state) {
+    return std::max(0, populationCapacity(state) - committedPopulation(state));
+}
+
+int actionCapacity(const GameState& state) { return std::min(7, availablePopulation(state)); }
+
 int populationOverage(const GameState& state) {
     return std::max(0, committedPopulation(state) - populationCapacity(state));
 }
@@ -42,10 +49,8 @@ bool validateWorkforce(const WorkforceState& workforce, std::string& error) {
                                          workforce.herbCrew, workforce.crafters, workforce.healers, workforce.scouts,
                                          workforce.envoys, workforce.campGuards}};
     if (std::any_of(workValues.begin(), workValues.end(), [](const int value) { return value < 0 || value > 6; }) ||
-        (workforce.foodCrew != 0 && workforce.foodCrew < 2) || (workforce.woodCrew != 0 && workforce.woodCrew < 2) ||
-        (workforce.stoneCrew != 0 && workforce.stoneCrew < 2) || (workforce.herbCrew != 0 && workforce.herbCrew < 2) ||
-        workforce.crafters > 1 || workforce.healers > 1 || workforce.scouts > 1 || workforce.envoys > 1 ||
-        workforce.campGuards > 1) {
+        workforce.housing < 0 || workforce.housing > 6 || workforce.crafters > 1 || workforce.healers > 1 ||
+        workforce.scouts > 1 || workforce.envoys > 1 || workforce.campGuards > 1 || workforce.housing > 1) {
         error = "劳力岗位数量无效。";
         return false;
     }

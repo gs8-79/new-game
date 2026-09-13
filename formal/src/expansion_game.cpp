@@ -237,9 +237,7 @@ ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
         base = 4;
     } else
         return rejected("当前地点没有这种资源。");
-    if (*kind != state_.assignedResource &&
-        !(*kind == ResourceKind::Hides && state_.assignedResource == ResourceKind::Food))
-        return rejected("本次任务由指定资源队执行，不能混采。");
+    // 任务不再绑定资源队：地点上列出的任意资源都可由本次派出的人员采集。
     const int room = state_.cargoCapacity - cargoTotal(state_);
     if (room <= 0) return rejected("小队载货已满，请结算。");
     ExpansionState candidate = state_;
@@ -410,7 +408,7 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         static_cast<int>(state.missionKind) > static_cast<int>(MissionKind::OutpostConstruction) ||
         static_cast<int>(state.assignedResource) < static_cast<int>(ResourceKind::Food) ||
         static_cast<int>(state.assignedResource) > static_cast<int>(ResourceKind::Hides) || state.crewSize < 2 ||
-        state.crewSize > 6 || state.encounterLife < 0 ||
+        state.crewSize > 8 || state.encounterLife < 0 ||
         (state.encounterLife > 0 && (state.worldLocation != 8 || state.encounterDefeated)) ||
         (state.encounterDefeated && (state.worldLocation == 8 && state.encounterLife != 0)))
         return invalid("载货、劳力或遭遇字段无效。");

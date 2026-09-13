@@ -209,6 +209,12 @@ ActionResult GameEngine::execute(const std::string_view input) {
         return rejected("结局已经确定。长期模式可输入 sandbox / 继续沙盒。");
     }
     if (state_.phase == GamePhase::EndingChoice) {
+        if ((state_.pendingEvent.active || !state_.pendingEvents.empty()) && verbIs(command, {"event", "事件"})) {
+            if (command.args.empty()) return {true, true, false, false, false, false, eventText(state_)};
+            int option = 0;
+            return command.args.size() == 1U && parseNonnegative(command.args[0], option) ? chooseEvent(option)
+                                                                                          : rejected("用法：event <1|2>。 ");
+        }
         if (verbIs(command, {"choose", "选择"}) && command.args.size() == 1U) {
             const auto ending = parseGameEnding(command.args.front());
             return ending ? chooseEnding(*ending) : rejected("未知结局道路。");
@@ -228,24 +234,40 @@ ActionResult GameEngine::execute(const std::string_view input) {
                 "人口已不足以维持现有岗位。请降低劳力或驻军，或用 disbandarmy / 解散军队释放军队后再行动。");
         }
     }
-    if (state_.pendingEvent.active && !state_.workforceReassignmentRequired && !verbIs(command, {"event", "事件"})) {
-        return rejected("本季有待决事件；请先输入 event 查看并选择 event <1|2>。 ");
+    if ((state_.pendingEvent.active || !state_.pendingEvents.empty()) && !state_.workforceReassignmentRequired &&
+        !verbIs(command, {"event", "事件"})) {
+        return rejected("本季有待决事件；请先输入 event 查看并选择 event <1|2>，处理完全部事件后才能继续经营。 ");
     }
 
-    if (verbIs(command, {"build", "建造"}) && command.args.size() == 1U) {
+    if (verbIs(command, {"build", "建造"}) && (command.args.size() == 1U || command.args.size() == 2U)) {
         const auto building = parseBuilding(command.args.front());
-        return building ? build(*building) : rejected("未知建筑。");
+        int workers = 2;
+        if (command.args.size() == 2U && !parseNonnegative(command.args.back(), workers))
+            return rejected("用法：build/建造 <建筑> [投入人数]。 ");
+        return building ? build(*building, workers) : rejected("未知建筑。");
     }
-    if (verbIs(command, {"research", "研究"}) && command.args.size() == 1U) {
+    if (verbIs(command, {"research", "研究"}) && (command.args.size() == 1U || command.args.size() == 2U)) {
         const auto technology = parseTechnology(command.args.front());
-        return technology ? research(*technology) : rejected("未知技术。");
+        int workers = 0;
+        if (command.args.size() == 2U && !parseNonnegative(command.args.back(), workers))
+            return rejected("用法：research/研究 <技术> [投入人数]。 ");
+        return technology ? research(*technology, workers) : rejected("未知技术。");
     }
-    if (verbIs(command, {"mission", "出任务"}) && command.args.size() <= 1U) {
+    if (verbIs(command, {"mission", "出任务"}) && command.args.size() <= 2U) {
         if (command.args.empty() || equalsAny(command.args.front(), {"world", "map", "地图", "探索"}))
             return startMission();
-        if (equalsAny(command.args.front(), {"outpost", "前哨"})) return startOutpostMission();
+        if (equalsAny(command.args.front(), {"outpost", "前哨"})) {
+            int people = 0;
+            if (command.args.size() == 2U && !parseNonnegative(command.args.back(), people))
+                return rejected("用法：mission outpost [人数]。 ");
+            return startMission(MissionKind::OutpostConstruction, ResourceKind::Wood, people);
+        }
         const auto resource = parseResource(command.args.front());
-        return resource ? startMission(*resource) : rejected("任务类型：食物、木材、石料、草药或兽皮。");
+        if (!resource) return rejected("任务用法：mission <食物|木材|石料|草药|兽皮> <人数>。 ");
+        int people = 0;
+        if (command.args.size() == 2U && !parseNonnegative(command.args.back(), people))
+            return rejected("任务人数必须是非负整数。 ");
+        return startMission(*resource, people);
     }
     if (command.verb == "5" && command.args.empty()) return startMission();
     if ((verbIs(command, {"workforce", "劳力"}) || command.verb == "3") && command.args.empty())
@@ -357,7 +379,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
             return rejected("派系编号为1至3。");
         return appeaseFaction(static_cast<std::size_t>(faction - 1));
     }
-    if (verbIs(command, {"formarmy", "组建军队"}) && (command.args.size() == 2U || command.args.size() == 3U)) {
+    if (verbIs(command, {"formarmy", "组建军队", "组军"}) && (command.args.size() == 2U || command.args.size() == 3U)) {
         int warriors = 0;
         int militia = 0;
         return parseNonnegative(command.args[command.args.size() - 2U], warriors) &&
@@ -365,6 +387,8 @@ ActionResult GameEngine::execute(const std::string_view input) {
                    ? formArmy(warriors, militia, command.args.size() == 3U ? command.args[0] : "")
                    : rejected("用法：formarmy <统帅> <战士数> <民兵数>。");
     }
+    if (verbIs(command, {"formarmy", "组建军队", "组军"}))
+        return rejected("用法：组建军队 <统帅> <战士数> <民兵数>；也可省略统帅：组建军队 <战士数> <民兵数>。 ");
     if (verbIs(command, {"disbandarmy", "解散军队"}) && command.args.empty()) return disbandArmy();
     if (verbIs(command, {"war", "出征"}) && command.args.size() == 1U) {
         const auto tribe = parseTribe(command.args.front());
@@ -376,13 +400,22 @@ ActionResult GameEngine::execute(const std::string_view input) {
     return {};
 }
 
-bool GameEngine::canSpendAction(ActionResult& result) const {
+bool GameEngine::canSpendAction(ActionResult& result, const int cost) const {
     if (state_.phase != GamePhase::Managing && state_.phase != GamePhase::Sandbox) {
         result = rejected("当前阶段不能执行部落行动。");
         return false;
     }
-    if (state_.actionsLeft <= 0) {
-        result = rejected("本季小队行动点已经用完，请结束回合。");
+    if (cost <= 0 || cost > 7) {
+        result = rejected("行动力投入必须为1至7点。");
+        return false;
+    }
+    if (state_.actionsLeft < cost) {
+        result = rejected("本季剩余行动力不足（需要" + std::to_string(cost) + "，剩余" +
+                          std::to_string(state_.actionsLeft) + "）。请结束季节或减少投入人数。");
+        return false;
+    }
+    if (cost > population_rules::availablePopulation(state_)) {
+        result = rejected("可用人口不足，无法投入" + std::to_string(cost) + "人。");
         return false;
     }
     return true;
@@ -391,6 +424,7 @@ bool GameEngine::canSpendAction(ActionResult& result) const {
 ActionResult GameEngine::commit(GameState candidate, std::string message, const bool consumesAction,
                                 const bool seasonAdvanced, const bool endingReached) {
     // 1. 根据候选状态重新计算派生的人口待重分配标志，避免调用方遗漏这一派生字段。
+    candidate.actionsLeft = std::min(candidate.actionsLeft, population_rules::actionCapacity(candidate));
     population_rules::refreshWorkforceReassignment(candidate);
     // 2. 在移动任何数据前统一验证文本、人物、任务、装备和人口不变量；失败直接丢弃 candidate。
     std::string error;
@@ -411,10 +445,7 @@ void GameEngine::addChronicle(GameState& candidate, const int importance, std::s
 }
 
 int GameEngine::availableTeams(const GameState& state) const {
-    const WorkforceState& work = state.workforce;
-    const int configuredCrews = (work.foodCrew >= 2 ? 1 : 0) + (work.woodCrew >= 2 ? 1 : 0) +
-                                (work.stoneCrew >= 2 ? 1 : 0) + (work.herbCrew >= 2 ? 1 : 0);
-    return std::min(7, 3 + configuredCrews);
+    return population_rules::actionCapacity(state);
 }
 
 WorldLocationId GameEngine::contactLocation(const TribeId tribe) const {

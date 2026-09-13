@@ -62,6 +62,7 @@ std::optional<WorkforceRole> parseWorkforceRole(const std::string_view text) {
     if (equalsAny(text, {"scouts", "scout", "侦察"})) return WorkforceRole::Scouts;
     if (equalsAny(text, {"envoys", "envoy", "使者"})) return WorkforceRole::Envoys;
     if (equalsAny(text, {"guards", "guard", "营地守卫", "守卫"})) return WorkforceRole::CampGuards;
+    if (equalsAny(text, {"housing", "house", "住房", "长屋", "住房岗位"})) return WorkforceRole::Housing;
     return std::nullopt;
 }
 
@@ -183,6 +184,7 @@ std::optional<BuildingId> parseBuilding(const std::string_view text) {
     if (equalsAny(text, {"healer", "医者小屋"})) return BuildingId::HealerHut;
     if (equalsAny(text, {"tower", "瞭望塔"})) return BuildingId::Watchtower;
     if (equalsAny(text, {"council", "fire", "议事火坛"})) return BuildingId::CouncilFire;
+    if (equalsAny(text, {"longhouse", "housing", "住房", "长屋"})) return BuildingId::Longhouse;
     return std::nullopt;
 }
 
@@ -470,16 +472,20 @@ std::string eventName(const PendingEventKind kind) {
 }
 
 std::string eventText(const GameState& state) {
-    if (!state.pendingEvent.active) return "本季暂无待决事件。";
+    if (!state.pendingEvent.active && state.pendingEvents.empty()) return "本季暂无待决事件。";
+    const PendingEventKind current = state.pendingEvents.empty() ? state.pendingEvent.kind : state.pendingEvents.front();
     std::ostringstream out;
-    out << eventName(state.pendingEvent.kind) << '\n';
-    switch (state.pendingEvent.kind) {
+    out << "本季待决事件 " << (state.pendingEvents.empty() ? 1U : 1U) << "/" << state.pendingEvents.size()
+        << "：" << eventName(current) << '\n';
+    switch (current) {
         case PendingEventKind::Refugees:
-            out << "1. 接纳：食物-4、人口+1、稳定+2\n2. 拒绝：稳定-3";
+            out << "1. 接纳：食物-4、人口+1、稳定-2\n2. 拒绝：稳定-3";
             break;
         case PendingEventKind::Disease: {
             const bool staffed = state.buildings[indexOf(BuildingId::HealerHut)] && state.workforce.healers > 0;
-            out << "1. 医治：草药-" << (staffed ? 1 : 2) << "、稳定+2\n2. 隔离失败：人口-1、稳定-4";
+            out << "1. 医治：草药-" << (staffed ? 1 : state.buildings[indexOf(BuildingId::HealerHut)] ? 3 : 2)
+                << "、稳定+2\n2. 隔离失败：人口-" << (staffed ? 1 : 2) << "、稳定-"
+                << (state.buildings[indexOf(BuildingId::HealerHut)] ? 6 : 4);
             break;
         }
         case PendingEventKind::Extortion:
@@ -488,7 +494,9 @@ std::string eventText(const GameState& state) {
             break;
         case PendingEventKind::FactionDemand: {
             const bool council = state.buildings[indexOf(BuildingId::CouncilFire)] && state.workforce.envoys > 0;
-            out << "1. 让步：食物-3、全派系满意+" << (council ? 8 : 5) << "\n2. 拒绝：全派系满意-6、稳定-2";
+            out << "1. 让步：食物-3、全派系满意+" << (council ? 8 : 5) << "\n2. 拒绝：全派系满意-"
+                << (state.buildings[indexOf(BuildingId::CouncilFire)] ? 10 : 6) << "、稳定-"
+                << (state.buildings[indexOf(BuildingId::CouncilFire)] ? 4 : 2);
             break;
         }
     }

@@ -43,7 +43,8 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         return false;
     }
     if (candidate.season <= 0 || candidate.seasonLimit <= 0 || candidate.season > 10000 ||
-        candidate.seasonLimit > 10000 || candidate.actionsLeft < 0 || candidate.actionsLeft > 7) {
+        candidate.seasonLimit > 10000 || candidate.actionsLeft < 0 || candidate.actionsLeft > 7 ||
+        candidate.populationLimit <= 0 || candidate.populationLimit > 10000) {
         error = "种子、季节或行动点范围无效。";
         return false;
     }
@@ -55,6 +56,14 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
     if (std::any_of(nonnegative.begin(), nonnegative.end(), [](const int value) { return value < 0; }) ||
         candidate.morale > 100 || candidate.stability > 100 || candidate.campDurability > 100) {
         error = "资源或百分比超出范围。";
+        return false;
+    }
+    if (candidate.population > candidate.populationLimit) {
+        error = "当前人口不能超过人口上限。";
+        return false;
+    }
+    if (candidate.actionsLeft > population_rules::actionCapacity(candidate)) {
+        error = "剩余行动力超过当前可用人口容量。";
         return false;
     }
     if (candidate.warriors > candidate.population) {
@@ -71,6 +80,23 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
     const int overage = population_rules::populationOverage(candidate);
     if (candidate.workforceReassignmentRequired != (overage > 0)) {
         error = "劳力待重分配标记与统一人口池不一致。";
+        return false;
+    }
+    if (candidate.workforce.housing > 0 && !candidate.buildings[indexOf(BuildingId::Longhouse)]) {
+        error = "未建长屋不能配置住房岗位。";
+        return false;
+    }
+    for (const PendingEventKind event : candidate.pendingEvents) {
+        if (!enumInRange(event, PendingEventKind::Refugees, PendingEventKind::FactionDemand)) {
+            error = "季度事件队列包含无效事件。";
+            return false;
+        }
+    }
+    if (candidate.pendingEvent.active && candidate.pendingEvents.empty()) {
+        // v5/v6 状态只有单事件字段，允许在加载后由新版本逐步消费；v7 新状态始终写入队列。
+    } else if (!candidate.pendingEvents.empty() &&
+               (!candidate.pendingEvent.active || candidate.pendingEvent.kind != candidate.pendingEvents.front())) {
+        error = "季度事件队列与当前事件镜像不一致。";
         return false;
     }
     if (overage > 0 && !candidate.workforceReassignmentRequired) {
@@ -224,8 +250,7 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
             error = "任务阶段状态无效：" + missionCheck.message;
             return false;
         }
-        if (candidate.squads.empty() ||
-            candidate.activeMission->squad.members.size() != candidate.squads.front().members.size()) {
+        if (candidate.squads.empty() || candidate.activeMission->squad.members.size() > candidate.squads.front().members.size()) {
             error = "活动地图任务与永久小队不一致。";
             return false;
         }

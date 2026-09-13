@@ -28,39 +28,31 @@ using command_parser::Command;
 using command_parser::equalsAny;
 using command_parser::parse;
 using command_parser::verbIs;
-ActionResult GameEngine::startMission(const ResourceKind resource) {
-    return startMission(MissionKind::Gather, resource);
+ActionResult GameEngine::startMission(const ResourceKind resource, const int people) {
+    return startMission(MissionKind::Gather, resource, people);
 }
 
 ActionResult GameEngine::startOutpostMission() {
-    return startMission(MissionKind::OutpostConstruction, ResourceKind::Wood);
+    return startMission(MissionKind::OutpostConstruction, ResourceKind::Wood, 0);
 }
 
-ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind resource) {
+ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind resource, const int people) {
     ActionResult result;
-    if (!canSpendAction(result)) return result;
     if (state_.squads.empty()) return rejected("当前没有可出发的小队。");
     const bool constructionMission = kind == MissionKind::OutpostConstruction;
-    const int crewSize = [&] {
-        if (constructionMission) return std::max(state_.workforce.woodCrew, state_.workforce.stoneCrew);
-        switch (resource) {
-            case ResourceKind::Food:
-            case ResourceKind::Hides:
-                return state_.workforce.foodCrew;
-            case ResourceKind::Wood:
-                return state_.workforce.woodCrew;
-            case ResourceKind::Stone:
-                return state_.workforce.stoneCrew;
-            case ResourceKind::Herbs:
-                return state_.workforce.herbCrew;
-            default:
-                return 0;
-        }
-    }();
-    if (constructionMission && (state_.workforce.woodCrew < 2 || state_.workforce.stoneCrew < 2)) {
-        return rejected("前哨建设任务需要各至少2名木材队和石料队劳力。 ");
-    }
-    if (crewSize < 2) return rejected("该资源队至少需要分配2名劳力；先用 assign/分配 配置。 ");
+    const int legacyCrew = resource == ResourceKind::Food ? state_.workforce.foodCrew
+                           : resource == ResourceKind::Wood ? state_.workforce.woodCrew
+                           : resource == ResourceKind::Stone ? state_.workforce.stoneCrew
+                           : resource == ResourceKind::Herbs ? state_.workforce.herbCrew
+                                                             : state_.workforce.foodCrew;
+    const int crewSize = people == 0 ? std::max(2, legacyCrew) : people;
+    if (crewSize < 2 || crewSize > static_cast<int>(kMaximumSquadSize))
+        return rejected("任务派出人数必须为2至8人；用法：mission <资源> <人数>。 ");
+    if (crewSize > static_cast<int>(state_.squads.front().members.size()))
+        return rejected("派出人数不能超过当前小队人数，请先查看 squads / 小队。 ");
+    if (!canSpendAction(result, crewSize)) return result;
+    if (crewSize > population_rules::availablePopulation(state_))
+        return rejected("可用人口不足，无法派出这么多人。");
     if (constructionMission && (state_.wood < 6 || state_.stone < 4)) {
         return rejected("前哨建设任务需要从仓库带走木材6、石料4。 ");
     }
@@ -76,12 +68,17 @@ ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind
     missionState.squad.name = permanent.name;
     missionState.squad.cohesion = 70;
     missionState.squad.members.clear();
-    missionState.squad.members.reserve(permanent.members.size());
-    for (const std::string& name : permanent.members) {
+    missionState.squad.members.reserve(static_cast<std::size_t>(crewSize));
+    const auto addMember = [&](const std::string& name) {
+        if (static_cast<int>(missionState.squad.members.size()) >= crewSize) return true;
         const Character* character = findRosterCharacter(candidate.roster, name);
-        if (character == nullptr || character->life <= 0) return rejected("小队成员缺失或已阵亡，任务未开始。");
+        if (character == nullptr || character->life <= 0) return false;
         missionState.squad.members.push_back(*character);
-    }
+        return true;
+    };
+    if (!addMember(permanent.captain)) return rejected("小队成员缺失或已阵亡，任务未开始。");
+    for (const std::string& name : permanent.members)
+        if (name != permanent.captain && !addMember(name)) return rejected("小队成员缺失或已阵亡，任务未开始。");
     const auto captain = std::find_if(missionState.squad.members.begin(), missionState.squad.members.end(),
                                       [&](const Character& character) { return character.name == permanent.captain; });
     if (captain == missionState.squad.members.end()) return rejected("长期小队的队长不在出发名单中。");
@@ -116,7 +113,7 @@ ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind
         return rejected("统一人口池不足：劳力、驻军、已组建军队和出任务小队合计不能超过人口-2。 ");
     }
     permanent.personallyDeployedThisSeason = true;
-    spendAction(candidate);
+    spendAction(candidate, crewSize);
     const std::string taskName = constructionMission ? "前哨建设" : resourceName(resource) + "采集";
     return commit(std::move(candidate),
                   "晨火队带领" + std::to_string(crewSize) + "名劳力从驻地进入十六地点地图，执行" + taskName + "任务。",

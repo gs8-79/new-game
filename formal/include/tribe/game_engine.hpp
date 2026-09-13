@@ -15,9 +15,21 @@ namespace tribe {
 enum class GameMode { Quick = 0, Standard, Long };
 enum class GamePhase { Managing = 0, Mission, War, EndingChoice, Finished, Sandbox };
 enum class GameEnding { None = 0, Alliance, Conquest, Prosperity, Migration, Extinction };
-enum class WorkforceRole { FoodCrew = 0, WoodCrew, StoneCrew, HerbCrew, Crafters, Healers, Scouts, Envoys, CampGuards };
+// 资源队枚举和字段保留用于读取旧存档，但不再参与新任务的资源类型限制。
+enum class WorkforceRole {
+    FoodCrew = 0,
+    WoodCrew,
+    StoneCrew,
+    HerbCrew,
+    Crafters,
+    Healers,
+    Scouts,
+    Envoys,
+    CampGuards,
+    Housing
+};
 
-enum class BuildingId { Granary = 0, Wall, Workshop, HealerHut, Watchtower, CouncilFire, Count };
+enum class BuildingId { Granary = 0, Wall, Workshop, HealerHut, Watchtower, CouncilFire, Longhouse, Count };
 
 enum class TechnologyId {
     FoodPreservation = 0,
@@ -63,8 +75,8 @@ constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
 constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
 constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
 constexpr std::size_t kPlayerFactionCount = 3U;
-// v6 以持久化的全局序号保证制造物品在跨仓库转移后仍具有唯一编号。
-constexpr int kSaveVersion = 6;
+// v7 重构人口、行动力与季度事件队列，同时保留 v5/v6 的只读兼容解析。
+constexpr int kSaveVersion = 7;
 
 /// 用途：将连续枚举转换为数组下标。输入：枚举值。输出：无符号下标；无状态修改。
 /// 失败：调用方必须先保证枚举合法。不变量：仅用于以 Count 结尾的连续枚举。
@@ -152,7 +164,8 @@ struct WarState {
 };
 
 struct WorkforceState {
-    int foodCrew = 2;
+    // 以下四个字段仅为旧存档兼容保留；新规则不再按资源分配岗位。
+    int foodCrew = 0;
     int woodCrew = 0;
     int stoneCrew = 0;
     int herbCrew = 0;
@@ -161,6 +174,7 @@ struct WorkforceState {
     int scouts = 0;
     int envoys = 0;
     int campGuards = 0;
+    int housing = 0;
     std::array<int, kWorldLocationCount> outpostGuards{};
     std::array<int, kWorldLocationCount> outpostIdleSeasons{};
 };
@@ -189,8 +203,9 @@ struct GameState {
     std::uint32_t seed = 1U;
     int season = 1;
     int seasonLimit = 16;
-    int actionsLeft = 3;
+    int actionsLeft = 7;
     int population = 16;
+    int populationLimit = 18;
     int food = 30;
     int wood = 12;
     int stone = 4;
@@ -224,6 +239,8 @@ struct GameState {
     std::vector<Item> stockpile;
     std::array<OccupationState, kTribeCount> occupations{};
     PendingEvent pendingEvent;
+    // 当前季度按顺序等待处理的事件；pendingEvent 是队首兼容镜像。
+    std::vector<PendingEventKind> pendingEvents;
     std::string workshopSupervisor;
     std::string healerSupervisor;
     std::vector<Character> roster;
@@ -332,17 +349,17 @@ class GameEngine {
    private:
     /// 以下经营操作输入命令已解析参数，输出 ActionResult；仅成功提交候选状态；失败保持 state_
     /// 不变；人口、装备和资源不变量必须通过校验。 用途：建设指定建筑。
-    ActionResult build(BuildingId building);
+    ActionResult build(BuildingId building, int workers = 2);
     /// 用途：研究指定技术。
-    ActionResult research(TechnologyId technology);
+    ActionResult research(TechnologyId technology, int workers = 0);
     /// 用途：安排永久小队在营地休整。
     ActionResult restSquad();
     /// 用途：以指定资源发起采集任务。
-    ActionResult startMission(ResourceKind resource = ResourceKind::Food);
+    ActionResult startMission(ResourceKind resource = ResourceKind::Food, int people = 0);
     /// 用途：发起前哨建设任务。
     ActionResult startOutpostMission();
     /// 用途：按任务类型创建活动地图状态。
-    ActionResult startMission(MissionKind kind, ResourceKind resource);
+    ActionResult startMission(MissionKind kind, ResourceKind resource, int people = 0);
     /// 用途：转交活动地图命令并结算返回结果。
     ActionResult executeMission(std::string_view input);
 
@@ -430,13 +447,13 @@ class GameEngine {
     /// 用途：构造不改变状态的失败结果。输入：错误消息。输出：失败 ActionResult；无状态影响。
     ActionResult rejected(std::string message) const;
     /// 用途：检查本季剩余行动。输入：结果写入位置。输出：是否可行动；无状态影响。
-    bool canSpendAction(ActionResult& result) const;
+    bool canSpendAction(ActionResult& result, int cost = 1) const;
     /// 用途：判断目标部落本季是否已外交。输出：布尔值；无状态影响。
     bool diplomacyUsedThisSeason(TribeId tribe) const;
     /// 用途：向候选状态写入外交编年史。状态影响：仅修改 candidate；不变量：必须在 commit 前调用。
     void finalizeDiplomacy(GameState& candidate, TribeId tribe) const;
     /// 用途：从候选状态扣除一次行动。失败：调用方负责先验证行动数；不变量：不得对已提交 state_ 直接调用。
-    void spendAction(GameState& candidate) const;
+    void spendAction(GameState& candidate, int cost = 1) const;
     /// 用途：向候选状态追加受限长度编年史。状态影响：可能丢弃最旧记录；不变量：最多保留 200 条。
     void addChronicle(GameState& candidate, int importance, std::string title, std::string detail) const;
     /// 用途：结算食物消耗与朝贡。
