@@ -33,6 +33,7 @@ int populationOverage(const GameState& state) {
 }
 
 void refreshWorkforceReassignment(GameState& state) {
+    // 此标志是统一人口池的派生值，不能由命令各自维护；每次提交前均由超额人数重新计算。
     state.workforceReassignmentRequired = populationOverage(state) > 0;
 }
 

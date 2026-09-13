@@ -3,9 +3,11 @@
 #include "tribe/save_repository.hpp"
 #include "test_harness.hpp"
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -19,6 +21,13 @@ tribe::ActionResult requireSuccess(tribe::GameEngine& game, const std::string& c
     return result;
 }
 
+tribe::ExpansionCommandResult requireSuccess(tribe::ExpansionGame& game, const std::string& command) {
+    const tribe::ExpansionCommandResult result = game.execute(command);
+    if (!result.success) throw std::runtime_error(command + " failed: " + result.message);
+    return result;
+}
+
+// 通过正式序列化格式取得二进制快照，用于证明失败命令和拒绝校验均未改变任何持久化字节。
 std::string stateSnapshot(const tribe::GameState& state) {
     static unsigned int snapshotNumber = 0;
     const std::filesystem::path root =
@@ -354,4 +363,112 @@ TEST_CASE("fixed extortion and faction events include building effects and atomi
     requireSuccess(refusal, "event 2");
     REQUIRE(refusal.state().stability == refusalStability - 2);
     REQUIRE(refusal.state().playerFactions.front().satisfaction == refusalSatisfaction - 6);
+}
+
+TEST_CASE("crafted equipment keeps a global serial after being equipped and recreated in the same season") {
+    tribe::GameEngine game = preparedWorkshopGame();
+    requireSuccess(game, "craft spear");
+    REQUIRE(game.state().stockpile.size() == 1U);
+    const std::string firstId = game.state().stockpile.front().id;
+    requireSuccess(game, "equip 石刃 主手 " + firstId);
+    REQUIRE(game.state().stockpile.empty());
+
+    requireSuccess(game, "craft spear");
+    REQUIRE(game.state().stockpile.size() == 1U);
+    const std::string secondId = game.state().stockpile.front().id;
+    REQUIRE(firstId != secondId);
+    REQUIRE(game.state().nextItemSerial == 3U);
+    std::string error;
+    REQUIRE(tribe::GameEngine::validateState(game.state(), error));
+}
+
+TEST_CASE("using expedition herbs advances exactly one turn while applying recovery and fatigue consistently") {
+    tribe::ExpansionGame seeded{301U, 4U};
+    tribe::ExpansionState state = seeded.state();
+    state.cargoHerbs = 1;
+    state.squad.members[state.squad.leaderIndex].life = 40;
+    state.squad.members[state.squad.leaderIndex].fatigue = 50;
+    tribe::ExpansionGame mission{std::move(state)};
+    const int beforeTurn = mission.state().turn;
+    const int beforeLife = mission.state().squad.members[mission.state().squad.leaderIndex].life;
+    const int beforeFatigue = mission.state().squad.members[mission.state().squad.leaderIndex].fatigue;
+
+    const tribe::ExpansionCommandResult result = requireSuccess(mission, "use herb");
+    REQUIRE(result.turnAdvanced);
+    REQUIRE(mission.state().turn == beforeTurn + 1);
+    REQUIRE(mission.state().cargoHerbs == 0);
+    REQUIRE(mission.state().squad.members[mission.state().squad.leaderIndex].life == beforeLife + 18);
+    REQUIRE(mission.state().squad.members[mission.state().squad.leaderIndex].fatigue == beforeFatigue - 20);
+}
+
+TEST_CASE("state validation rejects unsafe text invalid items and incoherent mission states atomically") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 302U}};
+    const std::string before = stateSnapshot(game.state());
+    std::string error;
+
+    tribe::GameState unsafeText = game.state();
+    unsafeText.tribeName = "\x1b[31m危险";
+    REQUIRE(!game.replaceState(unsafeText, error));
+    REQUIRE(error.find("控制字符") != std::string::npos);
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState unsafeUtf8 = game.state();
+    unsafeUtf8.leaderName = std::string{"\xC3\x28", 2U};
+    REQUIRE(!game.replaceState(unsafeUtf8, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState invalidItem = game.state();
+    tribe::Item malformed;
+    malformed.id = "malformed";
+    malformed.name = "损坏物品";
+    malformed.weight = 1;
+    malformed.equipmentSlot = tribe::EquipmentSlot::MainHand;
+    malformed.quality = static_cast<tribe::ItemQuality>(99);
+    invalidItem.stockpile.push_back(malformed);
+    REQUIRE(!game.replaceState(invalidItem, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState wrongEquipmentSlot = game.state();
+    wrongEquipmentSlot.roster.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]->equipmentSlot =
+        tribe::EquipmentSlot::Body;
+    REQUIRE(!game.replaceState(wrongEquipmentSlot, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    requireSuccess(game, "assign wood 2");
+    requireSuccess(game, "mission wood");
+    tribe::GameState invalidMission = game.state();
+    invalidMission.activeMission->encounterLife = 3;
+    invalidMission.activeMission->worldLocation = 0;
+    REQUIRE(!game.replaceState(invalidMission, error));
+    REQUIRE(game.state().activeMission->encounterLife == 0);
+
+    invalidMission = game.state();
+    invalidMission.activeMission->squad.members.front().name = "不在名单的人";
+    REQUIRE(!game.replaceState(invalidMission, error));
+    REQUIRE(game.state().activeMission->squad.members.front().name != "不在名单的人");
+
+    invalidMission = game.state();
+    invalidMission.activeMission->squad.members.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]->id +=
+        "_tampered";
+    REQUIRE(!game.replaceState(invalidMission, error));
+    REQUIRE(game.state()
+                .activeMission->squad.members.front()
+                .equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]
+                ->id == "leader_bow");
+}
+
+TEST_CASE("fixed-seed command sequences preserve valid state and make rejected commands byte-identical no-ops") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 303U}};
+    const std::array<std::string, 15> commands{
+        {"   ", "unknown", "assign wood 2", "assign wood 1", "mission wood", "move forest", "gather wood", "move camp",
+         "settle", "endturn", "status", "craft spear", "equip 石刃 主手 missing", "war rock", "event 1"}};
+    // 固定种子让随机命令覆盖可复现，任一次拒绝都与循环前的二进制快照比较。
+    std::mt19937 generator{0x5EEDU};
+    for (int step = 0; step < 160; ++step) {
+        const std::string before = stateSnapshot(game.state());
+        const tribe::ActionResult result = game.execute(commands[generator() % commands.size()]);
+        std::string error;
+        REQUIRE(tribe::GameEngine::validateState(game.state(), error));
+        if (!result.success || !result.stateChanged) REQUIRE(stateSnapshot(game.state()) == before);
+    }
 }

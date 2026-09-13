@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -19,6 +20,8 @@
 namespace tribe {
 namespace {
 
+// 本匿名命名空间的二进制读写、校验和与恢复辅助函数仅操作传入缓冲区、路径或候选状态。
+// 读取失败必须在写入候选状态前返回 false；文件替换必须经临时档和回滚副本完成，不能直接覆盖唯一主档。
 constexpr std::array<char, 8> kMagic{{'T', 'R', 'I', 'B', 'E', 'S', 'A', 'V'}};
 constexpr std::size_t kMaximumSaveBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kMaximumStringBytes = 1024U * 1024U;
@@ -30,16 +33,24 @@ constexpr std::size_t kMaximumInventoryItems = 64U;
 constexpr std::size_t kMaximumLeadershipEntries = 256U;
 constexpr std::size_t kMaximumChronicleEntries = 200U;
 
+/// 用途：按固定小端格式累积存档字节。输入：各写入函数的字段值。输出：缓冲区或有效性。
+/// 状态影响：仅修改本对象缓冲区。失败：超出长度上限时置为无效；不变量：写入顺序必须与 BufferReader 对称。
 class BufferWriter {
    public:
+    /// 用途：追加一个原始字节。输入：8 位值。输出：无。
+    /// 状态影响：增长 data_。失败：无即时失败；不变量：字节不进行字符编码转换。
     void writeByte(const std::uint8_t value) { data_.push_back(static_cast<char>(value)); }
 
+    /// 用途：以小端序写入无符号 32 位整数。输入：数值。输出：无。
+    /// 状态影响：追加四字节。失败：由 valid() 统一报告大小超限；不变量：与 readU32 完全对称。
     void writeU32(const std::uint32_t value) {
         for (int shift = 0; shift < 32; shift += 8) {
             writeByte(static_cast<std::uint8_t>((value >> shift) & 0xFFU));
         }
     }
 
+    /// 用途：以二进制位模式写入 32 位有符号整数。输入：int。输出：无。
+    /// 状态影响：追加四字节。失败：非 32 位 int 在编译期拒绝；不变量：负数位模式不可被数值转换破坏。
     void writeInt(const int value) {
         static_assert(sizeof(int) == sizeof(std::int32_t), "Campaign saves require 32-bit int fields.");
         const auto signedValue = static_cast<std::int32_t>(value);
@@ -48,10 +59,16 @@ class BufferWriter {
         writeU32(bits);
     }
 
+    /// 用途：将布尔值规范化为 0 或 1。输入：布尔值。输出：无。
+    /// 状态影响：追加一字节。失败：无；不变量：读取端只接受这两个编码。
     void writeBool(const bool value) { writeByte(value ? 1U : 0U); }
 
+    /// 用途：追加已知长度的原始字段。输入：字节指针和长度。输出：无。
+    /// 状态影响：增长 data_。失败：调用方保证指针在长度内有效；不变量：不插入终止符或长度字段。
     void writeRaw(const char* data, const std::size_t size) { data_.append(data, size); }
 
+    /// 用途：写入带 32 位长度前缀的字符串。输入：文本视图。输出：无。
+    /// 状态影响：追加长度与原始字节。失败：长度超限则置 valid_ 为 false；不变量：不修改 UTF-8 字节内容。
     void writeString(const std::string_view value) {
         if (value.size() > kMaximumStringBytes ||
             value.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
@@ -62,8 +79,14 @@ class BufferWriter {
         writeRaw(value.data(), value.size());
     }
 
+    /// 用途：报告缓冲区是否仍可作为合法存档。输入：无。输出：布尔值；无状态修改。
+    /// 失败：字段或总大小超限返回 false。不变量：false 不会自动截断已写入数据。
     bool valid() const { return valid_ && data_.size() <= kMaximumSaveBytes; }
+    /// 用途：只读查看当前字节。输入：无。输出：常量引用；无状态修改。
+    /// 失败：无。不变量：调用方不得借此修改序列化缓冲区。
     const std::string& data() const { return data_; }
+    /// 用途：转移已累积字节。输入：无。输出：字符串。
+    /// 状态影响：将 data_ 移出。失败：无；不变量：调用者须在转移前用 valid() 确认大小。
     std::string take() { return std::move(data_); }
 
    private:
@@ -71,16 +94,24 @@ class BufferWriter {
     bool valid_ = true;
 };
 
+/// 用途：从受限字节视图按固定小端格式读取字段。输入：完整文件或载荷视图。输出：字段值及成功标志。
+/// 状态影响：仅推进读取偏移。失败：截断、非法布尔或长度越界返回 false；不变量：失败不得越过输入边界。
 class BufferReader {
    public:
+    /// 用途：绑定待解析字节。输入：不可变字节视图。输出：读取器。
+    /// 状态影响：初始化 offset_ 为零。失败：无；不变量：调用者在解析期间保持视图有效。
     explicit BufferReader(const std::string_view data) : data_(data) {}
 
+    /// 用途：读取一个原始字节。输入：输出引用。输出：是否成功。
+    /// 状态影响：成功时推进一字节。失败：到达末尾不修改输出；不变量：offset_ 不超过 data_ 长度。
     bool readByte(std::uint8_t& value) {
         if (offset_ >= data_.size()) return false;
         value = static_cast<std::uint8_t>(static_cast<unsigned char>(data_[offset_++]));
         return true;
     }
 
+    /// 用途：按小端序读取无符号 32 位整数。输入：输出引用。输出：是否成功。
+    /// 状态影响：成功时推进四字节。失败：截断返回 false；不变量：失败不会将越界字节计入数值。
     bool readU32(std::uint32_t& value) {
         value = 0;
         for (int shift = 0; shift < 32; shift += 8) {
@@ -91,6 +122,8 @@ class BufferReader {
         return true;
     }
 
+    /// 用途：读取保存的 32 位有符号整数位模式。输入：输出引用。输出：是否成功。
+    /// 状态影响：成功时推进四字节。失败：截断或非 32 位 int 时拒绝；不变量：与 writeInt 位级对称。
     bool readInt(int& value) {
         static_assert(sizeof(int) == sizeof(std::int32_t), "Campaign saves require 32-bit int fields.");
         std::uint32_t bits = 0;
@@ -101,6 +134,8 @@ class BufferReader {
         return true;
     }
 
+    /// 用途：读取规范布尔字段。输入：输出引用。输出：是否成功。
+    /// 状态影响：成功时推进一字节。失败：非 0/1 编码或截断返回 false；不变量：不容忍歧义布尔值。
     bool readBool(bool& value) {
         std::uint8_t raw = 0;
         if (!readByte(raw) || raw > 1U) return false;
@@ -108,6 +143,8 @@ class BufferReader {
         return true;
     }
 
+    /// 用途：切出连续原始字节。输入：请求长度和输出视图。输出：是否成功。
+    /// 状态影响：成功时推进 size。失败：剩余字节不足时返回 false；不变量：返回视图始终位于 data_ 内。
     bool readBytes(const std::size_t size, std::string_view& value) {
         if (size > data_.size() - offset_) return false;
         value = data_.substr(offset_, size);
@@ -115,6 +152,8 @@ class BufferReader {
         return true;
     }
 
+    /// 用途：读取带长度前缀的字符串。输入：输出字符串。输出：是否成功。
+    /// 状态影响：成功时推进长度和内容。失败：长度超限或截断返回 false；不变量：不解释或修复原始文本。
     bool readString(std::string& value) {
         std::uint32_t size = 0;
         if (!readU32(size) || size > kMaximumStringBytes) return false;
@@ -124,6 +163,8 @@ class BufferReader {
         return true;
     }
 
+    /// 用途：检查是否恰好消费完整输入。输入：无。输出：布尔值；无状态修改。
+    /// 失败：剩余尾随字节返回 false。不变量：完整载荷不得含未定义尾随数据。
     bool finished() const { return offset_ == data_.size(); }
 
    private:
@@ -131,6 +172,8 @@ class BufferReader {
     std::size_t offset_ = 0U;
 };
 
+/// 用途：计算载荷的 FNV-1a 校验和。输入：原始载荷。输出：32 位校验值；无状态修改。
+/// 失败：无。不变量：同一字节序列必产生同一结果，且不依赖平台字符有符号性。
 std::uint32_t checksum(const std::string_view data) {
     std::uint32_t value = 2166136261U;
     for (const unsigned char byte : data) {
@@ -140,11 +183,15 @@ std::uint32_t checksum(const std::string_view data) {
     return value;
 }
 
+/// 用途：将枚举按 int 编码写入。输入：写入器和枚举。输出：无。
+/// 状态影响：仅修改 writer。失败：枚举合法性由调用方保证；不变量：读取端必须使用相同枚举范围。
 template <typename Enum>
 void writeEnum(BufferWriter& writer, const Enum value) {
     writer.writeInt(static_cast<int>(value));
 }
 
+/// 用途：读取并校验枚举范围。输入：读取器、输出枚举及闭区间。输出：是否成功。
+/// 状态影响：仅推进 reader。失败：截断或越界返回 false；不变量：失败不把非法整数转换为枚举。
 template <typename Enum>
 bool readEnum(BufferReader& reader, Enum& value, const Enum minimum, const Enum maximum) {
     int raw = 0;
@@ -155,11 +202,15 @@ bool readEnum(BufferReader& reader, Enum& value, const Enum minimum, const Enum 
     return true;
 }
 
+/// 用途：顺序写入固定长度布尔数组。输入：写入器和数组。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：元素数由模板参数固定。
 template <std::size_t Size>
 void writeBoolArray(BufferWriter& writer, const std::array<bool, Size>& values) {
     for (const bool value : values) writer.writeBool(value);
 }
 
+/// 用途：顺序读取固定长度布尔数组。输入：读取器和输出数组。输出：是否成功。
+/// 状态影响：成功时修改数组并推进 reader。失败：截断或非法布尔返回 false；不变量：不读取超出 Size 的元素。
 template <std::size_t Size>
 bool readBoolArray(BufferReader& reader, std::array<bool, Size>& values) {
     for (std::size_t index = 0; index < Size; ++index) {
@@ -170,10 +221,14 @@ bool readBoolArray(BufferReader& reader, std::array<bool, Size>& values) {
     return true;
 }
 
+/// 用途：写入角色属性数组。输入：写入器和属性。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：属性顺序与 Attributes::values 一致。
 void writeAttributes(BufferWriter& writer, const Attributes& attributes) {
     for (const int value : attributes.values) writer.writeInt(value);
 }
 
+/// 用途：读取角色属性数组。输入：读取器和输出属性。输出：是否成功。
+/// 状态影响：成功时填充 attributes。失败：截断返回 false；不变量：数值范围由完整状态校验统一判断。
 bool readAttributes(BufferReader& reader, Attributes& attributes) {
     for (int& value : attributes.values) {
         if (!reader.readInt(value)) return false;
@@ -181,6 +236,8 @@ bool readAttributes(BufferReader& reader, Attributes& attributes) {
     return true;
 }
 
+/// 用途：序列化一个物品。输入：写入器和物品。输出：无。
+/// 状态影响：仅修改 writer。失败：字段合法性由状态校验保证；不变量：字段顺序与 readItem 对称。
 void writeItem(BufferWriter& writer, const Item& item) {
     writer.writeString(item.id);
     writer.writeString(item.name);
@@ -193,6 +250,8 @@ void writeItem(BufferWriter& writer, const Item& item) {
     writeAttributes(writer, item.bonuses);
 }
 
+/// 用途：反序列化并做局部物品校验。输入：读取器和输出物品。输出：是否成功。
+/// 状态影响：成功时修改 item。失败：非法枚举、空标识或容量字段返回 false；不变量：槽位索引与装备槽一致。
 bool readItem(BufferReader& reader, Item& item) {
     bool hasSlot = false;
     if (!reader.readString(item.id) || !reader.readString(item.name) ||
@@ -212,6 +271,8 @@ bool readItem(BufferReader& reader, Item& item) {
     return !item.id.empty() && !item.name.empty() && item.weight >= 0 && item.slotCount > 0;
 }
 
+/// 用途：序列化角色及其装备。输入：写入器和角色。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：每个装备槽都保留存在标志。
 void writeCharacter(BufferWriter& writer, const Character& character) {
     writer.writeString(character.name);
     writeEnum(writer, character.occupation);
@@ -228,6 +289,8 @@ void writeCharacter(BufferWriter& writer, const Character& character) {
     }
 }
 
+/// 用途：反序列化角色与装备。输入：读取器和输出角色。输出：是否成功。
+/// 状态影响：成功时修改 character。失败：字段截断、数值越界或槽位错配返回 false；不变量：装备只落在声明槽位。
 bool readCharacter(BufferReader& reader, Character& character) {
     if (!reader.readString(character.name) ||
         !readEnum(reader, character.occupation, Occupation::Hunter, Occupation::Envoy) ||
@@ -260,6 +323,8 @@ bool readCharacter(BufferReader& reader, Character& character) {
     return true;
 }
 
+/// 用途：序列化任务背包。输入：写入器和背包。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：物品计数与后续物品序列一致。
 void writeInventory(BufferWriter& writer, const Inventory& inventory) {
     writer.writeInt(inventory.weightLimit());
     writer.writeInt(inventory.slotLimit());
@@ -267,6 +332,8 @@ void writeInventory(BufferWriter& writer, const Inventory& inventory) {
     for (const Item& item : inventory.items()) writeItem(writer, item);
 }
 
+/// 用途：反序列化受容量约束的任务背包。输入：读取器和输出背包。输出：是否成功。
+/// 状态影响：仅成功时替换 inventory。失败：限额、数量、物品或装入失败返回 false；不变量：读取失败不提交部分背包。
 bool readInventory(BufferReader& reader, Inventory& inventory) {
     int weightLimit = 0;
     int slotLimit = 0;
@@ -284,6 +351,8 @@ bool readInventory(BufferReader& reader, Inventory& inventory) {
     return true;
 }
 
+/// 用途：序列化活动任务小队。输入：写入器和小队。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：成员顺序和 leaderIndex 原样保存。
 void writeExpansionSquad(BufferWriter& writer, const Squad& squad) {
     writer.writeString(squad.name);
     writer.writeU32(static_cast<std::uint32_t>(squad.members.size()));
@@ -292,6 +361,8 @@ void writeExpansionSquad(BufferWriter& writer, const Squad& squad) {
     writer.writeInt(squad.cohesion);
 }
 
+/// 用途：反序列化活动任务小队。输入：读取器和输出小队。输出：是否成功。
+/// 状态影响：成功时更新 squad。失败：成员数、队长下标或字段损坏返回 false；不变量：leaderIndex 始终指向成员。
 bool readExpansionSquad(BufferReader& reader, Squad& squad) {
     std::uint32_t count = 0;
     std::uint32_t leaderIndex = 0;
@@ -313,6 +384,8 @@ bool readExpansionSquad(BufferReader& reader, Squad& squad) {
     return true;
 }
 
+/// 用途：序列化活动地图任务状态。输入：写入器和任务状态。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：遭遇、地点和货物字段完整保留。
 void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeU32(state.seed);
     writer.writeInt(state.turn);
@@ -339,6 +412,8 @@ void writeExpansionState(BufferWriter& writer, const ExpansionState& state) {
     writer.writeBool(state.encounterDefeated);
 }
 
+/// 用途：反序列化并验证活动地图任务。输入：读取器和输出状态。输出：是否成功。
+/// 状态影响：成功时修改 state。失败：字段损坏或 ExpansionGame 校验失败返回 false；不变量：岩牙遭遇互斥条件必须成立。
 bool readExpansionState(BufferReader& reader, ExpansionState& state) {
     if (!reader.readU32(state.seed) || !reader.readInt(state.turn) ||
         !readEnum(reader, state.phase, ExpansionPhase::Exploring, ExpansionPhase::Settled) ||
@@ -358,6 +433,8 @@ bool readExpansionState(BufferReader& reader, ExpansionState& state) {
     return static_cast<bool>(ExpansionGame::validateState(state));
 }
 
+/// 用途：序列化派系状态。输入：写入器和派系。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：危机枚举与 readFaction 范围一致。
 void writeFaction(BufferWriter& writer, const FactionState& faction) {
     writer.writeString(faction.name);
     writer.writeInt(faction.influence);
@@ -367,6 +444,8 @@ void writeFaction(BufferWriter& writer, const FactionState& faction) {
     writeEnum(writer, faction.crisis);
 }
 
+/// 用途：反序列化派系状态。输入：读取器和输出派系。输出：是否成功。
+/// 状态影响：成功时修改 faction。失败：字段截断或危机越界返回 false；不变量：完整文本在最终状态校验中复核。
 bool readFaction(BufferReader& reader, FactionState& faction) {
     return reader.readString(faction.name) && reader.readInt(faction.influence) &&
            reader.readInt(faction.satisfaction) && reader.readString(faction.demand) &&
@@ -374,6 +453,8 @@ bool readFaction(BufferReader& reader, FactionState& faction) {
            readEnum(reader, faction.crisis, FactionCrisis::Calm, FactionCrisis::Coup);
 }
 
+/// 用途：序列化部落档案及内部派系。输入：写入器和档案。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：派系数量紧随档案字段。
 void writeTribeProfile(BufferWriter& writer, const TribeProfile& profile) {
     writeEnum(writer, profile.id);
     writer.writeString(profile.name);
@@ -385,6 +466,8 @@ void writeTribeProfile(BufferWriter& writer, const TribeProfile& profile) {
     for (const FactionState& faction : profile.factions) writeFaction(writer, faction);
 }
 
+/// 用途：反序列化部落档案。输入：读取器和输出档案。输出：是否成功。
+/// 状态影响：成功时更新 profile。失败：部落、派系数量或字段无效返回 false；不变量：派系数处于受限区间。
 bool readTribeProfile(BufferReader& reader, TribeProfile& profile) {
     std::uint32_t count = 0;
     if (!readEnum(reader, profile.id, TribeId::Player, TribeId::Blackstone) || !reader.readString(profile.name) ||
@@ -403,6 +486,8 @@ bool readTribeProfile(BufferReader& reader, TribeProfile& profile) {
     return true;
 }
 
+/// 用途：序列化双边外交关系。输入：写入器和关系。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：所有关系开关按固定顺序写入。
 void writeRelation(BufferWriter& writer, const DiplomacyRelation& relation) {
     writer.writeInt(relation.relation);
     writer.writeInt(relation.trust);
@@ -417,6 +502,8 @@ void writeRelation(BufferWriter& writer, const DiplomacyRelation& relation) {
     writer.writeBool(relation.tradeRoute);
 }
 
+/// 用途：反序列化双边外交关系。输入：读取器和输出关系。输出：是否成功。
+/// 状态影响：成功时修改 relation。失败：字段截断或布尔编码异常返回 false；不变量：跨关系逻辑由状态校验统一复核。
 bool readRelation(BufferReader& reader, DiplomacyRelation& relation) {
     return reader.readInt(relation.relation) && reader.readInt(relation.trust) && reader.readInt(relation.fear) &&
            reader.readInt(relation.tradeDependence) && reader.readBool(relation.atWar) &&
@@ -425,6 +512,8 @@ bool readRelation(BufferReader& reader, DiplomacyRelation& relation) {
            reader.readBool(relation.otherPaysTribute) && reader.readBool(relation.tradeRoute);
 }
 
+/// 用途：序列化永久小队。输入：写入器和小队。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：成员、疲劳和驻地按固定顺序保存。
 void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
     writer.writeString(squad.name);
     writer.writeString(squad.captain);
@@ -437,6 +526,8 @@ void writePermanentSquad(BufferWriter& writer, const PermanentSquad& squad) {
     writeEnum(writer, squad.station);
 }
 
+/// 用途：反序列化永久小队。输入：读取器和输出小队。输出：是否成功。
+/// 状态影响：成功时更新 squad。失败：成员数、驻地枚举或字段无效返回 false；不变量：成员数保持在小队限制内。
 bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
     std::uint32_t count = 0;
     if (!reader.readString(squad.name) || !reader.readString(squad.captain) || !reader.readU32(count) || count < 2U ||
@@ -455,6 +546,8 @@ bool readPermanentSquad(BufferReader& reader, PermanentSquad& squad) {
            readEnum(reader, squad.station, WorldLocationId::Camp, WorldLocationId::CliffTradeRoad);
 }
 
+/// 用途：序列化战争及锁定装备。输入：写入器和战争状态。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：锁定装备只作为战争所有权的一份记录。
 void writeWar(BufferWriter& writer, const WarState& war) {
     writer.writeBool(war.active);
     writeEnum(writer, war.enemy);
@@ -474,6 +567,8 @@ void writeWar(BufferWriter& writer, const WarState& war) {
     writer.writeBool(war.defensive);
 }
 
+/// 用途：反序列化战争及锁定装备。输入：读取器和输出战争状态。输出：是否成功。
+/// 状态影响：成功时更新 war。失败：字段、枚举或装备数量无效返回 false；不变量：最终校验禁止装备双重所有权。
 bool readWar(BufferReader& reader, WarState& war) {
     std::uint32_t count = 0;
     if (!reader.readBool(war.active) || !readEnum(reader, war.enemy, TribeId::Player, TribeId::Blackstone) ||
@@ -492,6 +587,8 @@ bool readWar(BufferReader& reader, WarState& war) {
     return reader.readBool(war.defensive);
 }
 
+/// 用途：序列化一条编年史。输入：写入器和条目。输出：无。
+/// 状态影响：仅修改 writer。失败：无；不变量：季节、重要度与文本顺序固定。
 void writeChronicle(BufferWriter& writer, const ChronicleEntry& entry) {
     writer.writeInt(entry.season);
     writer.writeInt(entry.importance);
@@ -499,11 +596,15 @@ void writeChronicle(BufferWriter& writer, const ChronicleEntry& entry) {
     writer.writeString(entry.detail);
 }
 
+/// 用途：反序列化一条编年史。输入：读取器和输出条目。输出：是否成功。
+/// 状态影响：成功时修改 entry。失败：字段截断返回 false；不变量：文本安全性由完整状态校验复核。
 bool readChronicle(BufferReader& reader, ChronicleEntry& entry) {
     return reader.readInt(entry.season) && reader.readInt(entry.importance) && reader.readString(entry.title) &&
            reader.readString(entry.detail);
 }
 
+/// 用途：按 v6 载荷布局序列化完整游戏状态。输入：写入器和合法状态。输出：无。
+/// 状态影响：仅修改 writer。失败：调用方须先完成状态校验；不变量：字段顺序不得改动，否则旧存档不可读取。
 void writeGameState(BufferWriter& writer, const GameState& state) {
     writeEnum(writer, state.mode);
     writeEnum(writer, state.phase);
@@ -579,9 +680,59 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
         writer.writeInt(site.garrison);
         writer.writeInt(site.unrest);
     }
+    writer.writeU32(state.nextItemSerial);
 }
 
-bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
+/// 用途：识别制造装备标识中的全局序号。输入：物品 ID 与输出序号。输出：是否为制造装备。
+/// 状态影响：仅成功时写 serial。失败：配方、分隔符或序号非法返回 false；不变量：序号必须为正数。
+bool manufacturedItemSerial(const std::string_view id, std::uint32_t& serial) {
+    const std::size_t first = id.find('_');
+    const std::size_t last = id.rfind('_');
+    if (first == std::string_view::npos || first == last || last + 1U >= id.size()) return false;
+    const std::string_view recipe = id.substr(0U, first);
+    constexpr std::array<std::string_view, 9> recipes{
+        {"knife", "spear", "shield", "armor", "shoes", "flintspear", "reinforcedshield", "cloak", "charm"}};
+    if (std::find(recipes.begin(), recipes.end(), recipe) == recipes.end()) return false;
+    std::uint32_t parsed = 0U;
+    const auto result = std::from_chars(id.data() + static_cast<std::ptrdiff_t>(last + 1U),
+                                        id.data() + static_cast<std::ptrdiff_t>(id.size()), parsed);
+    if (result.ec != std::errc{} || result.ptr != id.data() + static_cast<std::ptrdiff_t>(id.size()) || parsed == 0U)
+        return false;
+    serial = parsed;
+    return true;
+}
+
+/// 用途：从 v5 全部装备位置推导下一个全局序号。输入：状态及输出序号、错误。输出：是否成功。
+/// 状态影响：仅成功时写 nextSerial。失败：最大序号耗尽返回 false；不变量：结果严格大于所有已出现制造序号。
+bool deriveNextItemSerial(const GameState& state, std::uint32_t& nextSerial, std::string& error) {
+    std::uint32_t largest = 0U;
+    const auto inspect = [&](const Item& item) {
+        std::uint32_t serial = 0U;
+        if (manufacturedItemSerial(item.id, serial)) largest = std::max(largest, serial);
+    };
+    for (const Item& item : state.stockpile) inspect(item);
+    for (const Item& item : state.war.lockedEquipment) inspect(item);
+    for (const Character& character : state.roster)
+        for (const auto& item : character.equipment)
+            if (item) inspect(*item);
+    if (state.activeMission) {
+        for (const Item& item : state.activeMission->backpack.items()) inspect(item);
+        for (const Character& character : state.activeMission->squad.members)
+            for (const auto& item : character.equipment)
+                if (item) inspect(*item);
+    }
+    if (largest == std::numeric_limits<std::uint32_t>::max()) {
+        error = "v5 存档的装备编号已耗尽，无法安全升级。";
+        return false;
+    }
+    nextSerial = largest + 1U;
+    return true;
+}
+
+/// 用途：按 v5/v6 载荷布局解析完整状态并执行集中校验。输入：读取器、输出状态、错误和版本字段标志。输出：是否成功。
+/// 状态影响：成功时填充 state。失败：任何字段或不变量无效即返回 false；不变量：未通过 validateState
+/// 的状态绝不交给调用方。
+bool readGameState(BufferReader& reader, GameState& state, std::string& error, const bool containsItemSerial) {
     if (!readEnum(reader, state.mode, GameMode::Quick, GameMode::Long) ||
         !readEnum(reader, state.phase, GamePhase::Managing, GamePhase::Sandbox) || !reader.readU32(state.seed) ||
         !reader.readInt(state.season) || !reader.readInt(state.seasonLimit) || !reader.readInt(state.actionsLeft) ||
@@ -746,11 +897,21 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
             error = "存档占领字段损坏。";
             return false;
         }
+    if (containsItemSerial) {
+        if (!reader.readU32(state.nextItemSerial) || state.nextItemSerial == 0U) {
+            error = "存档的装备序号字段损坏。";
+            return false;
+        }
+    } else if (!deriveNextItemSerial(state, state.nextItemSerial, error)) {
+        return false;
+    }
     if (!GameEngine::validateState(state, error)) return false;
     error.clear();
     return true;
 }
 
+/// 用途：把合法状态封装为带魔数、版本和校验和的 v6 文件。输入：状态及输出字节、错误。输出：是否成功。
+/// 状态影响：仅成功时写 fileData。失败：载荷超限返回 false；不变量：文件校验和覆盖完整载荷。
 bool serializeFile(const GameState& state, std::string& fileData, std::string& error) {
     BufferWriter payloadWriter;
     writeGameState(payloadWriter, state);
@@ -775,7 +936,10 @@ bool serializeFile(const GameState& state, std::string& fileData, std::string& e
     return true;
 }
 
-bool deserializeFile(const std::string_view fileData, GameState& candidate, std::string& error) {
+/// 用途：校验文件头、校验和和载荷后得到候选状态。输入：文件字节、候选状态、错误及可选版本。输出：是否成功。
+/// 状态影响：仅成功时写 candidate/sourceVersion。失败：不支持版本或任一校验失败返回 false；不变量：拒绝尾随未定义字节。
+bool deserializeFile(const std::string_view fileData, GameState& candidate, std::string& error,
+                     std::uint32_t* sourceVersion = nullptr) {
     BufferReader fileReader(fileData);
     std::string_view magic;
     std::uint32_t version = 0;
@@ -786,7 +950,7 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
         error = "不是《燧火纪》游戏存档。";
         return false;
     }
-    if (!fileReader.readU32(version) || version != static_cast<std::uint32_t>(kSaveVersion)) {
+    if (!fileReader.readU32(version) || (version != static_cast<std::uint32_t>(kSaveVersion) && version != 5U)) {
         error = "旧版本存档不支持，需要新开局；原文件未被修改。";
         return false;
     }
@@ -805,19 +969,23 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
     }
     BufferReader payloadReader(payload);
     GameState parsed;
-    if (!readGameState(payloadReader, parsed, error)) return false;
+    if (!readGameState(payloadReader, parsed, error, version == static_cast<std::uint32_t>(kSaveVersion))) return false;
     if (!payloadReader.finished()) {
         error = "存档包含未识别的尾部字段。";
         return false;
     }
     candidate = std::move(parsed);
+    if (sourceVersion) *sourceVersion = version;
     error.clear();
     return true;
 }
 
 enum class LoadFileStatus { Loaded, Missing, Invalid, Unavailable };
 
-LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate, std::string& error) {
+/// 用途：读取单个文件并区分缺失、损坏与不可用。输入：路径、候选状态、错误及可选版本。输出：文件状态。
+/// 状态影响：仅 Loaded 时写 candidate。失败：路径或读写错误保持候选不变；不变量：读取大小受安全上限约束。
+LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate, std::string& error,
+                        std::uint32_t* sourceVersion = nullptr) {
     std::error_code code;
     const bool exists = std::filesystem::exists(path, code);
     if (code) {
@@ -852,9 +1020,11 @@ LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate,
         error = "读取存档内容失败：" + path.filename().string();
         return LoadFileStatus::Unavailable;
     }
-    return deserializeFile(data, candidate, error) ? LoadFileStatus::Loaded : LoadFileStatus::Invalid;
+    return deserializeFile(data, candidate, error, sourceVersion) ? LoadFileStatus::Loaded : LoadFileStatus::Invalid;
 }
 
+/// 用途：将已验证的 .bak/.tmp 副本原子恢复为主档。输入：来源和目标路径。输出：是否成功。
+/// 状态影响：成功时替换目标主档。失败：清理本次 .recover 临时文件；不变量：只接受调用方已解析的来源。
 bool restoreRecoveredFile(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::filesystem::path recovery = destination;
     recovery += ".recover";
@@ -878,11 +1048,162 @@ bool restoreRecoveredFile(const std::filesystem::path& source, const std::filesy
     return true;
 }
 
+/// 用途：将旧档原始字节归档为独立 .v5.bak。输入：源、目标及错误。输出：是否成功。
+/// 状态影响：成功时新建历史归档。失败：不覆盖已有归档；不变量：归档文件不参与 .bak/.tmp 自动恢复。
+// 步骤：确认历史归档不存在→清理专用临时文件→复制原始字节→原子改名；任一步失败均不覆盖历史档。
+bool copyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& destination,
+                        std::string& error) {
+    std::error_code code;
+    if (std::filesystem::exists(destination, code)) {
+        if (code) {
+            error = "无法检查 v5 历史备份：" + code.message();
+        } else {
+            error = "v5 历史备份已存在，拒绝覆盖：" + destination.filename().string();
+        }
+        return false;
+    }
+    if (code) {
+        error = "无法检查 v5 历史备份：" + code.message();
+        return false;
+    }
+    std::filesystem::path temporary = destination;
+    temporary += ".tmp";
+    std::filesystem::remove(temporary, code);
+    if (code) {
+        error = "无法清理 v5 备份临时文件：" + code.message();
+        return false;
+    }
+    std::filesystem::copy_file(source, temporary, std::filesystem::copy_options::none, code);
+    if (code) {
+        error = "无法复制 v5 原始存档：" + code.message();
+        return false;
+    }
+    std::filesystem::rename(temporary, destination, code);
+    if (code) {
+        std::filesystem::remove(temporary, code);
+        error = "无法提交 v5 历史备份：" + code.message();
+        return false;
+    }
+    return true;
+}
+
+/// 用途：以验证过的 v6 临时档替换主档。输入：临时路径、目标路径和错误。输出：是否成功。
+/// 状态影响：成功时提交目标主档。失败：尝试复原原主档；不变量：替换失败不得把有效主档静默丢失。
+// 步骤：清理旧回滚副本→暂存旧主档→提交临时 v6→删除回滚副本；提交失败时立即把旧主档改回原名。
+bool replaceMigratedPrimary(const std::filesystem::path& temporary, const std::filesystem::path& destination,
+                            std::string& error) {
+    std::filesystem::path previous = destination;
+    previous += ".v5-migration.old";
+    std::error_code code;
+    std::filesystem::remove(previous, code);
+    if (code) {
+        error = "无法清理迁移回滚文件：" + code.message();
+        return false;
+    }
+    const bool hadPrimary = std::filesystem::exists(destination, code);
+    if (code) {
+        error = "无法检查迁移前主档：" + code.message();
+        return false;
+    }
+    if (hadPrimary) {
+        std::filesystem::rename(destination, previous, code);
+        if (code) {
+            error = "无法暂存迁移前主档：" + code.message();
+            return false;
+        }
+    }
+    std::filesystem::rename(temporary, destination, code);
+    if (code) {
+        const std::string replaceError = code.message();
+        if (hadPrimary) {
+            std::error_code restoreCode;
+            std::filesystem::rename(previous, destination, restoreCode);
+            if (restoreCode) {
+                error = "迁移替换失败且无法恢复原主档：" + replaceError + "；" + restoreCode.message();
+                return false;
+            }
+        }
+        error = "迁移替换主档失败：" + replaceError;
+        return false;
+    }
+    if (hadPrimary) {
+        std::filesystem::remove(previous, code);
+        // 主档已成功提交时不能再把迁移报告为失败；遗留的回滚副本是可恢复的冗余文件。
+    }
+    return true;
+}
+
+/// 用途：将完整合法的 v5 文件安全升级为 v6。输入：来源、目标、已解析状态、错误和归档路径。输出：是否成功。
+/// 状态影响：成功时替换目标并写 parsed/legacyBackup。失败：主档和 parsed 不变；不变量：历史归档保留原始字节。
+// 步骤：内存序列化/复解析 v6→原子归档原始 v5→写入 v6 临时档→磁盘复解析→原子替换主档。
+// 回滚点：任何替换前失败均删除本次临时档和归档；直到最后替换成功前，主档与 parsed 均保持旧值。
+bool migrateV5File(const std::filesystem::path& source, const std::filesystem::path& destination, GameState& parsed,
+                   std::string& error, std::filesystem::path& legacyBackup) {
+    std::string v6Data;
+    if (!serializeFile(parsed, v6Data, error)) return false;
+    GameState memoryRoundTrip;
+    if (!deserializeFile(v6Data, memoryRoundTrip, error) || memoryRoundTrip.nextItemSerial != parsed.nextItemSerial) {
+        error = "v5 升级前的 v6 内存复解析失败：" + error;
+        return false;
+    }
+
+    legacyBackup = destination;
+    legacyBackup += ".v5.bak";
+    if (!copyFileAtomically(source, legacyBackup, error)) return false;
+
+    std::filesystem::path temporary = destination;
+    temporary += ".v6-migrate.tmp";
+    std::error_code code;
+    std::filesystem::remove(temporary, code);
+    if (code) {
+        error = "无法清理 v6 升级临时文件：" + code.message();
+        std::filesystem::remove(legacyBackup, code);
+        return false;
+    }
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output) {
+            error = "无法写入 v6 升级临时文件。";
+            std::filesystem::remove(legacyBackup, code);
+            return false;
+        }
+        output.write(v6Data.data(), static_cast<std::streamsize>(v6Data.size()));
+        output.close();
+        if (!output) {
+            error = "关闭 v6 升级临时文件失败。";
+            std::filesystem::remove(temporary, code);
+            std::filesystem::remove(legacyBackup, code);
+            return false;
+        }
+    }
+    GameState diskRoundTrip;
+    std::string temporaryError;
+    std::uint32_t version = 0U;
+    if (loadFile(temporary, diskRoundTrip, temporaryError, &version) != LoadFileStatus::Loaded ||
+        version != static_cast<std::uint32_t>(kSaveVersion)) {
+        std::filesystem::remove(temporary, code);
+        std::filesystem::remove(legacyBackup, code);
+        error = "v6 升级临时文件复解析失败：" + temporaryError;
+        return false;
+    }
+    if (!replaceMigratedPrimary(temporary, destination, error)) {
+        std::filesystem::remove(temporary, code);
+        std::filesystem::remove(legacyBackup, code);
+        return false;
+    }
+    parsed = std::move(diskRoundTrip);
+    return true;
+}
+
+/// 用途：判断枚举是否为受支持的七个槽位。输入：槽位。输出：布尔值；无状态修改。
+/// 失败：越界值返回 false。不变量：不会把未知枚举映射到磁盘路径。
 bool validSlot(const SaveSlot slot) {
     const int value = static_cast<int>(slot);
     return value >= static_cast<int>(SaveSlot::Slot1) && value <= static_cast<int>(SaveSlot::Autosave);
 }
 
+/// 用途：生成文件最后修改时间的展示文本。输入：文件路径。输出：本地时间或“时间未知”；无状态修改。
+/// 失败：读取或时区转换失败返回保守文本。不变量：不因展示失败阻断存档检查。
 std::string modificationTime(const std::filesystem::path& path) {
     std::error_code code;
     const auto fileTime = std::filesystem::last_write_time(path, code);
@@ -901,6 +1222,8 @@ std::string modificationTime(const std::filesystem::path& path) {
     return output.str();
 }
 
+/// 用途：把已验证状态转换为存档菜单摘要。输入：槽位、状态、来源和状态快照。输出：摘要；无状态修改。
+/// 失败：无。不变量：仅复制展示字段，不触发恢复、迁移或任何文件写入。
 SaveSummary summaryFor(const SaveSlot slot, const SaveStatus status, const std::filesystem::path& source,
                        const GameState& state) {
     SaveSummary summary;
@@ -1044,13 +1367,18 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
         return false;
     }
 
-    // Keep the previous committed primary as .bak. It is the recovery point if
-    // the new primary is later truncated or damaged.
+    // 将上一次已提交主档保留为 .bak；若新主档日后截断或损坏，它就是恢复起点。
     error.clear();
     return true;
 }
 
 bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error) const {
+    return load(slot, candidate, error, nullptr);
+}
+
+bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error,
+                          SaveLoadInfo* migrationInfo) const {
+    if (migrationInfo) *migrationInfo = {};
     if (!validSlot(slot)) {
         error = "存档槽编号无效。";
         return false;
@@ -1058,8 +1386,14 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string
     const std::filesystem::path path = pathFor(slot);
     GameState parsed;
     std::string primaryError;
-    const LoadFileStatus primaryStatus = loadFile(path, parsed, primaryError);
+    std::uint32_t primaryVersion = 0U;
+    const LoadFileStatus primaryStatus = loadFile(path, parsed, primaryError, &primaryVersion);
     if (primaryStatus == LoadFileStatus::Loaded) {
+        if (primaryVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(path, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;
@@ -1076,16 +1410,32 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string
     temporary += ".tmp";
 
     std::string backupError;
-    if (loadFile(backup, parsed, backupError) == LoadFileStatus::Loaded) {
-        restoreRecoveredFile(backup, path);
+    std::uint32_t backupVersion = 0U;
+    if (loadFile(backup, parsed, backupError, &backupVersion) == LoadFileStatus::Loaded) {
+        if (backupVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(backup, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        } else if (!restoreRecoveredFile(backup, path)) {
+            error = "已验证" + backup.filename().string() + "，但恢复主档失败；当前游戏状态未改变。";
+            return false;
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;
     }
 
     std::string temporaryError;
-    if (loadFile(temporary, parsed, temporaryError) == LoadFileStatus::Loaded) {
-        restoreRecoveredFile(temporary, path);
+    std::uint32_t temporaryVersion = 0U;
+    if (loadFile(temporary, parsed, temporaryError, &temporaryVersion) == LoadFileStatus::Loaded) {
+        if (temporaryVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(temporary, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        } else if (!restoreRecoveredFile(temporary, path)) {
+            error = "已验证" + temporary.filename().string() + "，但恢复主档失败；当前游戏状态未改变。";
+            return false;
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;

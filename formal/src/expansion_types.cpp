@@ -9,14 +9,26 @@
 namespace tribe {
 namespace {
 
+// 本匿名命名空间的索引、品质与结果辅助函数只处理传入值：不修改角色、背包或军队。
+// 无效枚举会由范围访问或上层验证拒绝；返回的 OperationResult 不得暗示已发生状态写入。
+/// 用途：把属性枚举转换为数组下标。输入：属性。输出：下标；无状态修改。
+/// 失败：调用方须先用 validAttribute 判断。不变量：不访问数组。
 std::size_t attributeIndex(const Attribute attribute) { return static_cast<std::size_t>(attribute); }
 
+/// 用途：把装备槽位枚举转换为数组下标。输入：槽位。输出：下标；无状态修改。
+/// 失败：调用方须先用 validEquipmentSlot 判断。不变量：不访问数组。
 std::size_t equipmentIndex(const EquipmentSlot slot) { return static_cast<std::size_t>(slot); }
 
+/// 用途：判断属性枚举是否可索引。输入：属性。输出：布尔值；无状态修改。
+/// 失败：Count 或越界值返回 false。不变量：仅比较下标。
 bool validAttribute(const Attribute attribute) { return attributeIndex(attribute) < kAttributeCount; }
 
+/// 用途：判断装备槽位枚举是否可索引。输入：槽位。输出：布尔值；无状态修改。
+/// 失败：Count 或越界值返回 false。不变量：仅比较下标。
 bool validEquipmentSlot(const EquipmentSlot slot) { return equipmentIndex(slot) < kEquipmentSlotCount; }
 
+/// 用途：转换物品品质的属性加成。输入：品质。输出：非负等级；无状态修改。
+/// 失败：未知枚举返回零。不变量：不修改物品或角色。
 int qualityBonus(const ItemQuality quality) {
     switch (quality) {
         case ItemQuality::Fine:
@@ -32,6 +44,8 @@ int qualityBonus(const ItemQuality quality) {
     return 0;
 }
 
+/// 用途：取得职业推荐的属性排序。输入：职业。输出：静态排序表；无状态修改。
+/// 失败：未知职业使用通用顺序。不变量：调用方不得修改返回引用。
 const std::array<Attribute, kAttributeCount>& prioritiesFor(const Occupation occupation) {
     static const std::array<Attribute, kAttributeCount> hunter{
         {Attribute::Perception, Attribute::Survival, Attribute::Agility, Attribute::Endurance, Attribute::Willpower,
@@ -69,8 +83,12 @@ const std::array<Attribute, kAttributeCount>& prioritiesFor(const Occupation occ
     return hunter;
 }
 
+/// 用途：构造成功操作回执。输入：消息。输出：success 为 true 的结果；无状态修改。
+/// 失败：无。不变量：回执本身不代表调用方已绕过候选状态提交。
 OperationResult accepted(std::string message) { return {true, std::move(message)}; }
 
+/// 用途：构造失败操作回执。输入：消息。输出：success 为 false 的结果；无状态修改。
+/// 失败：无。不变量：回执本身不修改人物、背包或军队。
 OperationResult rejected(std::string message) { return {false, std::move(message)}; }
 
 } // namespace
