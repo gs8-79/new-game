@@ -70,7 +70,7 @@ Windows PowerShell：
 .\run-formal.ps1 -Configuration Release -SkipBuild
 ```
 
-构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖 v5 存档、两类任务、统一人口池、负责人、装备品质、治疗休整、四类季节事件、资源贸易与玩家界面。
+构建产物位于 `out/Formal-Debug` 或 `out/Formal-Release`。CTest 会执行 `tribe-formal-tests`；当前测试覆盖 v6 存档与 v5 安全升级、两类任务、统一人口池、负责人、装备品质、治疗休整、四类季节事件、资源贸易与玩家界面。
 
 ### 开发工具
 

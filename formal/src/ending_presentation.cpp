@@ -19,6 +19,10 @@
 namespace tribe {
 namespace {
 
+// 本匿名命名空间的结局展示辅助函数只格式化帧、文本与时间：不修改游戏状态。
+// 缺失回调或非交互环境必须降级为静态输出，避免 ANSI 控制序列污染重定向终端。
+/// 用途：映射结局到演出标题。输入：结局枚举。输出：UTF-8 标题；无状态修改。
+/// 失败：未知结局返回保守标题。不变量：不读取或修改游戏状态。
 std::string endingTitle(const GameEnding ending) {
     switch (ending) {
         case GameEnding::Alliance:
@@ -37,6 +41,8 @@ std::string endingTitle(const GameEnding ending) {
     return "尚未结算";
 }
 
+/// 用途：映射结局到 ANSI 颜色代码。输入：结局枚举。输出：静态 SGR 序列；无状态修改。
+/// 失败：未知结局使用默认颜色。不变量：调用方在非 ANSI 模式不得输出该序列。
 const char* endingColor(const GameEnding ending) {
     switch (ending) {
         case GameEnding::Alliance:
@@ -55,12 +61,18 @@ const char* endingColor(const GameEnding ending) {
     return "\x1b[37m";
 }
 
+/// 用途：为缺失展示字段提供保守文本。输入：值与回退文本。输出：非空展示文本；无状态修改。
+/// 失败：无。不变量：非空 value 原样返回。
 std::string valueOrFallback(const std::string& value, const char* fallback) {
     return value.empty() ? std::string{fallback} : value;
 }
 
+/// 用途：在交互终端轮询跳过动画的按键。输入：构造期开关。输出：轮询器。
+/// 状态影响：Unix 上临时调整终端模式。失败：不可交互终端保持 inactive；不变量：析构时恢复已修改的终端状态。
 class TerminalKeyPoller {
    public:
+    /// 用途：按平台初始化非阻塞按键轮询。输入：是否启用。输出：轮询器。
+    /// 状态影响：可能保存并调整终端属性。失败：初始化失败保持 inactive；不变量：不修改游戏数据。
     explicit TerminalKeyPoller(const bool enabled) {
         if (!enabled) return;
 #if defined(_WIN32)
@@ -77,17 +89,27 @@ class TerminalKeyPoller {
 #endif
     }
 
+    /// 用途：禁止复制终端所有权。输入：另一个轮询器。输出：无。
+    /// 状态影响：无。失败：编译期删除；不变量：同一终端模式只能由一个对象负责恢复。
     TerminalKeyPoller(const TerminalKeyPoller&) = delete;
+    /// 用途：禁止复制赋值终端所有权。输入：另一个轮询器。输出：无。
+    /// 状态影响：无。失败：编译期删除；不变量：终端恢复责任不可转移。
     TerminalKeyPoller& operator=(const TerminalKeyPoller&) = delete;
 
+    /// 用途：恢复构造时修改的终端属性。输入：无。输出：无。
+    /// 状态影响：仅恢复平台终端模式。失败：系统恢复失败静默降级；不变量：绝不修改游戏状态。
     ~TerminalKeyPoller() {
 #if !defined(_WIN32)
         if (active_) ::tcsetattr(STDIN_FILENO, TCSANOW, &original_);
 #endif
     }
 
+    /// 用途：查询轮询器是否可用。输入：无。输出：布尔值；无状态修改。
+    /// 失败：无。不变量：false 时 consumeKey 不读取终端。
     bool active() const { return active_; }
 
+    /// 用途：消费当前可读按键。输入：无。输出：是否检测到按键。
+    /// 状态影响：只推进终端输入队列。失败：不可用或读取失败返回 false；不变量：不向游戏命令流注入文本。
     bool consumeKey() const {
         if (!active_) return false;
 #if defined(_WIN32)
@@ -119,6 +141,8 @@ class TerminalKeyPoller {
 #endif
 };
 
+/// 用途：执行一次可替换的帧等待。输入：选项与时长。输出：无。
+/// 状态影响：可能调用测试等待回调。失败：无；不变量：无论等待方式如何都不修改游戏状态。
 void waitOnce(const EndingPresentationOptions& options, const std::chrono::milliseconds duration) {
     if (options.wait) {
         options.wait(duration);
@@ -127,6 +151,8 @@ void waitOnce(const EndingPresentationOptions& options, const std::chrono::milli
     std::this_thread::sleep_for(duration);
 }
 
+/// 用途：等待下一动画帧并轮询跳过请求。输入：选项与回调。输出：是否跳过。
+/// 状态影响：仅消费终端输入或调用等待回调。失败：无；不变量：零延迟不触发等待。
 bool waitForNextFrame(const EndingPresentationOptions& options, const std::function<bool()>& skipRequested) {
     if (options.frameDelay.count() <= 0) return false;
     if (!skipRequested) {
@@ -145,6 +171,8 @@ bool waitForNextFrame(const EndingPresentationOptions& options, const std::funct
     return skipRequested();
 }
 
+/// 用途：向输出流写一帧结局画面。输入：摘要、帧、流和 ANSI 开关。输出：无。
+/// 状态影响：仅写输出流。失败：流错误由调用方处理；不变量：ANSI 关闭时绝不附加控制序列。
 void writeFrame(const EndingSummary& summary, const std::string& frame, std::ostream& output, const bool ansiEnabled) {
     if (ansiEnabled) {
         output << endingColor(summary.ending) << frame << "\x1b[0m";
@@ -357,7 +385,7 @@ void EndingPresentation::play(const EndingSummary& summary, std::ostream& output
             writeFrame(summary, frames.back(), output, options.ansiEnabled);
         }
     } else {
-        // Static output is also the redirected-terminal fallback, so it must stay free of ANSI codes.
+        // 静态输出同时是重定向终端的降级方案，因此不得混入 ANSI 控制序列。
         output << renderStatic(summary.ending);
     }
     output << "\n\n" << formatSummary(summary);

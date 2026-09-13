@@ -1,15 +1,14 @@
 #include "tribe/application.hpp"
 
+#include "command_parser.hpp"
 #include "tribe/console_ui.hpp"
 #include "tribe/ending_presentation.hpp"
 #include "tribe/save_repository.hpp"
 
 #include <chrono>
-#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,47 +16,29 @@
 namespace tribe {
 namespace {
 
-struct Words {
-    std::string verb;
-    std::vector<std::string> args;
-};
+// 本匿名命名空间的流程辅助函数只处理输入流、UI 和局部变量：输出为解析或流程结果，不直接写 GameEngine 状态。
+// 解析失败返回空或 false，流程失败由调用方显示消息；命令兼容性始终经 command_parser 保持。
+using command_parser::Command;
+using command_parser::parse;
+using command_parser::verbIs;
 
-std::string asciiLower(std::string text) {
-    for (char& character : text) {
-        const auto byte = static_cast<unsigned char>(character);
-        if (byte < 128U) character = static_cast<char>(std::tolower(byte));
-    }
-    return text;
-}
-
-Words words(const std::string& input) {
-    std::istringstream stream(input);
-    Words parsed;
-    stream >> parsed.verb;
-    parsed.verb = asciiLower(parsed.verb);
-    std::string argument;
-    while (stream >> argument) parsed.args.push_back(asciiLower(argument));
-    return parsed;
-}
-
-bool verbIs(const Words& command, const std::initializer_list<std::string_view> aliases) {
-    for (const std::string_view alias : aliases) {
-        if (command.verb == alias) return true;
-    }
-    return false;
-}
-
+/// 用途：生成本次新局的时间种子。输入：无。输出：32 位种子；无游戏状态修改。
+/// 失败：无。不变量：只用于初始化新局，不能替代存档中的持久化种子。
 std::uint32_t freshSeed() {
     const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     return static_cast<std::uint32_t>(static_cast<unsigned long long>(now) & 0xFFFFFFFFULL);
 }
 
+/// 用途：解析无符号种子文本。输入：文本和输出种子。输出：是否成功。
+/// 状态影响：仅成功时写 seed。失败：空白、溢出或残余字符返回 false；不变量：不接受部分数字。
 bool parseSeed(const std::string& text, std::uint32_t& seed) {
     if (text.empty()) return false;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), seed);
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 
+/// 用途：解析模式中英文别名。输入：已统一规范化的词元。输出：模式或空值；无状态修改。
+/// 失败：未知别名返回空。不变量：玩家可见中英文模式命令保持兼容。
 std::optional<GameMode> parseMode(const std::string_view text) {
     if (text == "1" || text == "quick" || text == "fast" || text == "快速") return GameMode::Quick;
     if (text == "2" || text == "standard" || text == "formal" || text == "正式") return GameMode::Standard;
@@ -65,18 +46,22 @@ std::optional<GameMode> parseMode(const std::string_view text) {
     return std::nullopt;
 }
 
+/// 用途：消费一次确认输入。输入：标准输入流。输出：无。
+/// 状态影响：仅推进输入流。失败：流结束时直接返回；不变量：不触发任何游戏状态提交。
 void waitForEnter(std::istream& input) {
     std::string ignored;
     std::getline(input, ignored);
 }
 
+/// 用途：循环展示帮助主题。输入：UI 和输入流。输出：无。
+/// 状态影响：仅输出和消费输入。失败：输入结束时返回；不变量：使用共享解析器且不修改 GameEngine。
 void showHelp(ConsoleUI& ui, std::istream& input) {
     int topic = 0;
     std::string line;
     for (;;) {
         ui.renderHelpPage(topic);
         if (!std::getline(input, line)) return;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && (command.verb.empty() || verbIs(command, {"b", "back", "返回"}))) {
             if (topic == 0) return;
             topic = 0;
@@ -87,6 +72,8 @@ void showHelp(ConsoleUI& ui, std::istream& input) {
     }
 }
 
+/// 用途：按终端能力播放或静态展示结局。输入：只读游戏、UI、流。输出：无。
+/// 状态影响：仅输出和消费确认输入。失败：动画回退不改变游戏状态；不变量：ANSI 开关由 UI 统一控制。
 void playEnding(const GameEngine& game, ConsoleUI& ui, std::istream& input, std::ostream& output) {
     EndingPresentationOptions options;
     options.animated = ui.interactive();
@@ -100,6 +87,9 @@ void playEnding(const GameEngine& game, ConsoleUI& ui, std::istream& input, std:
     waitForEnter(input);
 }
 
+/// 用途：运行一局游戏的命令循环。输入：引擎、存档仓库、UI、流及起始消息。输出：是否返回封面。
+/// 状态影响：仅经 GameEngine/SaveRepository
+/// 的原子接口提交。失败：读写失败保留当前局；不变量：空白和中英文命令共用解析器。
 bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::istream& input, std::ostream& output,
              const bool saveInitial, std::string& exitMessage, std::string initialMessage = {}) {
     exitMessage.clear();
@@ -115,7 +105,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
     for (;;) {
         ui.renderGame(game, message);
         if (!std::getline(input, line)) return false;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.verb.empty()) {
             message = "请输入命令；第一次游玩可输入9或帮助。";
             continue;
@@ -178,7 +168,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
                 ui.prompt("覆盖" + SaveRepository::slotName(*slot) + "？输入 y/是 确认，其他输入取消 > ");
                 std::string answer;
                 if (!std::getline(input, answer)) return false;
-                const Words confirmation = words(answer);
+                const Command confirmation = parse(answer);
                 if (!confirmation.args.empty() || !verbIs(confirmation, {"y", "yes", "是"})) {
                     message = "已取消覆盖存档。";
                     continue;
@@ -201,11 +191,14 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
             }
             GameState loaded;
             std::string error;
-            if (!saves.load(*slot, loaded, error) || !game.replaceState(loaded, error)) {
+            SaveLoadInfo loadInfo;
+            if (!saves.load(*slot, loaded, error, &loadInfo) || !game.replaceState(loaded, error)) {
                 message = "读取失败，当前游戏不受影响：" + error;
                 continue;
             }
             message = "已读取" + SaveRepository::slotName(*slot) + "。";
+            if (loadInfo.migratedFromV5)
+                message += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
             continue;
         }
 
@@ -232,6 +225,8 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
     }
 }
 
+/// 用途：在封面读取模式选择。输入：UI、输入流和结束标志。输出：模式或空值。
+/// 状态影响：仅更新 inputClosed。失败：流结束置标志；不变量：返回空值不创建或修改游戏状态。
 std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inputClosed) {
     std::string message;
     std::string line;
@@ -241,7 +236,7 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
             inputClosed = true;
             return std::nullopt;
         }
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         if (command.args.empty()) {
             const auto mode = parseMode(command.verb);
@@ -251,6 +246,8 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
     }
 }
 
+/// 用途：在存档菜单加载一份完整合法状态。输入：仓库、UI、流及输出标志/消息。输出：状态或空值。
+/// 状态影响：成功迁移可写存档文件，绝不写入现有游戏。失败：保留调用方消息并不产生候选状态污染。
 std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, std::istream& input, bool& inputClosed,
                                     std::string& loadedMessage) {
     loadedMessage.clear();
@@ -262,7 +259,7 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
             inputClosed = true;
             return std::nullopt;
         }
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         std::optional<SaveSlot> slot;
         if (command.args.empty()) {
@@ -277,11 +274,14 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
         }
         GameState loaded;
         std::string error;
-        if (!saves.load(*slot, loaded, error)) {
+        SaveLoadInfo loadInfo;
+        if (!saves.load(*slot, loaded, error, &loadInfo)) {
             message = error;
             continue;
         }
         loadedMessage = "已读取" + SaveRepository::slotName(*slot) + "。";
+        if (loadInfo.migratedFromV5)
+            loadedMessage += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
         return loaded;
     }
 }
@@ -297,7 +297,7 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
     for (;;) {
         ui.renderMainMenu(menuMessage);
         if (!std::getline(input, line)) break;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"})) break;
         if (command.args.empty() && verbIs(command, {"1", "start", "开始", "开始游戏"})) {
             bool inputClosed = false;
