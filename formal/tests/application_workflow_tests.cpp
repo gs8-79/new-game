@@ -124,3 +124,28 @@ TEST_CASE("console rendering preserves UTF-8 output at the classroom 80-column b
     REQUIRE(validUtf8(narrowOutput.str()));
     REQUIRE(narrowOutput.str().find("首季目标") != std::string::npos);
 }
+
+TEST_CASE("mission road overview keeps coloring optional and text safe at classroom widths") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 304U}};
+    REQUIRE(game.execute("assign wood 2").success);
+    REQUIRE(game.execute("mission wood").success);
+
+    std::ostringstream plainOutput;
+    tribe::ConsoleUI plain{plainOutput, false, false, 80U};
+    plain.renderGame(game, "地图界面验证");
+    REQUIRE(validUtf8(plainOutput.str()));
+    REQUIRE(plainOutput.str().find("道路总览") != std::string::npos);
+    REQUIRE(plainOutput.str().find("[1 营地]") != std::string::npos);
+    REQUIRE(plainOutput.str().find('\x1b') == std::string::npos);
+
+    std::ostringstream colouredOutput;
+    tribe::ConsoleUI coloured{colouredOutput, false, true, 80U};
+    coloured.renderGame(game, "地图界面验证");
+    REQUIRE(colouredOutput.str().find('\x1b') != std::string::npos);
+
+    std::ostringstream narrowOutput;
+    tribe::ConsoleUI narrow{narrowOutput, false, false, 24U};
+    narrow.renderGame(game, "窄窗口地图验证");
+    REQUIRE(validUtf8(narrowOutput.str()));
+    REQUIRE(narrowOutput.str().find("道路总览") != std::string::npos);
+}
