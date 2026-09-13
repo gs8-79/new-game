@@ -35,7 +35,11 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal\package\试玩说明.txt
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'CMakeLists.txt') -Destination $sourceRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $sourceRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '.gitignore') -Destination $sourceRoot
+foreach ($toolingFile in @('.clang-format', '.clang-tidy', 'Doxyfile', 'vcpkg.json')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $toolingFile) -Destination $sourceRoot
+}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'formal') -Destination $sourceRoot -Recurse
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tools') -Destination $sourceRoot -Recurse
 New-Item -ItemType Directory -Path (Join-Path $sourceRoot 'tests') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tests\test_main.cpp') -Destination (Join-Path $sourceRoot 'tests')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tests\test_harness.hpp') -Destination (Join-Path $sourceRoot 'tests')

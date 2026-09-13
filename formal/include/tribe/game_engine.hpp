@@ -15,17 +15,9 @@ namespace tribe {
 enum class GameMode { Quick = 0, Standard, Long };
 enum class GamePhase { Managing = 0, Mission, War, EndingChoice, Finished, Sandbox };
 enum class GameEnding { None = 0, Alliance, Conquest, Prosperity, Migration, Extinction };
-enum class ResourceKind { Food = 0, Wood, Stone, Herbs, Shells };
+enum class WorkforceRole { FoodCrew = 0, WoodCrew, StoneCrew, HerbCrew, Crafters, Healers, Scouts, Envoys, CampGuards };
 
-enum class BuildingId {
-    Granary = 0,
-    Wall,
-    Workshop,
-    HealerHut,
-    Watchtower,
-    CouncilFire,
-    Count
-};
+enum class BuildingId { Granary = 0, Wall, Workshop, HealerHut, Watchtower, CouncilFire, Count };
 
 enum class TechnologyId {
     FoodPreservation = 0,
@@ -63,13 +55,15 @@ enum class WorldLocationId {
 enum class TribeId { Player = 0, RiverDeer, WhiteFeather, Rockfang, Tidesalt, Blackstone, Count };
 enum class FactionCrisis { Calm = 0, Complaint, Slowdown, Refusal, Deposition, Coup };
 enum class WarOrder { Advance = 0, Hold, Focus, Flank, Cover, Retreat };
+enum class LocationRole { Camp = 0, Resource, Diplomacy, Route, War };
+enum class PendingEventKind { Refugees = 0, Disease, Extortion, FactionDemand };
 
 constexpr std::size_t kWorldLocationCount = static_cast<std::size_t>(WorldLocationId::Count);
 constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
 constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
 constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
 constexpr std::size_t kPlayerFactionCount = 3U;
-constexpr int kSaveVersion = 3;
+constexpr int kSaveVersion = 5;
 
 template <typename Enum>
 constexpr std::size_t indexOf(const Enum value) {
@@ -88,6 +82,7 @@ struct WorldLocationInfo {
     WorldLocationId id = WorldLocationId::Camp;
     std::string name;
     std::string feature;
+    LocationRole role = LocationRole::Route;
     std::vector<WorldLocationId> neighbors;
 };
 
@@ -128,13 +123,11 @@ struct PermanentSquad {
     std::string name;
     std::string captain;
     std::vector<std::string> members;
-    ResidentMission residentMission = ResidentMission::None;
     int fatigue = 0;
     int eliteExperience = 0;
     bool personallyDeployedThisSeason = false;
     bool refusingOrders = false;
     WorldLocationId station = WorldLocationId::Camp;
-    Inventory backpack{80, 20};
 };
 
 struct WarState {
@@ -145,9 +138,39 @@ struct WarState {
     int militia = 0;
     int playerPower = 0;
     int enemyPower = 0;
-    int front = 0;
     WarOrder order = WarOrder::Hold;
     bool riskConfirmed = false;
+    int spearMilitia = 0;
+    int shieldBearers = 0;
+    int heavySpears = 0;
+    int craftsmanshipPower = 0;
+    std::vector<Item> lockedEquipment;
+    bool defensive = false;
+};
+
+struct WorkforceState {
+    int foodCrew = 2;
+    int woodCrew = 0;
+    int stoneCrew = 0;
+    int herbCrew = 0;
+    int crafters = 0;
+    int healers = 0;
+    int scouts = 0;
+    int envoys = 0;
+    int campGuards = 0;
+    std::array<int, kWorldLocationCount> outpostGuards{};
+    std::array<int, kWorldLocationCount> outpostIdleSeasons{};
+};
+
+struct OccupationState {
+    bool occupied = false;
+    int garrison = 0;
+    int unrest = 0;
+};
+
+struct PendingEvent {
+    PendingEventKind kind = PendingEventKind::Refugees;
+    bool active = false;
 };
 
 struct ChronicleEntry {
@@ -169,18 +192,17 @@ struct GameState {
     int wood = 12;
     int stone = 4;
     int herbs = 3;
+    int hides = 0;
     int warriors = 3;
     int morale = 60;
     int campDurability = 20;
     int stability = 65;
-    int shells = 0;
     int tradeCount = 0;
     int warsWon = 0;
     int warsLost = 0;
     int missionCount = 0;
     int missionDeaths = 0;
     int highestLevel = 1;
-    int rockfangStrength = 20;
     std::string tribeName = "燧火";
     std::string leaderName = "炎角";
     std::string actingLeaderName;
@@ -193,13 +215,17 @@ struct GameState {
     std::array<FactionState, kPlayerFactionCount> playerFactions{};
     std::array<bool, kTribeCount> tradePartners{};
     std::array<bool, kWorldLocationCount> outposts{};
+    WorkforceState workforce;
+    std::vector<Item> stockpile;
+    std::array<OccupationState, kTribeCount> occupations{};
+    PendingEvent pendingEvent;
+    std::string workshopSupervisor;
+    std::string healerSupervisor;
     std::vector<Character> roster;
     std::vector<PermanentSquad> squads;
     std::optional<ExpansionState> activeMission;
-    bool missionRewardClaimed = false;
     WarState war;
-    bool currencyUnlocked = false;
-    bool rockfangFortCaptured = false;
+    bool workforceReassignmentRequired = false;
     bool longModeFinalShown = false;
     GameEnding ending = GameEnding::None;
     std::vector<std::string> leadershipHistory;
@@ -226,7 +252,7 @@ struct EndingSummary {
 };
 
 class GameEngine {
-public:
+   public:
     explicit GameEngine(GameConfig config = {});
     explicit GameEngine(GameState state);
 
@@ -242,6 +268,14 @@ public:
     std::string objectiveText() const;
     std::string chronicleText() const;
     std::string helpText() const;
+    std::string workforceText() const;
+    std::string inventoryText() const;
+    std::string peopleText() const;
+    std::string personText(std::string_view name) const;
+    std::string buildingsText() const;
+    std::string technologiesText() const;
+    std::string warTargetsText() const;
+    std::string powerText() const;
     std::vector<GameEnding> availableEndings() const;
     EndingSummary endingSummary() const;
 
@@ -253,12 +287,13 @@ public:
     static std::string tribeName(TribeId tribe);
     static std::string resourceName(ResourceKind resource);
 
-private:
+   private:
     ActionResult build(BuildingId building);
     ActionResult research(TechnologyId technology);
-    ActionResult setResidentMission(ResidentMission mission);
     ActionResult restSquad();
-    ActionResult startMission();
+    ActionResult startMission(ResourceKind resource = ResourceKind::Food);
+    ActionResult startOutpostMission();
+    ActionResult startMission(MissionKind kind, ResourceKind resource);
     ActionResult executeMission(std::string_view input);
     ActionResult talk(TribeId tribe);
     ActionResult gift(TribeId tribe);
@@ -272,7 +307,8 @@ private:
     ActionResult negotiateTruce(TribeId tribe);
     ActionResult raid(TribeId tribe);
     ActionResult appeaseFaction(std::size_t faction);
-    ActionResult formArmy(int warriors, int militia);
+    ActionResult formArmy(int warriors, int militia, std::string_view commander = {});
+    ActionResult disbandArmy();
     ActionResult startWar(TribeId enemy);
     ActionResult setWarOrder(WarOrder order);
     ActionResult warAttack();
@@ -281,23 +317,35 @@ private:
     ActionResult endSeason();
     ActionResult chooseEnding(GameEnding ending);
     ActionResult continueSandbox();
+    ActionResult assignWorkforce(WorkforceRole role, int count);
+    ActionResult assignOutpostGuards(WorldLocationId location, int count);
+    ActionResult craft(std::string_view recipe);
+    ActionResult repair(std::string_view itemId);
+    ActionResult scrap(std::string_view itemId);
+    ActionResult equipPerson(std::string_view person, std::string_view slot, std::string_view itemId);
+    ActionResult unequipPerson(std::string_view person, std::string_view slot);
+    ActionResult appoint(std::string_view person, std::string_view role);
+    ActionResult unappoint(std::string_view role);
+    ActionResult configureSquad(const std::vector<std::string>& args);
+    ActionResult treat(std::string_view squad);
+    ActionResult chooseEvent(int option);
+    ActionResult garrison(TribeId tribe, int warriors);
 
-    ActionResult commit(GameState candidate, std::string message,
-        bool consumesAction = false, bool seasonAdvanced = false, bool endingReached = false);
+    ActionResult commit(GameState candidate, std::string message, bool consumesAction = false,
+                        bool seasonAdvanced = false, bool endingReached = false);
     ActionResult rejected(std::string message) const;
     bool canSpendAction(ActionResult& result) const;
     bool diplomacyUsedThisSeason(TribeId tribe) const;
     ActionResult finalizeDiplomacy(TribeId tribe, ActionResult result);
     void spendAction(GameState& candidate) const;
     void addChronicle(GameState& candidate, int importance, std::string title, std::string detail) const;
-    void settleResidentSquads(GameState& candidate, std::string& message) const;
     void settleFoodAndTribute(GameState& candidate, std::string& message) const;
     void settleAutonomousTribes(GameState& candidate, std::string& message) const;
     void settleFactions(GameState& candidate, std::string& message) const;
     void settleEvent(GameState& candidate, std::string& message) const;
-    void unlockCurrencyIfEligible(GameState& candidate, std::string& message) const;
     void finishExtinction(GameState& candidate, std::string& message) const;
-    void advanceWarFront(GameState& candidate, std::string& message) const;
+    void concludeWarVictory(GameState& candidate, std::string& message) const;
+    void releaseWarEquipment(GameState& candidate, bool damaged) const;
     int availableTeams(const GameState& state) const;
     int resourceValue(const GameState& state, ResourceKind resource) const;
     int& resourceRef(GameState& state, ResourceKind resource) const;

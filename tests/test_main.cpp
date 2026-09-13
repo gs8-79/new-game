@@ -21,7 +21,7 @@ int main() {
         }
     }
 
-    std::cout << test::registry().size() - static_cast<std::size_t>(failures)
-              << '/' << test::registry().size() << " tests passed\n";
+    std::cout << test::registry().size() - static_cast<std::size_t>(failures) << '/' << test::registry().size()
+              << " tests passed\n";
     return failures == 0 ? 0 : 1;
 }

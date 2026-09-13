@@ -1,0 +1,23 @@
+# Doxygen configuration for the course presentation and maintenance reference.
+PROJECT_NAME           = "燧火纪：部落黎明"
+PROJECT_NUMBER         = "2.0.0"
+PROJECT_BRIEF          = "C++17 控制台部落 MUD"
+OUTPUT_DIRECTORY       = formal/docs/generated
+CREATE_SUBDIRS         = NO
+OUTPUT_LANGUAGE        = Chinese
+INPUT                  = formal/include formal/src README.md
+FILE_PATTERNS          = *.hpp *.cpp *.md
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+FULL_PATH_NAMES        = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_AS_ERROR          = NO
+WARN_LOGFILE           = formal/docs/generated/doxygen-warnings.log
+HAVE_DOT               = NO

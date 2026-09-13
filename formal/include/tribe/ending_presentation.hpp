@@ -22,14 +22,13 @@ struct EndingPresentationOptions {
 };
 
 class EndingPresentation {
-public:
+   public:
     static std::vector<std::string> framesFor(GameEnding ending);
     static std::string renderStatic(GameEnding ending);
     static std::string formatChronicle(const std::vector<ChronicleEntry>& entries);
     static std::string formatSummary(const EndingSummary& summary);
 
-    static void play(const EndingSummary& summary, std::ostream& output,
-        EndingPresentationOptions options = {});
+    static void play(const EndingSummary& summary, std::ostream& output, EndingPresentationOptions options = {});
 };
 
 } // namespace tribe
