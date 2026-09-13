@@ -2,7 +2,8 @@
 /out/
 /build/
 /saves/
-/.vs/
+# 任意层级的 Visual Studio 用户目录都不得进入构建上下文。
+**/.vs/
 /.git/
 *.user
 *.VC.db

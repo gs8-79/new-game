@@ -7,19 +7,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  linux-build-test:
-    name: Linux 编译与测试（cmake + ninja + ctest）
-    runs-on: ubuntu-latest
+  cross-platform-build-test:
+    name: ${{ matrix.name }} 编译与测试
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: windows-latest
+            name: Windows
+          - os: macos-latest
+            name: macOS
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: 安装构建工具
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build
       - name: CMake 配置（Release）
-        run: cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
       - name: 编译
-        run: cmake --build out
+        run: cmake --build out --config Release
       - name: 自动测试
-        run: ctest --test-dir out --output-on-failure
+        run: ctest --test-dir out -C Release --output-on-failure
 
   docker-build:
     name: Docker 镜像构建与容器运行验证

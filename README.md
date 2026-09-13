@@ -121,8 +121,8 @@ bash docker-run.sh
 
 ## 持续集成与发布
 
-`.github/workflows/docker-ci.yml` 在每次推送时于 GitHub Actions 的 Linux 环境自动编译、运行全部测试，并构建 Docker 镜像、在容器内启动游戏验证可运行。
+`.github/workflows/docker-ci.yml` 在每次推送和 PR 时，于 Linux、Windows、macOS 三个 GitHub Actions 运行器编译并运行自动测试；Linux 任务还会构建 Docker 镜像，并在容器内启动游戏验证可运行。
 
-各平台（Windows / Linux / macOS，含 Intel 与 Apple Silicon）预编译二进制见 [GitHub Releases](https://github.com/gs8-79/new-game/releases)，由 `.github/workflows/release.yml` 在打 tag（`v*`）时自动构建并发布。
+推送 `v*` 标签后，`.github/workflows/release.yml` 会构建 Windows、Linux 与 macOS（Intel 和 Apple Silicon）二进制并发布到 [GitHub Releases](https://github.com/gs8-79/new-game/releases)。在对应标签工作流通过前，Release 页面不代表已完成跨平台验证。
 
 [游戏核心目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)
