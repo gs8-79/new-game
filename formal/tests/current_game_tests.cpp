@@ -551,3 +551,29 @@ TEST_CASE("fixed-seed command sequences preserve valid state and make rejected c
         if (!result.success || !result.stateChanged) REQUIRE(stateSnapshot(game.state()) == before);
     }
 }
+
+TEST_CASE("last season is announced and an early ending choice is answered instead of being unrecognized") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 7U}};
+    // 结算阶段之前输入 choose 必须被识别并说明下一步，而不是落回“无法识别该命令”。
+    const tribe::ActionResult early = game.execute("choose migration");
+    REQUIRE(early.recognized);
+    REQUIRE(!early.success);
+    REQUIRE(!early.stateChanged);
+    REQUIRE(early.message.find("结束回合") != std::string::npos);
+
+    // 非最后一季的状态文本不应出现引导行。
+    REQUIRE(game.statusText().find("这是最后一季") == std::string::npos);
+
+    // 快速模式共 8 季；推进到最后一季后状态文本必须给出结束回合引导。
+    tribe::GameState finalSeason = game.state();
+    finalSeason.season = finalSeason.seasonLimit;
+    tribe::GameEngine lastSeason{finalSeason};
+    REQUIRE(lastSeason.statusText().find("这是最后一季") != std::string::npos);
+
+    // 引导只出现在经营阶段，进入结局议事后由阶段自身给出提示。
+    tribe::GameState choosing = game.state();
+    choosing.phase = tribe::GamePhase::EndingChoice;
+    choosing.season = choosing.seasonLimit;
+    tribe::GameEngine endingChoice{choosing};
+    REQUIRE(endingChoice.statusText().find("这是最后一季") == std::string::npos);
+}

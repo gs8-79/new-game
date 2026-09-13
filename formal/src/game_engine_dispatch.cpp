@@ -126,6 +126,10 @@ ActionResult GameEngine::dispatchManagingCommand(const Command& command, const C
         }
         return rejected("当前必须先查看目标并选择结局：choose <alliance|conquest|prosperity|migration>。");
     }
+    if (commandId == CommandId::Choose) {
+        // 结局只能在时代结算阶段选择；提前说明下一步，避免玩家误以为该命令不存在。
+        return rejected("现在还不能选择结局；行动完成后输入 endturn / 结束回合 进入结局议事。");
+    }
     if (state_.workforceReassignmentRequired && !allowsWorkforceRecovery(command, commandId)) {
         return rejected("人口已不足以维持现有岗位。请降低劳力或驻军，或用 disbandarmy / 解散军队释放军队后再行动。");
     }

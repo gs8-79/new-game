@@ -53,6 +53,11 @@ std::string GameEngine::statusText() const {
            << "建筑：" << countTrue(state_.buildings) << "/6  技术：" << countTrue(state_.technologies)
            << "/9  已发现地点：" << countTrue(state_.discovered) << "/16  战争胜负：" << state_.warsWon << "/"
            << state_.warsLost;
+    // 最后一季继续行动后只能进入结局议事，提前给出命令可避免玩家直接 choose 被拒。
+    if (state_.phase == GamePhase::Managing && state_.season >= state_.seasonLimit) {
+        output << "\n这是最后一季（" << state_.season << '/' << state_.seasonLimit
+               << "），行动完成后输入 endturn / 结束回合 进入结局议事。";
+    }
     return output.str();
 }
 
