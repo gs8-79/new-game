@@ -89,6 +89,8 @@ const std::array<WorldLocationInfo, kWorldLocationCount> kLocations{{
      {WorldLocationId::BlackstoneWorkshop, WorldLocationId::MountainMarket, WorldLocationId::OldPass}},
 }};
 
+/// 用途：地点在终端道路图上的列行坐标，仅供绘制与方位判断。输入/输出：只读查找表项。
+/// 不变量：数组下标必须与 WorldLocationId 的持久化编号一致，位置本身不参与存档。
 struct Coordinate {
     int column = 0;
     int row = 0;

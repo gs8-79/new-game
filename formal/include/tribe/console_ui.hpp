@@ -11,8 +11,13 @@
 
 namespace tribe {
 
+/// 用途：为渲染层提供语义颜色，避免界面各处直接书写 ANSI 代码。输入/输出：仅 ConsoleUI 内部使用。
+/// 状态影响：无。失败：未知枚举由 colorCode 退回复位序列。不变量：新增枚举必须同步补齐 colorCode 分支。
 enum class UiColor { Normal, Title, Accent, Dim, Food, Wood, Stone, Herbs, Friendly, Neutral, Enemy, Warning };
 
+/// 用途：把已提交的游戏状态渲染为终端页面，并集中处理 UTF-8 列宽、分页与 ANSI 开关。
+/// 状态影响：只写输出流和自身缓冲，不修改 GameEngine。失败：非交互或非 ANSI 环境降级为纯文本。
+/// 不变量：宽字符不得跨越行尾，重定向输出中不得出现转义序列。
 class ConsoleUI {
    public:
     /// 用途：建立终端渲染器。输入：输出流、交互/ANSI 开关和可选列宽。输出：可用 UI。

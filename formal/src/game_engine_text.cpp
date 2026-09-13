@@ -65,6 +65,7 @@ std::string GameEngine::workforceText() const {
         << " 侦察" << (w.scouts > 0 ? 1 : 0) << " 使者" << (w.envoys > 0 ? 1 : 0) << " 营地守卫"
         << (w.campGuards > 0 ? 1 : 0) << "\n前哨守卫：";
     bool hasOutpostGuard = false;
+    // 下标 0 是燧火营地自身，只有其余十五个地点才可能建有前哨。
     for (std::size_t index = 1; index < kWorldLocationCount; ++index) {
         if (!state_.outposts[index]) continue;
         out << worldLocations()[index].name << w.outpostGuards[index] << ' ';
@@ -126,6 +127,7 @@ std::string GameEngine::inventoryText() const {
                                                            : "报废")
             << "  品质" << itemQualityName(item.quality) << "  实际属性";
         bool hasBonus = false;
+        // 损坏装备的加成减半；品质只放大已经为正的加成，不会凭空产生属性。
         const int divisor = item.condition == ItemCondition::Damaged ? 2 : 1;
         const int quality = itemQualityTier(item.quality);
         for (std::size_t index = 0; index < kAttributeCount; ++index) {
@@ -200,6 +202,7 @@ std::string GameEngine::technologiesText() const {
 std::string GameEngine::warTargetsText() const {
     std::ostringstream out;
     out << "战争目标（据点/占领/驻军/动乱）：\n";
+    // 下标 0 是玩家部落，战争目标只列出其余五方。
     for (std::size_t i = 1; i < kTribeCount; ++i) {
         const OccupationState& site = state_.occupations[i];
         out << tribeName(static_cast<TribeId>(i)) << " / "
@@ -237,6 +240,7 @@ std::string GameEngine::worldText() const {
 std::string GameEngine::diplomacyText() const {
     std::ostringstream output;
     output << "六部落外交（关系/信任/恐惧/贸易依赖）：\n";
+    // 下标 0 是玩家部落，外交列表只展示其余五方。
     for (std::size_t index = 1; index < kTribeCount; ++index) {
         const auto& profile = state_.tribes[index];
         const auto& relation = state_.relations[index];
@@ -250,6 +254,7 @@ std::string GameEngine::diplomacyText() const {
         if (relation.playerPaysTribute) output << " [我方朝贡]";
         if (relation.otherPaysTribute) output << " [对方进贡]";
         if (relation.tradeRoute) output << " [固定商路]";
+        // 未发现对方接触点之前只公开关系数值；首领、派系与诉求属于接触后才解锁的情报。
         if (!locationDiscovered(state_, contactLocation(tribe))) {
             output << " [尚未充分接触]";
         } else {
@@ -313,6 +318,7 @@ std::string GameEngine::objectiveText() const {
 
 std::string GameEngine::chronicleText() const {
     std::ostringstream output;
+    // 编年史在状态中完整保留，界面只回显最近十二条，避免列表随季节无限增长。
     const std::size_t start = state_.chronicle.size() > 12U ? state_.chronicle.size() - 12U : 0U;
     for (std::size_t index = start; index < state_.chronicle.size(); ++index) {
         const auto& entry = state_.chronicle[index];
@@ -375,6 +381,7 @@ EndingSummary GameEngine::endingSummary() const {
         if (ending != state_.ending) summary.otherRoads.push_back(endingName(ending));
     }
     std::vector<ChronicleEntry> sorted = state_.chronicle;
+    // 稳定排序保证重要度相同的记录仍按发生先后排列，摘要读起来才是一条时间线。
     std::stable_sort(sorted.begin(), sorted.end(), [](const ChronicleEntry& left, const ChronicleEntry& right) {
         return left.importance > right.importance;
     });
