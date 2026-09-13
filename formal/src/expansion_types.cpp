@@ -166,6 +166,7 @@ OperationResult gainExperience(Character& character, const int amount) {
     int experience = static_cast<int>(combined);
     int level = character.level;
     int gainedLevels = 0;
+    // 按当前等级门槛逐级扣减，一次可连升多级；每升一级折算为一点成长点。
     while (experience >= experienceForNextLevel(level)) {
         if (level == std::numeric_limits<int>::max()) return rejected("角色等级已达到允许上限。");
         experience -= experienceForNextLevel(level);
@@ -190,6 +191,7 @@ OperationResult recommendAttributes(Character& character) {
     const auto& priorities = prioritiesFor(candidate.occupation);
     int allocated = 0;
     bool progress = true;
+    // 按职业优先级轮转加点，每轮每项一点；某一轮全部属性都到上限时结束，避免空转死循环。
     while (candidate.growthPoints > 0 && progress) {
         progress = false;
         for (const Attribute attribute : priorities) {
@@ -218,6 +220,7 @@ OperationResult equipItem(Character& character, const EquipmentSlot slot, const 
 }
 
 Attributes effectiveAttributes(const Character& character) {
+    // 有效属性的唯一算法：基础值加上全部在槽装备；报废装备跳过，损坏减半，品质只放大正加成。
     Attributes result = character.attributes;
     for (const auto& equipped : character.equipment) {
         if (!equipped.has_value()) continue;
@@ -264,6 +267,7 @@ OperationResult validateSquad(const Squad& squad) {
     if (squad.cohesion < 0 || squad.cohesion > 100) return rejected("小队凝聚力必须在0至100之间。");
 
     std::unordered_set<std::string> names;
+    // 成员姓名同时用作人物查找键，重名会让装备与负责人归属产生歧义，因此必须唯一。
     for (const auto& member : squad.members) {
         if (member.name.empty()) return rejected("小队成员必须有名称。");
         if (!names.insert(member.name).second) return rejected("小队成员名称不能重复。");

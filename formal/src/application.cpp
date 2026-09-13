@@ -117,6 +117,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
         }
         if (verbIs(command, {"back", "返回", "返回主菜单"}) && command.args.empty()) {
             std::string error;
+            // 返回封面必须先自动保存成功；失败则留在当前局，避免一次误操作丢掉整季进度。
             if (!saves.save(game.state(), SaveSlot::Autosave, error)) {
                 message =
                     "自动保存失败，仍留在游戏中：" + error + " 可重试、输入 save 1 另存，或输入 forcequit 强制退出。";
@@ -211,6 +212,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
             continue;
         }
         if (result.endingReached) {
+            // 结局不可回退，先把终局状态落盘再播放演出，避免演出中断导致存档停留在上一季。
             std::string error;
             if (!saves.save(game.state(), SaveSlot::Autosave, error)) message += "\n结局自动保存失败：" + error;
             playEnding(game, ui, input, output);
@@ -290,12 +292,14 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
 
 int runApplication(std::istream& input, std::ostream& output, const std::filesystem::path& saveRoot,
                    const bool interactive, const bool ansiEnabled, const std::size_t terminalWidth) {
+    // 界面与存档仓库只构造一次，封面/游戏/地图之间靠本循环切换，不递归启动新的应用实例。
     ConsoleUI ui(output, interactive, ansiEnabled, terminalWidth);
     const SaveRepository saves(saveRoot);
     std::string menuMessage;
     std::string line;
     for (;;) {
         ui.renderMainMenu(menuMessage);
+        // 读取失败即输入结束：管道和脚本化输入据此自然退出，而不是反复重画封面。
         if (!std::getline(input, line)) break;
         const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"})) break;
@@ -308,6 +312,7 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
                 continue;
             }
             GameEngine game({*mode, freshSeed()});
+            // runGame 返回 false 表示玩家要退出游戏；返回 true 只是回到封面，外层循环继续。
             if (!runGame(game, saves, ui, input, output, true, menuMessage)) break;
             continue;
         }
@@ -330,6 +335,7 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
             continue;
         }
         if (verbIs(command, {"seed", "种子"}) && command.args.size() == 2U) {
+            // 仅在封面接受的固定种子入口，便于课堂演示与测试精确复现同一局事件表。
             const auto mode = parseMode(command.args[0]);
             std::uint32_t seed = 0U;
             if (!mode || !parseSeed(command.args[1], seed)) {
