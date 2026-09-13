@@ -21,13 +21,23 @@ if(MSVC)
 endif()
 
 add_library(tribe_formal_lib
+    formal/src/command_parser.cpp
     formal/src/expansion_types.cpp
     formal/src/expansion_game.cpp
     formal/src/population_rules.cpp
     formal/src/seasonal_event_rules.cpp
     formal/src/war_rules.cpp
+    formal/src/game_engine_internal.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_management.cpp
+    formal/src/game_engine_mission.cpp
+    formal/src/game_engine_diplomacy.cpp
+    formal/src/game_engine_war.cpp
+    formal/src/game_engine_season.cpp
+    formal/src/game_engine_validation.cpp
+    formal/src/game_engine_text.cpp
     formal/src/save_repository.cpp
+    formal/src/state_safety.cpp
     formal/src/ending_presentation.cpp
     formal/src/console_ui.cpp
     formal/src/application.cpp
@@ -76,17 +86,30 @@ set(TRIBE_FORMAT_SOURCES
     formal/include/tribe/game_engine.hpp
     formal/include/tribe/save_repository.hpp
     formal/src/application.cpp
+    formal/src/command_parser.cpp
+    formal/src/command_parser.hpp
     formal/src/console_ui.cpp
     formal/src/ending_presentation.cpp
     formal/src/expansion_game.cpp
     formal/src/expansion_types.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_internal.cpp
+    formal/src/game_engine_internal.hpp
+    formal/src/game_engine_management.cpp
+    formal/src/game_engine_mission.cpp
+    formal/src/game_engine_diplomacy.cpp
+    formal/src/game_engine_war.cpp
+    formal/src/game_engine_season.cpp
+    formal/src/game_engine_validation.cpp
+    formal/src/game_engine_text.cpp
     formal/src/main.cpp
     formal/src/population_rules.hpp
     formal/src/population_rules.cpp
     formal/src/seasonal_event_rules.hpp
     formal/src/seasonal_event_rules.cpp
     formal/src/save_repository.cpp
+    formal/src/state_safety.cpp
+    formal/src/state_safety.hpp
     formal/src/war_rules.hpp
     formal/src/war_rules.cpp
     formal/tests/application_workflow_tests.cpp

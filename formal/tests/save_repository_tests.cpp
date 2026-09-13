@@ -3,13 +3,16 @@
 #include "test_harness.hpp"
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 
 namespace {
 
+// 为存档恢复夹具隔离唯一临时目录；析构只清理本测试根目录，保证不接触玩家存档。
 class TemporarySaveDirectory {
    public:
     explicit TemporarySaveDirectory(const std::string& label) {
@@ -40,6 +43,66 @@ const tribe::SaveSummary& summaryFor(const std::vector<tribe::SaveSummary>& summ
 
 tribe::GameState gameState(const std::uint32_t seed) {
     return tribe::GameEngine{{tribe::GameMode::Quick, seed}}.state();
+}
+
+std::uint32_t readU32(const std::string& bytes, const std::size_t offset) {
+    if (offset + 4U > bytes.size()) throw std::runtime_error("save fixture header was truncated");
+    std::uint32_t value = 0U;
+    for (std::size_t index = 0U; index < 4U; ++index)
+        value |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + index])) << (index * 8U);
+    return value;
+}
+
+void writeU32(std::string& bytes, const std::size_t offset, const std::uint32_t value) {
+    if (offset + 4U > bytes.size()) throw std::runtime_error("save fixture header was truncated");
+    for (std::size_t index = 0U; index < 4U; ++index)
+        bytes[offset + index] = static_cast<char>((value >> (index * 8U)) & 0xFFU);
+}
+
+std::uint32_t checksum(const std::string_view bytes) {
+    std::uint32_t value = 2166136261U;
+    for (const unsigned char byte : bytes) {
+        value ^= byte;
+        value *= 16777619U;
+    }
+    return value;
+}
+
+std::string readBytes(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("could not read save fixture");
+    return {std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+}
+
+void writeBytes(const std::filesystem::path& path, const std::string& bytes) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) throw std::runtime_error("could not write save fixture");
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!output) throw std::runtime_error("could not close save fixture");
+}
+
+// v5 与 v6 仅在 GameState 尾部的 nextItemSerial 不同；该夹具保留 v5 的原始布局和校验和。
+// 以 v6 序列化字节构造历史 v5 样本：移除 nextItemSerial、改写版本并重算校验和，保留其余布局。
+std::string asV5(const std::string& v6) {
+    constexpr std::size_t kHeaderBytes = 20U;
+    if (v6.size() < kHeaderBytes + 4U || readU32(v6, 8U) != static_cast<std::uint32_t>(tribe::kSaveVersion))
+        throw std::runtime_error("fixture was not a v6 save");
+    const std::uint32_t payloadSize = readU32(v6, 12U);
+    if (v6.size() != kHeaderBytes + payloadSize || payloadSize < 4U)
+        throw std::runtime_error("v6 fixture payload was malformed");
+    std::string legacy = v6.substr(0U, kHeaderBytes + payloadSize - 4U);
+    const std::uint32_t legacyPayloadSize = payloadSize - 4U;
+    writeU32(legacy, 8U, 5U);
+    writeU32(legacy, 12U, legacyPayloadSize);
+    writeU32(legacy, 16U, checksum(std::string_view{legacy}.substr(kHeaderBytes)));
+    return legacy;
+}
+
+void writeV5Fixture(const tribe::SaveRepository& saves, const tribe::SaveSlot slot, const std::filesystem::path& target,
+                    const tribe::GameState& state) {
+    std::string error;
+    REQUIRE(saves.save(state, slot, error));
+    writeBytes(target, asV5(readBytes(saves.pathFor(slot))));
 }
 
 } // namespace
@@ -116,4 +179,83 @@ TEST_CASE("a corrupt primary recovers its previous backup and a temporary file w
     REQUIRE(summaryFor(saves.inspect(), tribe::SaveSlot::Slot2).status == tribe::SaveStatus::Recoverable);
     REQUIRE(saves.load(tribe::SaveSlot::Slot2, recovered, error));
     REQUIRE(recovered.seed == temporaryState.seed);
+}
+
+TEST_CASE("valid v5 primary backup and temporary saves migrate atomically to v6 and preserve original bytes") {
+    TemporarySaveDirectory directory{"v5-migration"};
+    tribe::SaveRepository saves{directory.root()};
+    std::string error;
+
+    const tribe::GameState primaryState = gameState(231U);
+    const std::filesystem::path primary = saves.pathFor(tribe::SaveSlot::Slot1);
+    writeV5Fixture(saves, tribe::SaveSlot::Slot1, primary, primaryState);
+    const std::string primaryV5 = readBytes(primary);
+    tribe::GameState loaded = gameState(299U);
+    tribe::SaveLoadInfo primaryInfo;
+    REQUIRE(saves.load(tribe::SaveSlot::Slot1, loaded, error, &primaryInfo));
+    REQUIRE(primaryInfo.migratedFromV5);
+    REQUIRE(loaded.seed == primaryState.seed);
+    REQUIRE(readBytes(primaryInfo.legacyBackupPath) == primaryV5);
+    REQUIRE(readU32(readBytes(primary), 8U) == static_cast<std::uint32_t>(tribe::kSaveVersion));
+
+    const tribe::GameState backupState = gameState(232U);
+    const std::filesystem::path backupPrimary = saves.pathFor(tribe::SaveSlot::Slot2);
+    std::filesystem::path backup = backupPrimary;
+    backup += ".bak";
+    writeV5Fixture(saves, tribe::SaveSlot::Slot2, backup, backupState);
+    writeBytes(backupPrimary, "damaged primary");
+    const std::string backupV5 = readBytes(backup);
+    tribe::SaveLoadInfo backupInfo;
+    REQUIRE(saves.load(tribe::SaveSlot::Slot2, loaded, error, &backupInfo));
+    REQUIRE(backupInfo.migratedFromV5);
+    REQUIRE(loaded.seed == backupState.seed);
+    REQUIRE(readBytes(backupInfo.legacyBackupPath) == backupV5);
+    REQUIRE(readU32(readBytes(backupPrimary), 8U) == static_cast<std::uint32_t>(tribe::kSaveVersion));
+
+    const tribe::GameState temporaryState = gameState(233U);
+    const std::filesystem::path temporaryPrimary = saves.pathFor(tribe::SaveSlot::Slot3);
+    std::filesystem::path temporary = temporaryPrimary;
+    temporary += ".tmp";
+    writeV5Fixture(saves, tribe::SaveSlot::Slot3, temporary, temporaryState);
+    writeBytes(temporaryPrimary, "damaged primary");
+    const std::string temporaryV5 = readBytes(temporary);
+    tribe::SaveLoadInfo temporaryInfo;
+    REQUIRE(saves.load(tribe::SaveSlot::Slot3, loaded, error, &temporaryInfo));
+    REQUIRE(temporaryInfo.migratedFromV5);
+    REQUIRE(loaded.seed == temporaryState.seed);
+    REQUIRE(readBytes(temporaryInfo.legacyBackupPath) == temporaryV5);
+    REQUIRE(readU32(readBytes(temporaryPrimary), 8U) == static_cast<std::uint32_t>(tribe::kSaveVersion));
+}
+
+TEST_CASE(
+    "damaged legacy and unsafe v6 text are rejected without changing caller state or creating migration backups") {
+    TemporarySaveDirectory directory{"reject-damaged"};
+    tribe::SaveRepository saves{directory.root()};
+    std::string error;
+    const std::filesystem::path legacyPath = saves.pathFor(tribe::SaveSlot::Slot4);
+    writeV5Fixture(saves, tribe::SaveSlot::Slot4, legacyPath, gameState(241U));
+    std::string damaged = readBytes(legacyPath);
+    damaged[20] = static_cast<char>(static_cast<unsigned char>(damaged[20]) ^ 0x01U);
+    writeBytes(legacyPath, damaged);
+    tribe::GameState candidate = gameState(299U);
+    const std::uint32_t originalSeed = candidate.seed;
+    REQUIRE(!saves.load(tribe::SaveSlot::Slot4, candidate, error));
+    REQUIRE(candidate.seed == originalSeed);
+    std::filesystem::path legacyArchive = legacyPath;
+    legacyArchive += ".v5.bak";
+    REQUIRE(!std::filesystem::exists(legacyArchive));
+    REQUIRE(readBytes(legacyPath) == damaged);
+
+    const std::filesystem::path unsafePath = saves.pathFor(tribe::SaveSlot::Slot5);
+    REQUIRE(saves.save(gameState(242U), tribe::SaveSlot::Slot5, error));
+    std::string unsafe = readBytes(unsafePath);
+    const std::string tribeName = "燧火";
+    const std::size_t nameOffset = unsafe.find(tribeName);
+    REQUIRE(nameOffset != std::string::npos);
+    unsafe[nameOffset] = '\x1b';
+    writeU32(unsafe, 16U, checksum(std::string_view{unsafe}.substr(20U)));
+    writeBytes(unsafePath, unsafe);
+    REQUIRE(!saves.load(tribe::SaveSlot::Slot5, candidate, error));
+    REQUIRE(candidate.seed == originalSeed);
+    REQUIRE(error.find("控制字符") != std::string::npos);
 }

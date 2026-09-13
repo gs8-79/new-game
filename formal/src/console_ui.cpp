@@ -17,6 +17,10 @@
 namespace tribe {
 namespace {
 
+// 本匿名命名空间的渲染辅助函数只格式化传入值：输出为文本、列宽或 ANSI 代码，不修改 GameEngine。
+// 无效 UTF-8 安全降级；ANSI 仅在调用方启用时写出；所有宽度计算保持输出指针前进。
+/// 用途：映射界面颜色到 ANSI SGR 代码。输入：颜色枚举。输出：静态转义序列；无状态修改。
+/// 失败：未知枚举退回复位代码。不变量：调用方在 ANSI 关闭时不得写出返回值。
 const char* colorCode(const UiColor color) {
     switch (color) {
         case UiColor::Title:
@@ -52,6 +56,8 @@ struct Glyph {
     std::size_t columns;
 };
 
+/// 用途：解析一个 UTF-8 字形的字节数和显示列数。输入：文本和有效字节下标。输出：字形长度与列宽；无状态修改。
+/// 失败：无效或截断序列退化为单字节单列；不变量：返回 bytes 至少为一，调用方必然前进。
 Glyph glyphAt(const std::string_view text, const std::size_t index) {
     const auto first = static_cast<unsigned char>(text[index]);
     if (first < 0x80U) return {1U, first < 32U ? 0U : 1U};
@@ -75,6 +81,8 @@ Glyph glyphAt(const std::string_view text, const std::size_t index) {
     return {count, wide ? 2U : 1U};
 }
 
+/// 用途：累加文本终端显示列数。输入：UTF-8 文本。输出：列宽；无状态修改。
+/// 失败：无效字节由 glyphAt 保守降级；不变量：组合附加符零列、宽字符两列，绝不按字节长度计宽。
 std::size_t displayWidth(const std::string_view text) {
     std::size_t width = 0U;
     for (std::size_t index = 0U; index < text.size();) {
@@ -85,9 +93,41 @@ std::size_t displayWidth(const std::string_view text) {
     return width;
 }
 
+/// 用途：生成存档菜单的槽位快捷键。输入：槽位。输出：键名；无状态修改。
+/// 失败：未知枚举按数值展示。不变量：自动档始终显示为 A。
 std::string slotKey(const SaveSlot slot) {
     if (slot == SaveSlot::Autosave) return "A";
     return std::to_string(static_cast<int>(slot) + 1);
+}
+
+/// 用途：在首季给出最小可执行教学目标。输入：只读状态。输出：提示或空文本；无状态修改。
+/// 失败：非首季或已有任务返回空。不变量：不改变任务、资源或行动数。
+std::string firstSeasonGoal(const GameState& state) {
+    if (state.season != 1 || state.phase != GamePhase::Managing) return {};
+    if (state.missionCount > 0) return {};
+    if (state.workforce.woodCrew < 2) return "先建立补给路线：输入 assign wood 2，安排木材队。";
+    return "带回第一批木材：mission wood → move forest → gather wood → move camp → settle。";
+}
+
+/// 用途：汇总联盟、征服与繁荣结局进度。输入：只读状态。输出：提示或空文本；无状态修改。
+/// 失败：尚未完成任务时返回空。不变量：只读取状态且不推断未达成的条件。
+std::string roadProgress(const GameState& state) {
+    if (state.missionCount == 0) return {};
+    const int alliances =
+        static_cast<int>(std::count_if(state.relations.begin() + 1, state.relations.end(),
+                                       [](const DiplomacyRelation& relation) { return relation.alliance; }));
+    const int occupied = static_cast<int>(std::count_if(state.occupations.begin() + 1, state.occupations.end(),
+                                                        [](const OccupationState& site) { return site.occupied; }));
+    const int buildings = static_cast<int>(std::count(state.buildings.begin(), state.buildings.end(), true));
+    const int technologies = static_cast<int>(std::count(state.technologies.begin(), state.technologies.end(), true));
+    std::ostringstream output;
+    output << "联盟：河鹿关系" << state.relations[indexOf(TribeId::RiverDeer)].relation << "/70，白羽关系"
+           << state.relations[indexOf(TribeId::WhiteFeather)].relation << "/70，联盟" << alliances << "/2，部落联盟技术"
+           << (state.technologies[indexOf(TechnologyId::Confederation)] ? "已完成" : "未完成") << "\n征服：据点"
+           << occupied << "/2，战士" << state.warriors << "/5，士气" << state.morale << "/55"
+           << "\n繁荣：人口" << state.population << "/20，食物" << state.food << "/40，建筑" << buildings << "/4，技术"
+           << technologies << "/4";
+    return output.str();
 }
 
 } // namespace
@@ -167,11 +207,12 @@ void ConsoleUI::clear() {
 }
 
 void ConsoleUI::flushPage() {
-    // 按显示列数换行，UTF-8 字符不可拆开，ANSI 样式不占列宽。
+    // 1. 按显示列数换行，UTF-8 字符不可拆开，ANSI 样式不占列宽。
     const std::string page = output_.str();
     std::size_t column = 0U;
     for (std::size_t index = 0U; index < page.size();) {
         if (page[index] == '\x1b' && index + 1U < page.size() && page[index + 1U] == '[') {
+            // 2. 完整转发 ANSI CSI 序列而不累计列数，避免样式控制字节造成提前换行。
             std::size_t end = index + 2U;
             while (end < page.size() && (page[end] < '@' || page[end] > '~')) ++end;
             if (end < page.size()) ++end;
@@ -186,6 +227,7 @@ void ConsoleUI::flushPage() {
             continue;
         }
         const Glyph glyph = glyphAt(page, index);
+        // 3. 先判断整个字形能否容纳；宽字符不得跨越行尾。
         if (column + glyph.columns > width_) {
             destination_ << '\n';
             column = 0U;
@@ -300,7 +342,9 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
                 << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n"
-                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n";
+                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n"
+                << "  劳力、前哨守卫、驻军、已组建军队和任务小队共用人口-2；人口减少后先重分配。\n"
+                << "  建成并配置岗位后，可任命工匠为工坊负责人、医者为医者负责人；负责人不可入小队。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
         output_ << "  5 或 mission <资源> 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
@@ -317,7 +361,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  factions 查看派系；appease <1至3> 安抚派系。未知部落需要先探索。\n";
     } else if (topic == 5) {
         writeSection("战争与结局");
-        output_ << "  formarmy/组建军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
+        output_ << "  formarmy/组建军队  disbandarmy/解散军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
                 << "  季节上限到达后，按已满足条件选择联盟、征服、繁荣或迁徙。\n";
         output_ << "  组建军队 <战士人数> <民兵人数>；先 declare <部落> 宣战，再 出征 <部落>。\n"
                 << "  下令 <推进|坚守|集火|包抄|掩护|撤退>；retreat/撤退。\n"
@@ -481,8 +525,8 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     write(UiColor::Stone, "石料 " + std::to_string(state.stone));
     output_ << "   ";
     write(UiColor::Herbs, "草药 " + std::to_string(state.herbs));
-    output_ << "   兽皮 " << state.hides << "   贝币 " << state.shells
-            << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
+    output_ << "   兽皮 " << state.hides;
+    output_ << '\n'
             << "  地点 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
             << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
             << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
@@ -522,9 +566,25 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
         output_ << '\n';
         output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew << " 石料队"
                 << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew << "（下季行动上限 "
-                << (3 + (state.workforce.foodCrew >= 2) + (state.workforce.woodCrew >= 2) +
-                    (state.workforce.stoneCrew >= 2) + (state.workforce.herbCrew >= 2))
+                << (3 + static_cast<int>(state.workforce.foodCrew >= 2) +
+                    static_cast<int>(state.workforce.woodCrew >= 2) + static_cast<int>(state.workforce.stoneCrew >= 2) +
+                    static_cast<int>(state.workforce.herbCrew >= 2))
                 << "/7）\n";
+    }
+
+    const std::string firstGoal = firstSeasonGoal(state);
+    if (!firstGoal.empty()) {
+        writeSection("首季目标");
+        write(UiColor::Accent, "  " + firstGoal + "\n");
+    }
+    const std::string roads = roadProgress(state);
+    if (!roads.empty()) {
+        writeSection("道路进展");
+        write(UiColor::Accent, "  " + roads + "\n");
+    }
+    if (state.workforceReassignmentRequired) {
+        writeSection("劳力待重分配");
+        write(UiColor::Warning, "  人口不足以维持当前占用；仅可降低劳力或驻军，或解散军队。\n");
     }
 
     writeSection("最近消息");

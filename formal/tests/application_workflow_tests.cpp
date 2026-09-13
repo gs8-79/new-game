@@ -14,6 +14,7 @@
 
 namespace {
 
+// 为端到端脚本创建唯一临时存档根目录；析构仅删除该测试创建的目录，避免触碰玩家 saves。
 class TemporarySaveDirectory {
    public:
     explicit TemporarySaveDirectory(const std::string& label) {
@@ -66,12 +67,13 @@ bool validUtf8(const std::string_view text) {
 TEST_CASE("application supports a scripted new-game map-save-load-return workflow in an isolated directory") {
     TemporarySaveDirectory directory{"main-flow"};
     std::istringstream input{
-        "seed quick 301\n"
-        "assign wood 2\n"
-        "mission wood\n"
-        "move forest\n"
-        "gather wood\n"
-        "move camp\n"
+        "  seed QUICK 301  \n"
+        "\n"
+        " assign 木材 2\n"
+        " mission 木材\n"
+        " move 苍林\n"
+        " gather 木材\n"
+        " move 营地\n"
         "settle\n"
         "save 1\n"
         "back\n"
@@ -121,4 +123,29 @@ TEST_CASE("console rendering preserves UTF-8 output at the classroom 80-column b
     narrow.renderGame(game, "窄窗口验证");
     REQUIRE(validUtf8(narrowOutput.str()));
     REQUIRE(narrowOutput.str().find("首季目标") != std::string::npos);
+}
+
+TEST_CASE("mission road overview keeps coloring optional and text safe at classroom widths") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 304U}};
+    REQUIRE(game.execute("assign wood 2").success);
+    REQUIRE(game.execute("mission wood").success);
+
+    std::ostringstream plainOutput;
+    tribe::ConsoleUI plain{plainOutput, false, false, 80U};
+    plain.renderGame(game, "地图界面验证");
+    REQUIRE(validUtf8(plainOutput.str()));
+    REQUIRE(plainOutput.str().find("道路总览") != std::string::npos);
+    REQUIRE(plainOutput.str().find("[1 营地]") != std::string::npos);
+    REQUIRE(plainOutput.str().find('\x1b') == std::string::npos);
+
+    std::ostringstream colouredOutput;
+    tribe::ConsoleUI coloured{colouredOutput, false, true, 80U};
+    coloured.renderGame(game, "地图界面验证");
+    REQUIRE(colouredOutput.str().find('\x1b') != std::string::npos);
+
+    std::ostringstream narrowOutput;
+    tribe::ConsoleUI narrow{narrowOutput, false, false, 24U};
+    narrow.renderGame(game, "窄窗口地图验证");
+    REQUIRE(validUtf8(narrowOutput.str()));
+    REQUIRE(narrowOutput.str().find("道路总览") != std::string::npos);
 }
