@@ -94,6 +94,7 @@ ExpansionCommandResult ExpansionGame::execute(std::string_view input) {
         return hasArity(0U) ? ExpansionCommandResult{true, true, false, false, lookText()}
                             : rejected("用法：look / 查看");
     if (state_.encounterLife > 0) {
+        // 遭遇期间道路被封锁：只接受战斗与查看，避免战斗中移动或继续采集。
         if (commandId == game_command_catalog::CommandId::Attack && hasArity(0U)) return attackEncounter();
         if (commandId == game_command_catalog::CommandId::Defend && hasArity(0U)) return defendEncounter();
         if (commandId == game_command_catalog::CommandId::Retreat && hasArity(0U)) return retreatEncounter();
@@ -122,6 +123,7 @@ ExpansionCommandResult ExpansionGame::move(std::string_view target) {
     if (!destination) return rejected("未知地点；输入地图可查看1至16号地点。");
     const WorldLocationId current = static_cast<WorldLocationId>(state_.worldLocation);
     if (*destination == current) return rejected("小队已经在这里。");
+    // 只允许沿地图目录登记的相邻道路前进，禁止跨越地点跳转。
     if (!world_map::adjacent(current, *destination)) return rejected("两地不相邻，不能跨越道路移动。");
     ExpansionState candidate = state_;
     candidate.worldLocation = static_cast<int>(indexOf(*destination));
@@ -163,6 +165,7 @@ ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
         return rejected("当前地点没有这种资源。");
     if (*kind != state_.assignedResource &&
         !(*kind == ResourceKind::Hides && state_.assignedResource == ResourceKind::Food))
+        // 一次任务只采集出发时指定的一种资源；兽皮作为狩猎副产品可在食物任务中一并取得。
         return rejected("本次任务由指定资源队执行，不能混采。");
     const int room = state_.cargoCapacity - cargoTotal(state_);
     if (room <= 0) return rejected("小队载货已满，请结算。");
@@ -202,6 +205,7 @@ ExpansionCommandResult ExpansionGame::buildOutpost() {
     const std::size_t at = static_cast<std::size_t>(state_.worldLocation);
     if (at == 0U) return rejected("营地无需建造前哨。");
     if (state_.outposts[at]) return rejected("该地点已经有前哨。");
+    // 岩牙要塞处于敌对巡逻控制下，必须先击退遭遇才能建造前哨。
     if (state_.worldLocation == static_cast<int>(WorldLocationId::RockfangFort) && !state_.encounterDefeated)
         return rejected("岩牙要塞仍有敌对巡逻，不能建造前哨。");
     if (state_.cargoWood < 6 || state_.cargoStone < 4) return rejected("建造前哨需要现场携带木材6、石料4。");
@@ -278,6 +282,7 @@ ExpansionCommandResult ExpansionGame::retreatEncounter() {
         return rejected("当前没有遭遇战。");
     ExpansionState candidate = state_;
     candidate.encounterLife = 0;
+    // 撤退固定退回要塞相邻的古老山隘，而不是任意地点。
     candidate.worldLocation = static_cast<int>(WorldLocationId::OldPass);
     recordTurn(candidate, 2, 1);
     return commit(std::move(candidate), "小队撤回古老山隘。", true);
@@ -362,6 +367,7 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         state.backpack.usedSlots() > state.backpack.slotLimit())
         return invalid("任务背包超出容量。");
     std::unordered_set<std::string> ids;
+    // ids 集合同时覆盖小队装备与任务背包：同一件装备不得同时出现在两处。
     const auto validateItem = [&ids](const Item& item, const std::size_t expectedSlot) {
         if (item.id.empty() || item.name.empty() || item.weight < 0 || item.slotCount <= 0 ||
             static_cast<int>(item.quality) < static_cast<int>(ItemQuality::Crude) ||
@@ -386,6 +392,7 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
 }
 
 ExpansionCommandResult ExpansionGame::commit(ExpansionState candidate, std::string message, bool turnAdvanced) {
+    // 先完整校验候选状态再整体替换：任一项不合法都直接丢弃候选，已提交的 state_ 保持不变。
     const OperationResult check = validateState(candidate);
     if (!check) return rejected("操作已取消：" + check.message);
     state_ = std::move(candidate);
@@ -398,6 +405,7 @@ ExpansionCommandResult ExpansionGame::rejected(std::string message) const {
 
 void ExpansionGame::recordTurn(ExpansionState& candidate, int leaderFatigue, int followerFatigue) const {
     ++candidate.turn;
+    // 队长与队员的疲劳增量不同，统一夹在 0 至 100，避免单次行动把疲劳推成负数或越界。
     for (std::size_t index = 0; index < candidate.squad.members.size(); ++index)
         candidate.squad.members[index].fatigue =
             std::clamp(candidate.squad.members[index].fatigue +
