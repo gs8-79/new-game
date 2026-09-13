@@ -6,9 +6,9 @@
 #include "seasonal_event_rules.hpp"
 #include "state_safety.hpp"
 #include "war_rules.hpp"
+#include "world_map_catalog.hpp"
 
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <initializer_list>
 #include <iterator>
@@ -28,90 +28,10 @@ using command_parser::Command;
 using command_parser::equalsAny;
 using command_parser::parse;
 using command_parser::verbIs;
+/// 用途：保留 GameEngine 的兼容地图接口，并转发到唯一地图目录。
+/// 输入/输出：无输入，返回十六地点只读引用。状态影响：无；不变量：目录顺序与持久化编号不变。
 const std::array<WorldLocationInfo, kWorldLocationCount>& GameEngine::worldLocations() {
-    static const std::array<WorldLocationInfo, kWorldLocationCount> locations{{
-        {WorldLocationId::Camp,
-         "燧火营地",
-         "部落管理、建设与结算",
-         LocationRole::Camp,
-         {WorldLocationId::Forest, WorldLocationId::RedPlain}},
-        {WorldLocationId::Forest,
-         "苍林",
-         "食物、木材、草药与兽皮",
-         LocationRole::Resource,
-         {WorldLocationId::Camp, WorldLocationId::Marsh}},
-        {WorldLocationId::RedPlain,
-         "红土原",
-         "食物与兽皮采集，通往渡口和矿场",
-         LocationRole::Resource,
-         {WorldLocationId::Camp, WorldLocationId::RiverFord, WorldLocationId::Quarry}},
-        {WorldLocationId::Marsh,
-         "芦苇沼泽",
-         "木材与草药采集，连接白羽与海岸",
-         LocationRole::Resource,
-         {WorldLocationId::Forest, WorldLocationId::WhiteFeatherCamp, WorldLocationId::SaltwindCoast}},
-        {WorldLocationId::RiverFord,
-         "河鹿渡口",
-         "河鹿部落交谈、贸易与商路",
-         LocationRole::Diplomacy,
-         {WorldLocationId::RedPlain, WorldLocationId::MountainMarket}},
-        {WorldLocationId::WhiteFeatherCamp,
-         "白羽营地",
-         "白羽部落交谈、贸易与联盟",
-         LocationRole::Diplomacy,
-         {WorldLocationId::Marsh}},
-        {WorldLocationId::Quarry,
-         "燧石矿场",
-         "石料采集，通往玄石谷",
-         LocationRole::Resource,
-         {WorldLocationId::RedPlain, WorldLocationId::BlackstoneValley}},
-        {WorldLocationId::OldPass,
-         "古老山隘",
-         "连接岩牙要塞的山路",
-         LocationRole::Route,
-         {WorldLocationId::CliffTradeRoad, WorldLocationId::RockfangFort}},
-        {WorldLocationId::RockfangFort,
-         "岩牙要塞",
-         "岩牙巡逻与征服目标",
-         LocationRole::War,
-         {WorldLocationId::OldPass}},
-        {WorldLocationId::SaltwindCoast,
-         "盐风海岸",
-         "远程食物采集，通往潮盐港",
-         LocationRole::Resource,
-         {WorldLocationId::Marsh, WorldLocationId::ShellBeach}},
-        {WorldLocationId::TidesaltHarbor,
-         "潮盐港",
-         "潮盐部落交谈、贸易与商路",
-         LocationRole::Diplomacy,
-         {WorldLocationId::ShellBeach, WorldLocationId::MountainMarket}},
-        {WorldLocationId::ShellBeach,
-         "贝壳滩",
-         "连接海岸与潮盐港的潮汐通道",
-         LocationRole::Route,
-         {WorldLocationId::SaltwindCoast, WorldLocationId::TidesaltHarbor}},
-        {WorldLocationId::BlackstoneValley,
-         "玄石谷",
-         "石料采集，通往玄石工坊",
-         LocationRole::Resource,
-         {WorldLocationId::Quarry, WorldLocationId::BlackstoneWorkshop}},
-        {WorldLocationId::BlackstoneWorkshop,
-         "玄石工坊",
-         "玄石部落交谈、贸易与联盟",
-         LocationRole::Diplomacy,
-         {WorldLocationId::BlackstoneValley, WorldLocationId::CliffTradeRoad}},
-        {WorldLocationId::MountainMarket,
-         "山前集市",
-         "三路交汇，开通商路的交通节点",
-         LocationRole::Route,
-         {WorldLocationId::RiverFord, WorldLocationId::TidesaltHarbor, WorldLocationId::CliffTradeRoad}},
-        {WorldLocationId::CliffTradeRoad,
-         "断崖商道",
-         "连接集市、玄石与山隘的商路",
-         LocationRole::Route,
-         {WorldLocationId::BlackstoneWorkshop, WorldLocationId::MountainMarket, WorldLocationId::OldPass}},
-    }};
-    return locations;
+    return world_map::locations();
 }
 
 std::string GameEngine::statusText() const {

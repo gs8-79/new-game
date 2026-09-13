@@ -2,6 +2,7 @@
 
 #include "command_parser.hpp"
 #include "seasonal_event_rules.hpp"
+#include "world_map_catalog.hpp"
 
 #include <algorithm>
 #include <array>
@@ -126,36 +127,7 @@ std::string tribeCommandName(const TribeId tribe) {
     }
 }
 
-std::optional<WorldLocationId> parseLocation(const std::string_view text) {
-    static const std::array<std::vector<std::string_view>, kWorldLocationCount> aliases{{
-        {"camp", "营地", "燧火营地"},
-        {"forest", "苍林"},
-        {"plain", "redplain", "红土原"},
-        {"marsh", "沼泽", "芦苇沼泽"},
-        {"ford", "riverford", "渡口", "河鹿渡口"},
-        {"whitecamp", "白羽营地"},
-        {"quarry", "矿场", "燧石矿场"},
-        {"pass", "oldpass", "山隘", "古老山隘"},
-        {"fort", "rockfort", "岩牙要塞"},
-        {"coast", "saltwind", "盐风海岸"},
-        {"harbor", "tidesaltharbor", "潮盐港"},
-        {"beach", "shellbeach", "贝壳滩"},
-        {"valley", "blackstonevalley", "玄石谷"},
-        {"workshop", "blackstoneworkshop", "玄石工坊"},
-        {"market", "mountainmarket", "山前集市"},
-        {"road", "cliffroad", "断崖商道"},
-    }};
-    int numeric = 0;
-    if (parseNonnegative(text, numeric) && numeric >= 1 && numeric <= static_cast<int>(kWorldLocationCount)) {
-        return static_cast<WorldLocationId>(numeric - 1);
-    }
-    for (std::size_t index = 0; index < aliases.size(); ++index) {
-        if (std::find(aliases[index].begin(), aliases[index].end(), text) != aliases[index].end()) {
-            return static_cast<WorldLocationId>(index);
-        }
-    }
-    return std::nullopt;
-}
+std::optional<WorldLocationId> parseLocation(const std::string_view text) { return world_map::parse(text); }
 
 int enemyBasePower(const TribeId tribe) {
     switch (tribe) {

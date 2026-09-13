@@ -116,6 +116,36 @@ TEST_CASE("the v5 interface exposes five resources, map roles, and road progress
     REQUIRE(progressOutput.str().find("联盟：") != std::string::npos);
 }
 
+TEST_CASE("command catalog keeps whitespace Chinese English and numeric query contracts identical") {
+    tribe::GameEngine english{{tribe::GameMode::Quick, 141U}};
+    tribe::GameEngine chinese{{tribe::GameMode::Quick, 141U}};
+    tribe::GameEngine numeric{{tribe::GameMode::Quick, 141U}};
+
+    const tribe::ActionResult englishStatus = english.execute("  status  ");
+    const tribe::ActionResult chineseStatus = chinese.execute("状态");
+    const tribe::ActionResult numericStatus = numeric.execute("1");
+    REQUIRE(englishStatus.success);
+    REQUIRE(chineseStatus.success);
+    REQUIRE(numericStatus.success);
+    REQUIRE(englishStatus.message == chineseStatus.message);
+    REQUIRE(englishStatus.message == numericStatus.message);
+    REQUIRE(stateSnapshot(english.state()) == stateSnapshot(chinese.state()));
+    REQUIRE(stateSnapshot(english.state()) == stateSnapshot(numeric.state()));
+
+    REQUIRE(english.execute("  assign   wood  2 ").success);
+    REQUIRE(chinese.execute("分配 木材 2").success);
+    REQUIRE(stateSnapshot(english.state()) == stateSnapshot(chinese.state()));
+    REQUIRE(english.execute("mission wood").success);
+    REQUIRE(chinese.execute("出任务 木材").success);
+    REQUIRE(stateSnapshot(english.state()) == stateSnapshot(chinese.state()));
+
+    requireRejectedWithoutChange(english, "build unknown-building");
+    const std::string beforeWhitespace = stateSnapshot(english.state());
+    const tribe::ActionResult blank = english.execute(" \t \r\n");
+    REQUIRE(!blank.recognized);
+    REQUIRE(stateSnapshot(english.state()) == beforeWhitespace);
+}
+
 TEST_CASE("five-resource barter remains available and currency commands are absent") {
     tribe::GameEngine base{{tribe::GameMode::Quick, 17U}};
     tribe::GameState state = base.state();
@@ -417,6 +447,10 @@ TEST_CASE("state validation rejects unsafe text invalid items and incoherent mis
     REQUIRE(!game.replaceState(unsafeUtf8, error));
     REQUIRE(stateSnapshot(game.state()) == before);
 
+    unsafeUtf8.leaderName = std::string{"\xC2\x80", 2U};
+    REQUIRE(!game.replaceState(unsafeUtf8, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
     tribe::GameState invalidItem = game.state();
     tribe::Item malformed;
     malformed.id = "malformed";
@@ -429,32 +463,77 @@ TEST_CASE("state validation rejects unsafe text invalid items and incoherent mis
     REQUIRE(stateSnapshot(game.state()) == before);
 
     tribe::GameState wrongEquipmentSlot = game.state();
-    wrongEquipmentSlot.roster.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]->equipmentSlot =
-        tribe::EquipmentSlot::Body;
+    auto& equipped = wrongEquipmentSlot.roster.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)];
+    REQUIRE(equipped.has_value());
+    if (equipped) equipped->equipmentSlot = tribe::EquipmentSlot::Body;
     REQUIRE(!game.replaceState(wrongEquipmentSlot, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState invalidCharacter = game.state();
+    invalidCharacter.roster.front().occupation = static_cast<tribe::Occupation>(99);
+    REQUIRE(!game.replaceState(invalidCharacter, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState invalidFaction = game.state();
+    invalidFaction.tribes[tribe::indexOf(tribe::TribeId::RiverDeer)].factions.front().crisis =
+        static_cast<tribe::FactionCrisis>(99);
+    REQUIRE(!game.replaceState(invalidFaction, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState invalidWar = game.state();
+    invalidWar.war.order = static_cast<tribe::WarOrder>(99);
+    REQUIRE(!game.replaceState(invalidWar, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState overGarrisoned = game.state();
+    overGarrisoned.occupations[tribe::indexOf(tribe::TribeId::Rockfang)] = {true, overGarrisoned.warriors + 1, 0};
+    REQUIRE(!game.replaceState(overGarrisoned, error));
+    REQUIRE(stateSnapshot(game.state()) == before);
+
+    tribe::GameState unknownCommander = game.state();
+    unknownCommander.war.commander = "不存在的统帅";
+    unknownCommander.war.warriors = 1;
+    REQUIRE(!game.replaceState(unknownCommander, error));
     REQUIRE(stateSnapshot(game.state()) == before);
 
     requireSuccess(game, "assign wood 2");
     requireSuccess(game, "mission wood");
     tribe::GameState invalidMission = game.state();
-    invalidMission.activeMission->encounterLife = 3;
-    invalidMission.activeMission->worldLocation = 0;
+    REQUIRE(invalidMission.activeMission.has_value());
+    if (invalidMission.activeMission) {
+        invalidMission.activeMission->encounterLife = 3;
+        invalidMission.activeMission->worldLocation = 0;
+    }
     REQUIRE(!game.replaceState(invalidMission, error));
-    REQUIRE(game.state().activeMission->encounterLife == 0);
+    const auto& activeMission = game.state().activeMission;
+    REQUIRE(activeMission.has_value());
+    if (activeMission) REQUIRE(activeMission->encounterLife == 0);
 
     invalidMission = game.state();
-    invalidMission.activeMission->squad.members.front().name = "不在名单的人";
+    REQUIRE(invalidMission.activeMission.has_value());
+    if (invalidMission.activeMission) invalidMission.activeMission->squad.members.front().name = "不在名单的人";
     REQUIRE(!game.replaceState(invalidMission, error));
-    REQUIRE(game.state().activeMission->squad.members.front().name != "不在名单的人");
+    const auto& unchangedMission = game.state().activeMission;
+    REQUIRE(unchangedMission.has_value());
+    if (unchangedMission) REQUIRE(unchangedMission->squad.members.front().name != "不在名单的人");
 
     invalidMission = game.state();
-    invalidMission.activeMission->squad.members.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]->id +=
-        "_tampered";
+    REQUIRE(invalidMission.activeMission.has_value());
+    if (invalidMission.activeMission) {
+        auto& missionEquipment = invalidMission.activeMission->squad.members.front()
+                                     .equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)];
+        REQUIRE(missionEquipment.has_value());
+        if (missionEquipment) missionEquipment->id += "_tampered";
+    }
     REQUIRE(!game.replaceState(invalidMission, error));
-    REQUIRE(game.state()
-                .activeMission->squad.members.front()
-                .equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)]
-                ->id == "leader_bow");
+    const auto& unchangedEquipmentMission = game.state().activeMission;
+    REQUIRE(unchangedEquipmentMission.has_value());
+    if (unchangedEquipmentMission) {
+        const auto& unchangedEquipment =
+            unchangedEquipmentMission->squad.members.front().equipment[tribe::indexOf(tribe::EquipmentSlot::MainHand)];
+        REQUIRE(unchangedEquipment.has_value());
+        if (unchangedEquipment) REQUIRE(unchangedEquipment->id == "leader_bow");
+    }
 }
 
 TEST_CASE("fixed-seed command sequences preserve valid state and make rejected commands byte-identical no-ops") {

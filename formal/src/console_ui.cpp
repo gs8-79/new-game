@@ -1,5 +1,7 @@
 #include "tribe/console_ui.hpp"
 
+#include "world_map_catalog.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
@@ -379,66 +381,35 @@ void ConsoleUI::renderHelpPage(const int topic) {
     prompt(topic == 0 ? "\n输入1至6，或 B/Enter 返回 > " : "\n输入1至6切换分类，B/Enter 返回 > ");
 }
 
-void ConsoleUI::renderMission(const GameEngine& game, const std::string_view message) {
-    clear();
-    const GameState& state = game.state();
-    writeRule('=');
-    writeCentered(UiColor::Title, "《燧火纪：部落黎明》· 小队地图");
-    writeCentered(UiColor::Dim, "离开营地后，只听道路、风声与队友的脚步。输入指令继续探索。");
-    writeRule('=');
-
-    const ExpansionState& mission = *state.activeMission;
+/// 用途：按唯一地图目录绘制道路节点、连接线、图例和探索统计。输入：活动任务状态。输出：道路视图。
+/// 状态影响：仅写入输出缓冲。失败：无。不变量：节点编号与短名称始终由 world_map_catalog 提供。
+void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
     const auto& locations = GameEngine::worldLocations();
-    const Character& captain = mission.squad.members[mission.squad.leaderIndex];
-    // 用逐节点渲染代替整段字符串，便于突出当前位置并保留道路间距。
     writeSection("道路总览");
     const auto roadIndent = [&](const std::size_t amount) { output_ << std::string(amount, ' '); };
-    const auto roadNode = [&](const std::size_t index, const std::string_view shortName) {
+    const auto roadNode = [&](const WorldLocationId location) {
         // 当前位置用金色加粗；已发现地点用白色，未发现地点降为灰色。
+        const std::size_t index = indexOf(location);
         const bool current = index == static_cast<std::size_t>(mission.worldLocation);
         const UiColor color = current                          ? UiColor::Title
                               : mission.worldDiscovered[index] ? UiColor::Normal
                                                                : UiColor::Dim;
-        write(color, "[" + std::to_string(index + 1U) + " " + std::string(shortName) + "]");
+        write(color, "[" + std::to_string(index + 1U) + " " + std::string(world_map::shortName(location)) + "]");
     };
     // 道路连接线使用低亮度灰色，不喧宾夺主。
     const auto roadLink = [&] { write(UiColor::Dim, " ── "); };
     output_ << "  ";
     write(UiColor::Neutral, "北方 ↑");
     write(UiColor::Dim, "    [编号 地点]  道路 ──   当前位置以金色加粗显示\n\n");
-    roadIndent(25U);
-    roadNode(7U, "古老山隘");
-    roadLink();
-    roadNode(8U, "岩牙要塞");
-    output_ << "\n\n  ";
-    roadNode(5U, "白羽");
-    roadLink();
-    roadNode(3U, "芦苇");
-    roadLink();
-    roadNode(9U, "盐风");
-    roadLink();
-    roadNode(11U, "贝壳");
-    roadLink();
-    roadNode(10U, "潮盐");
-    output_ << "\n\n      ";
-    roadNode(1U, "苍林");
-    roadLink();
-    roadNode(0U, "营地");
-    roadLink();
-    roadNode(2U, "红土");
-    roadLink();
-    roadNode(4U, "河鹿");
-    roadLink();
-    roadNode(14U, "山前");
-    roadLink();
-    roadNode(15U, "断崖");
-    output_ << "\n\n";
-    roadIndent(25U);
-    roadNode(6U, "矿场");
-    roadLink();
-    roadNode(12U, "玄石谷");
-    roadLink();
-    roadNode(13U, "玄石工坊");
+    const auto& rows = world_map::roadRows();
+    for (std::size_t rowIndex = 0U; rowIndex < rows.size(); ++rowIndex) {
+        if (rowIndex > 0U) output_ << "\n\n";
+        roadIndent(rows[rowIndex].indent);
+        for (std::size_t nodeIndex = 0U; nodeIndex < rows[rowIndex].nodes.size(); ++nodeIndex) {
+            if (nodeIndex > 0U) roadLink();
+            roadNode(rows[rowIndex].nodes[nodeIndex]);
+        }
+    }
     output_ << "\n  ";
     write(UiColor::Dim, "图例：");
     write(UiColor::Title, "金色");
@@ -452,6 +423,19 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
                               locations[static_cast<std::size_t>(mission.worldLocation)].name);
     output_ << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true)
             << "/16  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
+}
+
+void ConsoleUI::renderMission(const GameEngine& game, const std::string_view message) {
+    clear();
+    const GameState& state = game.state();
+    writeRule('=');
+    writeCentered(UiColor::Title, "《燧火纪：部落黎明》· 小队地图");
+    writeCentered(UiColor::Dim, "离开营地后，只听道路、风声与队友的脚步。输入指令继续探索。");
+    writeRule('=');
+
+    const ExpansionState& mission = *state.activeMission;
+    const Character& captain = mission.squad.members[mission.squad.leaderIndex];
+    renderMissionRoadMap(mission);
 
     writeSection("任务指令");
     output_ << "  look/查看：当前位置、资源、结算点    move/移动 <编号或地点>：沿相邻道路前进\n"
@@ -495,13 +479,9 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
     prompt("地图指令 > ");
 }
 
-void ConsoleUI::renderGame(const GameEngine& game, const std::string_view message) {
-    const GameState& state = game.state();
-    if (state.phase == GamePhase::Mission && state.activeMission) {
-        renderMission(game, message);
-        return;
-    }
-
+/// 用途：渲染主游戏共用的标题、模式、季节、阶段和行动点。输入：当前状态。输出：页头文本。
+/// 状态影响：清空并写入输出缓冲。失败：无。不变量：不修改游戏状态、ANSI 设置或玩家文本。
+void ConsoleUI::renderGameHeader(const GameState& state) {
     clear();
     writeRule('=');
     writeCentered(UiColor::Title, "《燧火纪：部落黎明》");
@@ -509,7 +489,11 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
                                     std::to_string(state.seasonLimit) + "季  |  " + GameEngine::phaseName(state.phase) +
                                     "  |  行动点 " + std::to_string(state.actionsLeft));
     writeRule('=');
+}
 
+/// 用途：渲染部落、资源和对外关系的稳定摘要。输入：当前状态。输出：三段展示文本。
+/// 状态影响：仅写入输出缓冲。失败：无。不变量：统计值均直接读取已提交状态，不推断未发生事件。
+void ConsoleUI::renderGameSummary(const GameState& state) {
     writeSection("部落");
     output_ << "  " << state.tribeName << "  首领 " << state.leaderName;
     if (!state.actingLeaderName.empty()) output_ << "（代理/继任 " << state.actingLeaderName << "）";
@@ -549,6 +533,37 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
             output_ << "[商]";
         output_ << (index + 1U == kTribeCount ? '\n' : ' ');
     }
+}
+
+/// 用途：按游戏阶段显示不改变规则的命令备忘。输入：阶段枚举。输出：命令提示文本。
+/// 状态影响：仅写入输出缓冲。失败：未知阶段沿用经营提示；不变量：文本不新增或移除玩家命令。
+void ConsoleUI::renderGameCommandHint(const GamePhase phase) {
+    writeSection("可用命令");
+    if (phase == GamePhase::Mission) {
+        output_ << "  查看 移动 <地点> 采集 <资源> 建造 前哨 结算 放弃任务\n";
+    } else if (phase == GamePhase::War) {
+        output_ << "  攻击 防御 下令 <推进|坚守|集火|包抄|掩护|撤退> 撤退\n";
+    } else if (phase == GamePhase::EndingChoice) {
+        output_ << "  目标  选择 <联盟|征服|繁荣|迁徙>\n";
+    } else if (phase == GamePhase::Finished) {
+        output_ << "  重新播放  人物  编年史  继续沙盒  返回主菜单\n";
+    } else {
+        output_ << "  1状态  2地图  3劳力  4仓库  5小队地图任务  6外交  7小队  8结束季节  9帮助\n"
+                << "  经营：建造 研究 制造 维修  分配  建筑清单 技术清单；mission outpost 前哨建设\n"
+                << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
+    }
+    output_ << "  存档：save/保存 <1至6>  load/读取 <1至6|auto>  返回：back  退出：quit\n";
+}
+
+void ConsoleUI::renderGame(const GameEngine& game, const std::string_view message) {
+    const GameState& state = game.state();
+    if (state.phase == GamePhase::Mission && state.activeMission) {
+        renderMission(game, message);
+        return;
+    }
+
+    renderGameHeader(state);
+    renderGameSummary(state);
 
     writeSection("当前局面");
     if (state.phase == GamePhase::War) {
@@ -590,21 +605,7 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     writeSection("最近消息");
     output_ << "  " << (message.empty() ? "火堆噼啪作响，等待你的决定。" : std::string(message)) << '\n';
 
-    writeSection("可用命令");
-    if (state.phase == GamePhase::Mission) {
-        output_ << "  查看 移动 <地点> 采集 <资源> 建造 前哨 结算 放弃任务\n";
-    } else if (state.phase == GamePhase::War) {
-        output_ << "  攻击 防御 下令 <推进|坚守|集火|包抄|掩护|撤退> 撤退\n";
-    } else if (state.phase == GamePhase::EndingChoice) {
-        output_ << "  目标  选择 <联盟|征服|繁荣|迁徙>\n";
-    } else if (state.phase == GamePhase::Finished) {
-        output_ << "  重新播放  人物  编年史  继续沙盒  返回主菜单\n";
-    } else {
-        output_ << "  1状态  2地图  3劳力  4仓库  5小队地图任务  6外交  7小队  8结束季节  9帮助\n"
-                << "  经营：建造 研究 制造 维修  分配  建筑清单 技术清单；mission outpost 前哨建设\n"
-                << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
-    }
-    output_ << "  存档：save/保存 <1至6>  load/读取 <1至6|auto>  返回：back  退出：quit\n";
+    renderGameCommandHint(state.phase);
     writeRule();
     prompt();
 }

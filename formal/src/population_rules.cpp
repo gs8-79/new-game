@@ -2,31 +2,48 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <numeric>
 
 namespace tribe::population_rules {
+namespace {
+
+/// 用途：将人口统计的宽位中间结果安全收束为公开 int 返回值。输入：非受信任状态可能给出的总数。
+/// 输出：位于 int 范围内的计数。状态影响：无；不变量：校验前的损坏数值也不得触发有符号溢出。
+int boundedPopulationCount(const long long value) {
+    if (value > static_cast<long long>(std::numeric_limits<int>::max())) return std::numeric_limits<int>::max();
+    if (value < static_cast<long long>(std::numeric_limits<int>::min())) return std::numeric_limits<int>::min();
+    return static_cast<int>(value);
+}
+
+} // namespace
 
 int workforceAllocation(const WorkforceState& workforce) {
-    int allocated = workforce.foodCrew + workforce.woodCrew + workforce.stoneCrew + workforce.herbCrew +
-                    workforce.crafters + workforce.healers + workforce.scouts + workforce.envoys + workforce.campGuards;
+    long long allocated = static_cast<long long>(workforce.foodCrew) + workforce.woodCrew + workforce.stoneCrew +
+                          workforce.herbCrew + workforce.crafters + workforce.healers + workforce.scouts +
+                          workforce.envoys + workforce.campGuards;
     for (const int guard : workforce.outpostGuards) allocated += guard;
-    return allocated;
+    return boundedPopulationCount(allocated);
 }
 
 int garrisonAllocation(const GameState& state) {
-    return std::accumulate(state.occupations.begin() + 1, state.occupations.end(), 0,
-                           [](const int total, const OccupationState& site) { return total + site.garrison; });
+    long long allocated = 0;
+    for (auto site = state.occupations.begin() + 1; site != state.occupations.end(); ++site)
+        allocated += site->garrison;
+    return boundedPopulationCount(allocated);
 }
 
 bool hasPreparedArmy(const GameState& state) { return !state.war.commander.empty(); }
 
 int committedPopulation(const GameState& state) {
-    const int army = hasPreparedArmy(state) ? state.war.warriors + state.war.militia : 0;
-    const int missionMembers = state.activeMission ? static_cast<int>(state.activeMission->squad.members.size()) : 0;
-    return workforceAllocation(state.workforce) + garrisonAllocation(state) + army + missionMembers;
+    const long long army = hasPreparedArmy(state) ? static_cast<long long>(state.war.warriors) + state.war.militia : 0;
+    const long long missionMembers =
+        state.activeMission ? static_cast<long long>(state.activeMission->squad.members.size()) : 0;
+    return boundedPopulationCount(static_cast<long long>(workforceAllocation(state.workforce)) +
+                                  garrisonAllocation(state) + army + missionMembers);
 }
 
-int populationCapacity(const GameState& state) { return std::max(0, state.population - 2); }
+int populationCapacity(const GameState& state) { return state.population > 2 ? state.population - 2 : 0; }
 
 int populationOverage(const GameState& state) {
     return std::max(0, committedPopulation(state) - populationCapacity(state));

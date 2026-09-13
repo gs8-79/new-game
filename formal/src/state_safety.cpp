@@ -38,7 +38,13 @@ bool validUtf8(const std::string_view text) {
         }
         const bool overlong = (bytes == 2U && codePoint < 0x80U) || (bytes == 3U && codePoint < 0x800U) ||
                               (bytes == 4U && codePoint < 0x10000U);
-        if (overlong || (codePoint >= 0xD800U && codePoint <= 0xDFFFU) || codePoint > 0x10FFFFU) return false;
+        const bool unicodeControl =
+            (codePoint >= 0x80U && codePoint <= 0x9FU) || codePoint == 0x2028U || codePoint == 0x2029U;
+        const bool nonCharacter = (codePoint >= 0xFDD0U && codePoint <= 0xFDEFU) ||
+                                  ((codePoint & 0xFFFFU) >= 0xFFFEU && (codePoint & 0xFFFFU) <= 0xFFFFU);
+        if (overlong || unicodeControl || nonCharacter || (codePoint >= 0xD800U && codePoint <= 0xDFFFU) ||
+            codePoint > 0x10FFFFU)
+            return false;
         index += bytes;
     }
     return true;

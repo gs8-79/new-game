@@ -8,6 +8,8 @@
 namespace tribe::command_parser {
 namespace {
 
+/// 用途：将 ASCII 字母转换为小写而保留非 ASCII 字节。输入：词元副本。输出：规范化文本；无状态修改。
+/// 失败：无。不变量：不触碰 UTF-8 中文字节，调用方可安全复用中英文命令解析。
 std::string asciiLower(std::string text) {
     for (char& character : text) {
         const auto byte = static_cast<unsigned char>(character);

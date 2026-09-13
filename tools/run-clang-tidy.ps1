@@ -1,5 +1,5 @@
-# Run clang-tidy through clang++ rather than CMake's MSVC co-compile wrapper.
-# This avoids the wrapper's Windows exception and UTF-8 argument incompatibilities.
+# 通过 clang++ 调用 clang-tidy，避免使用 CMake 的 MSVC 协同编译包装器。
+# 这样可避开该包装器在 Windows 异常处理和 UTF-8 参数传递上的不兼容。
 param(
     [Parameter(Mandatory = $true)]
     [string]$SourceRoot,
@@ -49,21 +49,42 @@ foreach ($line in $environmentLines) {
 Set-Location -LiteralPath $SourceRoot
 $sourceFiles = @(
     'formal/src/application.cpp',
+    'formal/src/command_parser.cpp',
     'formal/src/console_ui.cpp',
     'formal/src/ending_presentation.cpp',
     'formal/src/expansion_game.cpp',
     'formal/src/expansion_types.cpp',
     'formal/src/game_engine.cpp',
+    'formal/src/game_engine_dispatch.cpp',
+    'formal/src/game_engine_management.cpp',
+    'formal/src/game_engine_mission.cpp',
+    'formal/src/game_engine_diplomacy.cpp',
+    'formal/src/game_engine_war.cpp',
+    'formal/src/game_engine_season.cpp',
+    'formal/src/game_engine_validation.cpp',
+    'formal/src/game_engine_text.cpp',
+    'formal/src/game_command_catalog.cpp',
+    'formal/src/game_engine_internal.cpp',
     'formal/src/main.cpp',
+    'formal/src/population_rules.cpp',
+    'formal/src/seasonal_event_rules.cpp',
+    'formal/src/war_rules.cpp',
+    'formal/src/state_safety.cpp',
+    'formal/src/world_map_catalog.cpp',
+    'formal/src/save_codec.cpp',
+    'formal/src/save_file_transaction.cpp',
     'formal/src/save_repository.cpp',
     'formal/tests/current_game_tests.cpp',
+    'formal/tests/map_mission_tests.cpp',
+    'formal/tests/save_repository_tests.cpp',
+    'formal/tests/application_workflow_tests.cpp',
     'tests/test_main.cpp'
 )
 
 $failedFiles = @()
 foreach ($sourceFile in $sourceFiles) {
     Write-Host "[clang-tidy] $sourceFile"
-    & $ClangTidy --quiet --config-file=.clang-tidy $sourceFile -- clang++ -x c++ -std=c++17 -fexceptions -finput-charset=UTF-8 -Iformal/include -Itests
+    & $ClangTidy --quiet --config-file=.clang-tidy $sourceFile -- clang++ -x c++ -std=c++17 -fexceptions -finput-charset=UTF-8 -Iformal/include -Iformal/src -Itests
     if ($LASTEXITCODE -ne 0) {
         $failedFiles += $sourceFile
     }

@@ -1,7 +1,9 @@
 #include "tribe/expansion_game.hpp"
 
 #include "command_parser.hpp"
+#include "game_command_catalog.hpp"
 #include "state_safety.hpp"
+#include "world_map_catalog.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,95 +23,10 @@ using command_parser::Command;
 using command_parser::equalsAny;
 using command_parser::parse;
 
-// 本匿名命名空间的地图辅助函数只查询十六地点常量和传入任务状态：无状态副作用。
-// 解析失败返回空、非法条件由上层拒绝；道路、载货和遭遇互斥规则不得在此绕过。
-const std::array<std::string_view, kExpeditionWorldLocationCount> kNames{
-    {"燧火营地", "苍林", "红土原", "芦苇沼泽", "河鹿渡口", "白羽营地", "燧石矿场", "古老山隘", "岩牙要塞", "盐风海岸",
-     "潮盐港", "贝壳滩", "玄石谷", "玄石工坊", "山前集市", "断崖商道"}};
-
-const std::array<std::vector<int>, kExpeditionWorldLocationCount> kRoads{{{1, 2},
-                                                                          {0, 3},
-                                                                          {0, 4, 6},
-                                                                          {1, 5, 9},
-                                                                          {2, 14},
-                                                                          {3},
-                                                                          {2, 12},
-                                                                          {15, 8},
-                                                                          {7},
-                                                                          {3, 11},
-                                                                          {11, 14},
-                                                                          {9, 10},
-                                                                          {6, 13},
-                                                                          {12, 15},
-                                                                          {4, 10, 15},
-                                                                          {13, 14, 7}}};
-
-const std::array<std::pair<int, int>, kExpeditionWorldLocationCount> kCoordinates{{{3, 3},
-                                                                                   {2, 3},
-                                                                                   {4, 3},
-                                                                                   {2, 2},
-                                                                                   {5, 3},
-                                                                                   {1, 2},
-                                                                                   {4, 4},
-                                                                                   {5, 1},
-                                                                                   {6, 1},
-                                                                                   {3, 2},
-                                                                                   {7, 2},
-                                                                                   {5, 2},
-                                                                                   {5, 4},
-                                                                                   {6, 4},
-                                                                                   {6, 3},
-                                                                                   {7, 3}}};
-
-/// 用途：解析十六地点编号或中英文别名。输入：规范化词元。输出：地点下标或空值；无状态修改。
-/// 失败：越界或未知别名返回空。不变量：成功下标始终处于 0 至 15。
-std::optional<int> location(std::string_view value) {
-    int number = 0;
-    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
-    if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() && number >= 1 && number <= 16)
-        return number - 1;
-    static const std::array<std::vector<std::string_view>, 16> aliases{{{"camp", "营地", "燧火营地"},
-                                                                        {"forest", "苍林"},
-                                                                        {"plain", "redplain", "红土原"},
-                                                                        {"marsh", "芦苇沼泽"},
-                                                                        {"ford", "riverford", "河鹿渡口"},
-                                                                        {"whitecamp", "白羽营地"},
-                                                                        {"quarry", "燧石矿场"},
-                                                                        {"pass", "古老山隘"},
-                                                                        {"fort", "rockfang", "岩牙要塞"},
-                                                                        {"coast", "盐风海岸"},
-                                                                        {"harbor", "潮盐港"},
-                                                                        {"beach", "贝壳滩"},
-                                                                        {"valley", "玄石谷"},
-                                                                        {"workshop", "玄石工坊"},
-                                                                        {"market", "山前集市"},
-                                                                        {"road", "断崖商道"}}};
-    for (std::size_t index = 0; index < aliases.size(); ++index) {
-        if (std::find(aliases[index].begin(), aliases[index].end(), value) != aliases[index].end())
-            return static_cast<int>(index);
-    }
-    return std::nullopt;
-}
-
 /// 用途：统计任务载货总量。输入：任务状态。输出：五类货物之和；无状态修改。
 /// 失败：无。不变量：调用方须先保证各货物字段非负。
 int cargoTotal(const ExpansionState& state) {
     return state.cargoFood + state.cargoWood + state.cargoStone + state.cargoHerbs + state.cargoHides;
-}
-
-/// 用途：判断两个地图地点是否由道路相邻。输入：起点和终点下标。输出：布尔值；无状态修改。
-/// 失败：调用方保证下标合法。不变量：只查询固定道路表，不改动地图发现状态。
-bool road(int from, int to) {
-    const auto& roads = kRoads[static_cast<std::size_t>(from)];
-    return std::find(roads.begin(), roads.end(), to) != roads.end();
-}
-
-/// 用途：按坐标计算相邻道路的方位文字。输入：起点和终点下标。输出：方位；无状态修改。
-/// 失败：同点时返回空文本。不变量：只读取固定坐标表。
-std::string direction(int from, int to) {
-    const auto [x1, y1] = kCoordinates[static_cast<std::size_t>(from)];
-    const auto [x2, y2] = kCoordinates[static_cast<std::size_t>(to)];
-    return std::string(y2 < y1 ? "北" : y2 > y1 ? "南" : "") + (x2 < x1 ? "西" : x2 > x1 ? "东" : "");
 }
 
 /// 用途：创建带职业加成的初始任务成员。输入：姓名和职业。输出：合法角色；无外部状态修改。
@@ -171,44 +88,47 @@ ExpansionGame::ExpansionGame(ExpansionState state) : state_(std::move(state)) {
 ExpansionCommandResult ExpansionGame::execute(std::string_view input) {
     const Command command = parse(input);
     if (command.verb.empty()) return {};
-    if (equalsAny(command.verb, {"look", "查看", "map", "地图"}))
-        return command.args.empty() ? ExpansionCommandResult{true, true, false, false, lookText()}
-                                    : rejected("用法：look / 查看");
+    const auto commandId = game_command_catalog::classify(command);
+    const auto hasArity = [&](const std::size_t count) { return game_command_catalog::hasArity(command, count); };
+    if (commandId == game_command_catalog::CommandId::Look || commandId == game_command_catalog::CommandId::Map)
+        return hasArity(0U) ? ExpansionCommandResult{true, true, false, false, lookText()}
+                            : rejected("用法：look / 查看");
     if (state_.encounterLife > 0) {
-        if (equalsAny(command.verb, {"attack", "攻击"}) && command.args.empty()) return attackEncounter();
-        if (equalsAny(command.verb, {"defend", "防御"}) && command.args.empty()) return defendEncounter();
-        if (equalsAny(command.verb, {"retreat", "撤退"}) && command.args.empty()) return retreatEncounter();
+        if (commandId == game_command_catalog::CommandId::Attack && hasArity(0U)) return attackEncounter();
+        if (commandId == game_command_catalog::CommandId::Defend && hasArity(0U)) return defendEncounter();
+        if (commandId == game_command_catalog::CommandId::Retreat && hasArity(0U)) return retreatEncounter();
         return rejected("岩牙巡逻拦住道路；只能攻击、防御、撤退或查看。");
     }
-    if (equalsAny(command.verb, {"move", "移动"}))
-        return command.args.size() == 1U ? move(command.args.front()) : rejected("用法：move <相邻地点>");
-    if (equalsAny(command.verb, {"gather", "采集"}))
-        return command.args.size() == 1U ? gather(command.args.front()) : rejected("用法：gather <资源>");
-    if (equalsAny(command.verb, {"attack", "攻击"}))
-        return command.args.empty() ? attackEncounter() : rejected("用法：attack");
-    if (equalsAny(command.verb, {"use", "使用"}) && command.args.size() == 1U &&
+    if (commandId == game_command_catalog::CommandId::Move)
+        return hasArity(1U) ? move(command.args.front()) : rejected("用法：move <相邻地点>");
+    if (commandId == game_command_catalog::CommandId::Gather)
+        return hasArity(1U) ? gather(command.args.front()) : rejected("用法：gather <资源>");
+    if (commandId == game_command_catalog::CommandId::Attack)
+        return hasArity(0U) ? attackEncounter() : rejected("用法：attack");
+    if (commandId == game_command_catalog::CommandId::Use && hasArity(1U) &&
         equalsAny(command.args.front(), {"herb", "herbs", "草药"}))
         return useHerb();
-    if (equalsAny(command.verb, {"buildoutpost", "outpost", "建造前哨"}) ||
-        (equalsAny(command.verb, {"build", "建造"}) && command.args.size() == 1U &&
+    if (commandId == game_command_catalog::CommandId::BuildOutpost ||
+        (commandId == game_command_catalog::CommandId::Build && hasArity(1U) &&
          equalsAny(command.args.front(), {"outpost", "前哨"})))
         return buildOutpost();
-    if (equalsAny(command.verb, {"settle", "结算"})) return command.args.empty() ? settle() : rejected("用法：settle");
+    if (commandId == game_command_catalog::CommandId::Settle) return hasArity(0U) ? settle() : rejected("用法：settle");
     return {};
 }
 
 ExpansionCommandResult ExpansionGame::move(std::string_view target) {
     if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
-    const auto destination = location(target);
+    const auto destination = world_map::parse(target);
     if (!destination) return rejected("未知地点；输入地图可查看1至16号地点。");
-    if (*destination == state_.worldLocation) return rejected("小队已经在这里。");
-    if (!road(state_.worldLocation, *destination)) return rejected("两地不相邻，不能跨越道路移动。");
+    const WorldLocationId current = static_cast<WorldLocationId>(state_.worldLocation);
+    if (*destination == current) return rejected("小队已经在这里。");
+    if (!world_map::adjacent(current, *destination)) return rejected("两地不相邻，不能跨越道路移动。");
     ExpansionState candidate = state_;
-    candidate.worldLocation = *destination;
-    const bool discovered = !candidate.worldDiscovered[static_cast<std::size_t>(*destination)];
-    candidate.worldDiscovered[static_cast<std::size_t>(*destination)] = true;
+    candidate.worldLocation = static_cast<int>(indexOf(*destination));
+    const bool discovered = !candidate.worldDiscovered[indexOf(*destination)];
+    candidate.worldDiscovered[indexOf(*destination)] = true;
     recordTurn(candidate, 2, 1);
-    std::string message = "小队沿道路抵达" + std::string(kNames[static_cast<std::size_t>(*destination)]) + "。";
+    std::string message = "小队沿道路抵达" + world_map::locations()[indexOf(*destination)].name + "。";
     if (discovered) message += " 新地点已发现。";
     return commit(std::move(candidate), std::move(message), true);
 }
@@ -218,21 +138,25 @@ ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
     if (state_.missionKind != MissionKind::Gather) return rejected("前哨建设任务只能运输建材，不能额外采集。");
     if (state_.harvestActions >= 4) return rejected("本次任务的采集时段已用完，请前往营地或前哨结算。");
     const int at = state_.worldLocation;
+    const WorldLocationId location = static_cast<WorldLocationId>(at);
     std::optional<ResourceKind> kind;
     int base = 0;
-    if (equalsAny(resource, {"food", "食物", "粮食"}) && (at == 1 || at == 2 || at == 4 || at == 9)) {
+    if (equalsAny(resource, {"food", "食物", "粮食"}) && world_map::supportsResource(location, ResourceKind::Food)) {
         kind = ResourceKind::Food;
         base = 6 + state_.foodGatherBonus;
-    } else if (equalsAny(resource, {"wood", "木材"}) && (at == 1 || at == 3)) {
+    } else if (equalsAny(resource, {"wood", "木材"}) && world_map::supportsResource(location, ResourceKind::Wood)) {
         kind = ResourceKind::Wood;
         base = 6;
-    } else if (equalsAny(resource, {"stone", "石料", "石头"}) && (at == 6 || at == 7 || at == 12)) {
+    } else if (equalsAny(resource, {"stone", "石料", "石头"}) &&
+               world_map::supportsResource(location, ResourceKind::Stone)) {
         kind = ResourceKind::Stone;
         base = 5;
-    } else if (equalsAny(resource, {"herb", "herbs", "草药"}) && (at == 1 || at == 3 || at == 5)) {
+    } else if (equalsAny(resource, {"herb", "herbs", "草药"}) &&
+               world_map::supportsResource(location, ResourceKind::Herbs)) {
         kind = ResourceKind::Herbs;
         base = 4 + state_.herbGatherBonus;
-    } else if (equalsAny(resource, {"hide", "hides", "兽皮"}) && (at == 1 || at == 2)) {
+    } else if (equalsAny(resource, {"hide", "hides", "兽皮"}) &&
+               world_map::supportsResource(location, ResourceKind::Hides)) {
         kind = ResourceKind::Hides;
         base = 4;
     } else
@@ -278,7 +202,8 @@ ExpansionCommandResult ExpansionGame::buildOutpost() {
     const std::size_t at = static_cast<std::size_t>(state_.worldLocation);
     if (at == 0U) return rejected("营地无需建造前哨。");
     if (state_.outposts[at]) return rejected("该地点已经有前哨。");
-    if (state_.worldLocation == 8 && !state_.encounterDefeated) return rejected("岩牙要塞仍有敌对巡逻，不能建造前哨。");
+    if (state_.worldLocation == static_cast<int>(WorldLocationId::RockfangFort) && !state_.encounterDefeated)
+        return rejected("岩牙要塞仍有敌对巡逻，不能建造前哨。");
     if (state_.cargoWood < 6 || state_.cargoStone < 4) return rejected("建造前哨需要现场携带木材6、石料4。");
     ExpansionState candidate = state_;
     candidate.cargoWood -= 6;
@@ -307,7 +232,8 @@ ExpansionCommandResult ExpansionGame::settle() {
 }
 
 ExpansionCommandResult ExpansionGame::attackEncounter() {
-    if (state_.worldLocation != 8 || state_.encounterDefeated) return rejected("这里没有可攻击的遭遇。");
+    if (state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort) || state_.encounterDefeated)
+        return rejected("这里没有可攻击的遭遇。");
     ExpansionState candidate = state_;
     if (candidate.encounterLife == 0) candidate.encounterLife = 14;
     Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
@@ -337,7 +263,8 @@ ExpansionCommandResult ExpansionGame::attackEncounter() {
 }
 
 ExpansionCommandResult ExpansionGame::defendEncounter() {
-    if (state_.encounterLife <= 0 || state_.worldLocation != 8) return rejected("当前没有遭遇战。");
+    if (state_.encounterLife <= 0 || state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort))
+        return rejected("当前没有遭遇战。");
     ExpansionState candidate = state_;
     Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
     const int loss = std::max(1, 3 - effectiveAttributes(leader)[Attribute::Endurance] / 5);
@@ -347,10 +274,11 @@ ExpansionCommandResult ExpansionGame::defendEncounter() {
 }
 
 ExpansionCommandResult ExpansionGame::retreatEncounter() {
-    if (state_.encounterLife <= 0 || state_.worldLocation != 8) return rejected("当前没有遭遇战。");
+    if (state_.encounterLife <= 0 || state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort))
+        return rejected("当前没有遭遇战。");
     ExpansionState candidate = state_;
     candidate.encounterLife = 0;
-    candidate.worldLocation = 7;
+    candidate.worldLocation = static_cast<int>(WorldLocationId::OldPass);
     recordTurn(candidate, 2, 1);
     return commit(std::move(candidate), "小队撤回古老山隘。", true);
 }
@@ -369,11 +297,13 @@ ExpansionCommandResult ExpansionGame::useHerb() {
 
 std::string ExpansionGame::lookText() const {
     const std::size_t at = static_cast<std::size_t>(state_.worldLocation);
+    const WorldLocationId current = static_cast<WorldLocationId>(state_.worldLocation);
     std::ostringstream output;
-    output << "北↑  十六地点道路图\n当前地点：" << (state_.worldLocation + 1) << '.' << kNames[at] << "\n相邻道路：";
-    for (const int neighbor : kRoads[at])
-        output << direction(state_.worldLocation, neighbor) << "→" << (neighbor + 1) << '.'
-               << kNames[static_cast<std::size_t>(neighbor)] << ' ';
+    output << "北↑  十六地点道路图\n当前地点：" << (state_.worldLocation + 1) << '.' << world_map::locations()[at].name
+           << "\n相邻道路：";
+    for (const WorldLocationId neighbor : world_map::locations()[at].neighbors)
+        output << world_map::direction(current, neighbor) << "→" << (indexOf(neighbor) + 1U) << '.'
+               << world_map::locations()[indexOf(neighbor)].name << ' ';
     output << "\n载货 " << cargoTotal(state_) << '/' << state_.cargoCapacity << "：食物" << state_.cargoFood << " 木材"
            << state_.cargoWood << " 石料" << state_.cargoStone << " 草药" << state_.cargoHerbs << " 兽皮"
            << state_.cargoHides << "；采集" << state_.harvestActions << "/4\n可采资源：";
@@ -382,14 +312,15 @@ std::string ExpansionGame::lookText() const {
         output << (printed ? "、" : "") << name;
         printed = true;
     };
-    if (at == 1 || at == 2 || at == 4 || at == 9) add("食物");
-    if (at == 1 || at == 3) add("木材");
-    if (at == 6 || at == 7 || at == 12) add("石料");
-    if (at == 1 || at == 3 || at == 5) add("草药");
-    if (at == 1 || at == 2) add("兽皮");
+    if (world_map::supportsResource(current, ResourceKind::Food)) add("食物");
+    if (world_map::supportsResource(current, ResourceKind::Wood)) add("木材");
+    if (world_map::supportsResource(current, ResourceKind::Stone)) add("石料");
+    if (world_map::supportsResource(current, ResourceKind::Herbs)) add("草药");
+    if (world_map::supportsResource(current, ResourceKind::Hides)) add("兽皮");
     if (!printed) output << "无";
     output << "\n结算：" << (state_.outposts[at] ? "当前地点可结算" : "需前往营地或前哨") << "。";
-    if (state_.worldLocation == 8 && !state_.encounterDefeated) output << "\n遭遇：岩牙巡逻；可用攻击、防御、撤退。";
+    if (state_.worldLocation == static_cast<int>(WorldLocationId::RockfangFort) && !state_.encounterDefeated)
+        output << "\n遭遇：岩牙巡逻；可用攻击、防御、撤退。";
     if (state_.encounterLife > 0) output << " 敌军生命" << state_.encounterLife << "。";
     return output.str();
 }
@@ -411,19 +342,46 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         static_cast<int>(state.assignedResource) < static_cast<int>(ResourceKind::Food) ||
         static_cast<int>(state.assignedResource) > static_cast<int>(ResourceKind::Hides) || state.crewSize < 2 ||
         state.crewSize > 6 || state.encounterLife < 0 ||
-        (state.encounterLife > 0 && (state.worldLocation != 8 || state.encounterDefeated)) ||
-        (state.encounterDefeated && (state.worldLocation == 8 && state.encounterLife != 0)))
+        (state.encounterLife > 0 &&
+         (state.worldLocation != static_cast<int>(WorldLocationId::RockfangFort) || state.encounterDefeated)) ||
+        (state.encounterDefeated && state.encounterLife != 0))
         return invalid("载货、劳力或遭遇字段无效。");
     const OperationResult squad = validateSquad(state.squad);
     if (!squad) return invalid("小队无效：" + squad.message);
-    if (state.backpack.usedWeight() > state.backpack.weightLimit() ||
+    if (!state_safety::isSafeDisplayText(state.squad.name)) return invalid("任务小队名称包含非法文本。");
+    for (const Character& member : state.squad.members) {
+        if (!state_safety::isSafeDisplayText(member.name)) return invalid("任务角色姓名包含非法文本。");
+        for (const auto& equipment : member.equipment) {
+            if (equipment &&
+                (!state_safety::isSafeDisplayText(equipment->id) || !state_safety::isSafeDisplayText(equipment->name)))
+                return invalid("任务角色装备包含非法文本。");
+        }
+    }
+    if (state.backpack.items().size() > kMaximumMissionInventoryItems ||
+        state.backpack.usedWeight() > state.backpack.weightLimit() ||
         state.backpack.usedSlots() > state.backpack.slotLimit())
         return invalid("任务背包超出容量。");
     std::unordered_set<std::string> ids;
-    for (const Item& item : state.backpack.items())
-        if (item.id.empty() || !state_safety::isSafeDisplayText(item.id) ||
+    const auto validateItem = [&ids](const Item& item, const std::size_t expectedSlot) {
+        if (item.id.empty() || item.name.empty() || item.weight < 0 || item.slotCount <= 0 ||
+            static_cast<int>(item.quality) < static_cast<int>(ItemQuality::Crude) ||
+            static_cast<int>(item.quality) > static_cast<int>(ItemQuality::Legendary) ||
+            static_cast<int>(item.condition) < static_cast<int>(ItemCondition::Intact) ||
+            static_cast<int>(item.condition) > static_cast<int>(ItemCondition::Scrapped) ||
+            item.condition == ItemCondition::Scrapped || !state_safety::isSafeDisplayText(item.id) ||
             !state_safety::isSafeDisplayText(item.name) || !ids.insert(item.id).second)
-            return invalid("任务背包物品编号或文本无效。");
+            return false;
+        if (!item.equipmentSlot) return expectedSlot == kEquipmentSlotCount;
+        const int slot = static_cast<int>(*item.equipmentSlot);
+        if (slot < 0 || slot >= static_cast<int>(EquipmentSlot::Count)) return false;
+        return expectedSlot == kEquipmentSlotCount || slot == static_cast<int>(expectedSlot);
+    };
+    for (const Character& member : state.squad.members)
+        for (std::size_t slot = 0U; slot < member.equipment.size(); ++slot)
+            if (member.equipment[slot] && !validateItem(*member.equipment[slot], slot))
+                return invalid("任务角色装备编号、枚举或文本无效。");
+    for (const Item& item : state.backpack.items())
+        if (!validateItem(item, kEquipmentSlotCount)) return invalid("任务背包物品编号或文本无效。");
     return valid("地图任务状态合法。");
 }
 

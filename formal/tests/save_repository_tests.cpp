@@ -143,6 +143,40 @@ TEST_CASE("save repository round-trips every manual slot and the autosave") {
     }
 }
 
+TEST_CASE("v6 codec keeps deterministic bytes after load and re-save through a different slot") {
+    TemporarySaveDirectory directory{"v6-byte-stability"};
+    tribe::SaveRepository saves{directory.root()};
+    std::string error;
+    const tribe::GameState original = gameState(218U);
+
+    REQUIRE(saves.save(original, tribe::SaveSlot::Slot1, error));
+    const std::string fixture = readBytes(saves.pathFor(tribe::SaveSlot::Slot1));
+    REQUIRE(readU32(fixture, 8U) == static_cast<std::uint32_t>(tribe::kSaveVersion));
+    tribe::GameState loaded = gameState(299U);
+    REQUIRE(saves.load(tribe::SaveSlot::Slot1, loaded, error));
+    REQUIRE(saves.save(loaded, tribe::SaveSlot::Slot2, error));
+    REQUIRE(readBytes(saves.pathFor(tribe::SaveSlot::Slot2)) == fixture);
+}
+
+TEST_CASE("stockpile growth beyond the legacy 64-item decoder limit remains saveable") {
+    TemporarySaveDirectory directory{"stockpile-growth"};
+    tribe::SaveRepository saves{directory.root()};
+    tribe::GameState state = gameState(219U);
+    for (int index = 0; index < 65; ++index) {
+        tribe::Item item;
+        item.id = "bulk_" + std::to_string(index);
+        item.name = "批量制造物" + std::to_string(index);
+        item.weight = 1;
+        state.stockpile.push_back(std::move(item));
+    }
+
+    std::string error;
+    REQUIRE(saves.save(state, tribe::SaveSlot::Slot1, error));
+    tribe::GameState loaded = gameState(299U);
+    REQUIRE(saves.load(tribe::SaveSlot::Slot1, loaded, error));
+    REQUIRE(loaded.stockpile.size() == state.stockpile.size());
+}
+
 TEST_CASE("a corrupt primary recovers its previous backup and a temporary file when it is the only valid copy") {
     TemporarySaveDirectory directory{"recovery"};
     tribe::SaveRepository saves{directory.root()};
