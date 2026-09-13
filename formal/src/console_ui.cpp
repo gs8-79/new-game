@@ -90,32 +90,6 @@ std::string slotKey(const SaveSlot slot) {
     return std::to_string(static_cast<int>(slot) + 1);
 }
 
-std::string firstSeasonGoal(const GameState& state) {
-    if (state.season != 1 || state.phase != GamePhase::Managing) return {};
-    if (state.missionCount > 0) return {};
-    if (state.workforce.woodCrew < 2) return "先建立补给路线：输入 assign wood 2，安排木材队。";
-    return "带回第一批木材：mission wood → move forest → gather wood → move camp → settle。";
-}
-
-std::string roadProgress(const GameState& state) {
-    if (state.missionCount == 0) return {};
-    const int alliances =
-        static_cast<int>(std::count_if(state.relations.begin() + 1, state.relations.end(),
-                                       [](const DiplomacyRelation& relation) { return relation.alliance; }));
-    const int occupied = static_cast<int>(std::count_if(state.occupations.begin() + 1, state.occupations.end(),
-                                                        [](const OccupationState& site) { return site.occupied; }));
-    const int buildings = static_cast<int>(std::count(state.buildings.begin(), state.buildings.end(), true));
-    const int technologies = static_cast<int>(std::count(state.technologies.begin(), state.technologies.end(), true));
-    std::ostringstream output;
-    output << "联盟：河鹿关系" << state.relations[indexOf(TribeId::RiverDeer)].relation << "/70，白羽关系"
-           << state.relations[indexOf(TribeId::WhiteFeather)].relation << "/70，联盟" << alliances << "/2，部落联盟技术"
-           << (state.technologies[indexOf(TechnologyId::Confederation)] ? "已完成" : "未完成") << "\n征服：据点"
-           << occupied << "/2，战士" << state.warriors << "/5，士气" << state.morale << "/55"
-           << "\n繁荣：人口" << state.population << "/20，食物" << state.food << "/40，建筑" << buildings << "/4，技术"
-           << technologies << "/4";
-    return output.str();
-}
-
 } // namespace
 
 ConsoleUI::ConsoleUI(std::ostream& output, const bool interactive, const bool ansiEnabled, const std::size_t width)
@@ -326,9 +300,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
                 << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n"
-                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n"
-                << "  劳力、前哨守卫、驻军、已组建军队和任务小队共用人口-2；人口减少后先重分配。\n"
-                << "  建成并配置岗位后，可任命工匠为工坊负责人、医者为医者负责人；负责人不可入小队。\n";
+                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
         output_ << "  5 或 mission <资源> 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
@@ -345,7 +317,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  factions 查看派系；appease <1至3> 安抚派系。未知部落需要先探索。\n";
     } else if (topic == 5) {
         writeSection("战争与结局");
-        output_ << "  formarmy/组建军队  disbandarmy/解散军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
+        output_ << "  formarmy/组建军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
                 << "  季节上限到达后，按已满足条件选择联盟、征服、繁荣或迁徙。\n";
         output_ << "  组建军队 <战士人数> <民兵人数>；先 declare <部落> 宣战，再 出征 <部落>。\n"
                 << "  下令 <推进|坚守|集火|包抄|掩护|撤退>；retreat/撤退。\n"
@@ -374,16 +346,68 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
     const ExpansionState& mission = *state.activeMission;
     const auto& locations = GameEngine::worldLocations();
     const Character& captain = mission.squad.members[mission.squad.leaderIndex];
+    // 用逐节点渲染代替整段字符串，便于突出当前位置并保留道路间距。
     writeSection("道路总览");
-    output_ << "  北↑  道路编号总览；当前位置与前哨状态见下方，地点详情以 look/查看 为准\n"
-            << "             [8古老山隘]--[9岩牙要塞]\n"
-            << " [6白羽]--[4芦苇]--[10盐风]--[12贝壳]--[11潮盐]\n"
-            << "      [2苍林]--[1营地]--[3红土]--[5河鹿]--[15山前]--[16断崖]\n"
-            << "                     [7矿场]--[13玄石谷]--[14玄石工坊]\n";
-    output_ << "  当前 " << (mission.worldLocation + 1) << '.'
-            << locations[static_cast<std::size_t>(mission.worldLocation)].name << "  已发现 "
-            << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true) << "/16"
-            << "  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
+    const auto roadIndent = [&](const std::size_t amount) { output_ << std::string(amount, ' '); };
+    const auto roadNode = [&](const std::size_t index, const std::string_view shortName) {
+        // 当前位置用金色加粗；已发现地点用白色，未发现地点降为灰色。
+        const bool current = index == static_cast<std::size_t>(mission.worldLocation);
+        const UiColor color = current                          ? UiColor::Title
+                              : mission.worldDiscovered[index] ? UiColor::Normal
+                                                               : UiColor::Dim;
+        write(color, "[" + std::to_string(index + 1U) + " " + std::string(shortName) + "]");
+    };
+    // 道路连接线使用低亮度灰色，不喧宾夺主。
+    const auto roadLink = [&] { write(UiColor::Dim, " ── "); };
+    output_ << "  ";
+    write(UiColor::Neutral, "北方 ↑");
+    write(UiColor::Dim, "    [编号 地点]  道路 ──   当前位置以金色加粗显示\n\n");
+    roadIndent(25U);
+    roadNode(7U, "古老山隘");
+    roadLink();
+    roadNode(8U, "岩牙要塞");
+    output_ << "\n\n  ";
+    roadNode(5U, "白羽");
+    roadLink();
+    roadNode(3U, "芦苇");
+    roadLink();
+    roadNode(9U, "盐风");
+    roadLink();
+    roadNode(11U, "贝壳");
+    roadLink();
+    roadNode(10U, "潮盐");
+    output_ << "\n\n      ";
+    roadNode(1U, "苍林");
+    roadLink();
+    roadNode(0U, "营地");
+    roadLink();
+    roadNode(2U, "红土");
+    roadLink();
+    roadNode(4U, "河鹿");
+    roadLink();
+    roadNode(14U, "山前");
+    roadLink();
+    roadNode(15U, "断崖");
+    output_ << "\n\n";
+    roadIndent(25U);
+    roadNode(6U, "矿场");
+    roadLink();
+    roadNode(12U, "玄石谷");
+    roadLink();
+    roadNode(13U, "玄石工坊");
+    output_ << "\n  ";
+    write(UiColor::Dim, "图例：");
+    write(UiColor::Title, "金色");
+    write(UiColor::Dim, "=当前位置  ");
+    write(UiColor::Normal, "白色");
+    write(UiColor::Dim, "=已发现  ");
+    write(UiColor::Dim, "灰色");
+    write(UiColor::Dim, "=未发现\n");
+    output_ << "  当前 ";
+    write(UiColor::Title, std::to_string(mission.worldLocation + 1) + "." +
+                              locations[static_cast<std::size_t>(mission.worldLocation)].name);
+    output_ << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true)
+            << "/16  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
 
     writeSection("任务指令");
     output_ << "  look/查看：当前位置、资源、结算点    move/移动 <编号或地点>：沿相邻道路前进\n"
@@ -392,8 +416,35 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
             << "  talk/gift/trade 等：接触点外交        attack/defend/retreat：岩牙遭遇\n"
             << "  abort/放弃任务：丢弃载货回营（稳定-2）  save <1至6>  quit\n";
     writeSection("现场记录");
-    output_ << "  " << (message.empty() ? "道路延伸到视线之外，等待你的指令。" : std::string(message)) << "\n  "
-            << ExpansionGame{mission}.lookText() << '\n';
+    const std::string record =
+        message.empty() ? std::string{"道路延伸到视线之外，等待你的指令。"} : std::string{message};
+    output_ << "  ";
+    // 首局进入地图的介绍句使用蓝色；后续操作消息保持默认色，避免页面过花。
+    if (mission.turn == 0 && record.rfind("晨火队", 0U) == 0U)
+        write(UiColor::Neutral, record);
+    else
+        output_ << record;
+    output_ << '\n';
+    const std::string look = ExpansionGame{mission}.lookText();
+    std::size_t lineBegin = 0U;
+    while (lineBegin <= look.size()) {
+        const std::size_t lineEnd = look.find('\n', lineBegin);
+        const std::string_view line = std::string_view{look}.substr(
+            lineBegin, lineEnd == std::string::npos ? look.size() - lineBegin : lineEnd - lineBegin);
+        output_ << "  ";
+        constexpr std::string_view kResourcePrefix = "可采资源：";
+        // 只给资源标签和资源值着色；“无”保持灰色，避免误读为可用资源。
+        if (line.rfind(kResourcePrefix, 0U) == 0U) {
+            write(UiColor::Wood, kResourcePrefix);
+            const std::string_view resources = line.substr(kResourcePrefix.size());
+            write(resources == "无" ? UiColor::Dim : UiColor::Herbs, resources);
+        } else {
+            output_ << line;
+        }
+        output_ << '\n';
+        if (lineEnd == std::string::npos) break;
+        lineBegin = lineEnd + 1U;
+    }
     output_ << "  队长 " << captain.name << "  生命 " << captain.life << "  疲劳 " << captain.fatigue << "  任务回合 "
             << mission.turn << "  行动点 " << state.actionsLeft << '\n';
     writeRule();
@@ -430,8 +481,8 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     write(UiColor::Stone, "石料 " + std::to_string(state.stone));
     output_ << "   ";
     write(UiColor::Herbs, "草药 " + std::to_string(state.herbs));
-    output_ << "   兽皮 " << state.hides;
-    output_ << '\n'
+    output_ << "   兽皮 " << state.hides << "   贝币 " << state.shells
+            << (state.currencyUnlocked ? "（已流通）" : "（未解锁）") << '\n'
             << "  地点 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
             << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
             << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
@@ -471,25 +522,9 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
         output_ << '\n';
         output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew << " 石料队"
                 << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew << "（下季行动上限 "
-                << (3 + static_cast<int>(state.workforce.foodCrew >= 2) +
-                    static_cast<int>(state.workforce.woodCrew >= 2) + static_cast<int>(state.workforce.stoneCrew >= 2) +
-                    static_cast<int>(state.workforce.herbCrew >= 2))
+                << (3 + (state.workforce.foodCrew >= 2) + (state.workforce.woodCrew >= 2) +
+                    (state.workforce.stoneCrew >= 2) + (state.workforce.herbCrew >= 2))
                 << "/7）\n";
-    }
-
-    const std::string firstGoal = firstSeasonGoal(state);
-    if (!firstGoal.empty()) {
-        writeSection("首季目标");
-        write(UiColor::Accent, "  " + firstGoal + "\n");
-    }
-    const std::string roads = roadProgress(state);
-    if (!roads.empty()) {
-        writeSection("道路进展");
-        write(UiColor::Accent, "  " + roads + "\n");
-    }
-    if (state.workforceReassignmentRequired) {
-        writeSection("劳力待重分配");
-        write(UiColor::Warning, "  人口不足以维持当前占用；仅可降低劳力或驻军，或解散军队。\n");
     }
 
     writeSection("最近消息");
