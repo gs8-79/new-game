@@ -4,7 +4,7 @@ C++17 单机控制台策略游戏。你将带领燧火部落探索十六地点�
 
 ## 开始游玩
 
-Windows 下双击项目根目录的 `开始正式版.cmd`。它会构建并运行测试后进入封面。首次运行需要 Visual Studio 的“使用 C++ 的桌面开发”组件、CMake 与 Ninja。
+Windows 下双击项目根目录的 `开始正式版.cmd`。它会构建并运行测试后进入封面。首次运行需要 Visual Studio 的“使用 C++ 的桌面开发”组件、CMake 与 Ninja。不想装开发环境的话，安装 Docker 后双击 `开始Docker版.cmd` 即可，见下文「Docker 运行」一节。
 
 封面输入数字后按 Enter：
 
@@ -88,11 +88,41 @@ bash run-formal-macos.sh Release
 
 macOS 实机验证仍待完成。
 
+## Docker 运行（免装开发环境）
+
+任何装有 Docker 的电脑（Windows / macOS / Linux）都能直接运行，无需安装 Visual Studio、CMake 或 C++ 编译器。镜像构建时会在干净的 Debian 环境里编译并跑完全部自动测试，换机器结果一致。这里需要的是 Docker Desktop 或 Docker Engine（命令为 `docker`），不是 Docker Sandboxes（命令为 `sbx`）。
+
+Windows：安装并启动 Docker Desktop 后，双击根目录的 `开始Docker版.cmd`（首次会自动构建镜像，需要联网），或手动执行：
+
+```powershell
+.\docker-build.ps1
+.\docker-run.ps1
+```
+
+macOS / Linux：
+
+```bash
+bash docker-build.sh
+bash docker-run.sh
+```
+
+也可以使用 Compose：`docker compose run --rm tribe-dawn`。
+
+双击 `开始Docker版.cmd` 时若 Docker Desktop 尚未运行，脚本会自动启动它并等待引擎就绪。国内网络拉取基础镜像若超时或过慢，可在 Docker Desktop 的 Settings → Docker Engine 中加入 `registry-mirrors` 镜像加速地址后重启引擎。
+
+存档通过目录挂载与宿主机互通：容器内 `/game/saves` 对应项目根目录的 `saves/`，删除容器不丢存档；本机构建版与 Docker 版共用同一套存档文件。终端窗口同样建议至少 80 列、30 行。
+
 ## 代码结构与文档
 
 - `formal/src/game_engine.cpp`：部落管理、劳力、外交、战争、结局和规则校验。
 - `formal/src/expansion_game.cpp`：十六地点任务地图、载货、前哨与遭遇。
 - `formal/src/console_ui.cpp`：控制台面板、道路图、现场记录与帮助页。
 - `formal/src/save_repository.cpp`：校验、原子保存、恢复与当前格式读取。
+
+## 持续集成与发布
+
+`.github/workflows/docker-ci.yml` 在每次推送和 PR 时，于 Linux、Windows、macOS 三个 GitHub Actions 运行器编译并运行自动测试；Linux 任务还会构建 Docker 镜像，并在容器内启动游戏验证可运行。
+
+推送 `v*` 标签后，`.github/workflows/release.yml` 会构建 Windows、Linux 与 macOS（Intel 和 Apple Silicon）二进制并发布到 [GitHub Releases](https://github.com/gs8-79/new-game/releases)。在对应标签工作流通过前，Release 页面不代表已完成跨平台验证。
 
 [游戏核心目录](formal/README.md) · [页面与架构](formal/docs/DESIGN.md) · [存档格式](formal/docs/SAVE_FORMAT.md) · [验证记录](formal/docs/TEST_REPORT.md) · [试玩路线](formal/docs/SHOWCASE_ROUTES.md)

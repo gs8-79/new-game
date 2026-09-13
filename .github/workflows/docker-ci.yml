@@ -1,0 +1,40 @@
+name: Linux 构建与 Docker 验证
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cross-platform-build-test:
+    name: ${{ matrix.name }} 编译与测试
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: windows-latest
+            name: Windows
+          - os: macos-latest
+            name: macOS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: CMake 配置（Release）
+        run: cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
+      - name: 编译
+        run: cmake --build out --config Release
+      - name: 自动测试
+        run: ctest --test-dir out -C Release --output-on-failure
+
+  docker-build:
+    name: Docker 镜像构建与容器运行验证
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建镜像（构建阶段内含全部自动测试）
+        run: docker build -t tribe-dawn .
+      - name: 容器内启动游戏并选择退出（验证可运行）
+        run: printf '4\n' | docker run --rm -i tribe-dawn

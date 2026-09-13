@@ -1,0 +1,13 @@
+# 构建产物与本地状态不进镜像上下文
+/out/
+/build/
+/saves/
+# 任意层级的 Visual Studio 用户目录都不得进入构建上下文。
+**/.vs/
+/.git/
+*.user
+*.VC.db
+
+# 与容器化无关的文件
+Dockerfile
+docker-compose.yml
