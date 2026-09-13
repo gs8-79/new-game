@@ -17,6 +17,10 @@
 namespace tribe {
 namespace {
 
+// 本匿名命名空间的渲染辅助函数只格式化传入值：输出为文本、列宽或 ANSI 代码，不修改 GameEngine。
+// 无效 UTF-8 安全降级；ANSI 仅在调用方启用时写出；所有宽度计算保持输出指针前进。
+/// 用途：映射界面颜色到 ANSI SGR 代码。输入：颜色枚举。输出：静态转义序列；无状态修改。
+/// 失败：未知枚举退回复位代码。不变量：调用方在 ANSI 关闭时不得写出返回值。
 const char* colorCode(const UiColor color) {
     switch (color) {
         case UiColor::Title:
@@ -52,6 +56,8 @@ struct Glyph {
     std::size_t columns;
 };
 
+/// 用途：解析一个 UTF-8 字形的字节数和显示列数。输入：文本和有效字节下标。输出：字形长度与列宽；无状态修改。
+/// 失败：无效或截断序列退化为单字节单列；不变量：返回 bytes 至少为一，调用方必然前进。
 Glyph glyphAt(const std::string_view text, const std::size_t index) {
     const auto first = static_cast<unsigned char>(text[index]);
     if (first < 0x80U) return {1U, first < 32U ? 0U : 1U};
@@ -75,6 +81,8 @@ Glyph glyphAt(const std::string_view text, const std::size_t index) {
     return {count, wide ? 2U : 1U};
 }
 
+/// 用途：累加文本终端显示列数。输入：UTF-8 文本。输出：列宽；无状态修改。
+/// 失败：无效字节由 glyphAt 保守降级；不变量：组合附加符零列、宽字符两列，绝不按字节长度计宽。
 std::size_t displayWidth(const std::string_view text) {
     std::size_t width = 0U;
     for (std::size_t index = 0U; index < text.size();) {
@@ -85,11 +93,15 @@ std::size_t displayWidth(const std::string_view text) {
     return width;
 }
 
+/// 用途：生成存档菜单的槽位快捷键。输入：槽位。输出：键名；无状态修改。
+/// 失败：未知枚举按数值展示。不变量：自动档始终显示为 A。
 std::string slotKey(const SaveSlot slot) {
     if (slot == SaveSlot::Autosave) return "A";
     return std::to_string(static_cast<int>(slot) + 1);
 }
 
+/// 用途：在首季给出最小可执行教学目标。输入：只读状态。输出：提示或空文本；无状态修改。
+/// 失败：非首季或已有任务返回空。不变量：不改变任务、资源或行动数。
 std::string firstSeasonGoal(const GameState& state) {
     if (state.season != 1 || state.phase != GamePhase::Managing) return {};
     if (state.missionCount > 0) return {};
@@ -97,6 +109,8 @@ std::string firstSeasonGoal(const GameState& state) {
     return "带回第一批木材：mission wood → move forest → gather wood → move camp → settle。";
 }
 
+/// 用途：汇总联盟、征服与繁荣结局进度。输入：只读状态。输出：提示或空文本；无状态修改。
+/// 失败：尚未完成任务时返回空。不变量：只读取状态且不推断未达成的条件。
 std::string roadProgress(const GameState& state) {
     if (state.missionCount == 0) return {};
     const int alliances =
@@ -193,11 +207,12 @@ void ConsoleUI::clear() {
 }
 
 void ConsoleUI::flushPage() {
-    // 按显示列数换行，UTF-8 字符不可拆开，ANSI 样式不占列宽。
+    // 1. 按显示列数换行，UTF-8 字符不可拆开，ANSI 样式不占列宽。
     const std::string page = output_.str();
     std::size_t column = 0U;
     for (std::size_t index = 0U; index < page.size();) {
         if (page[index] == '\x1b' && index + 1U < page.size() && page[index + 1U] == '[') {
+            // 2. 完整转发 ANSI CSI 序列而不累计列数，避免样式控制字节造成提前换行。
             std::size_t end = index + 2U;
             while (end < page.size() && (page[end] < '@' || page[end] > '~')) ++end;
             if (end < page.size()) ++end;
@@ -212,6 +227,7 @@ void ConsoleUI::flushPage() {
             continue;
         }
         const Glyph glyph = glyphAt(page, index);
+        // 3. 先判断整个字形能否容纳；宽字符不得跨越行尾。
         if (column + glyph.columns > width_) {
             destination_ << '\n';
             column = 0U;

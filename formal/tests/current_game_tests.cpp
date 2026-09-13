@@ -27,6 +27,7 @@ tribe::ExpansionCommandResult requireSuccess(tribe::ExpansionGame& game, const s
     return result;
 }
 
+// 通过正式序列化格式取得二进制快照，用于证明失败命令和拒绝校验均未改变任何持久化字节。
 std::string stateSnapshot(const tribe::GameState& state) {
     static unsigned int snapshotNumber = 0;
     const std::filesystem::path root =
@@ -461,6 +462,7 @@ TEST_CASE("fixed-seed command sequences preserve valid state and make rejected c
     const std::array<std::string, 15> commands{
         {"   ", "unknown", "assign wood 2", "assign wood 1", "mission wood", "move forest", "gather wood", "move camp",
          "settle", "endturn", "status", "craft spear", "equip 石刃 主手 missing", "war rock", "event 1"}};
+    // 固定种子让随机命令覆盖可复现，任一次拒绝都与循环前的二进制快照比较。
     std::mt19937 generator{0x5EEDU};
     for (int step = 0; step < 160; ++step) {
         const std::string before = stateSnapshot(game.state());

@@ -12,6 +12,7 @@
 
 namespace {
 
+// 为存档恢复夹具隔离唯一临时目录；析构只清理本测试根目录，保证不接触玩家存档。
 class TemporarySaveDirectory {
    public:
     explicit TemporarySaveDirectory(const std::string& label) {
@@ -81,6 +82,7 @@ void writeBytes(const std::filesystem::path& path, const std::string& bytes) {
 }
 
 // v5 与 v6 仅在 GameState 尾部的 nextItemSerial 不同；该夹具保留 v5 的原始布局和校验和。
+// 以 v6 序列化字节构造历史 v5 样本：移除 nextItemSerial、改写版本并重算校验和，保留其余布局。
 std::string asV5(const std::string& v6) {
     constexpr std::size_t kHeaderBytes = 20U;
     if (v6.size() < kHeaderBytes + 4U || readU32(v6, 8U) != static_cast<std::uint32_t>(tribe::kSaveVersion))

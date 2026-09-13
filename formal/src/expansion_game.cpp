@@ -21,6 +21,8 @@ using command_parser::Command;
 using command_parser::equalsAny;
 using command_parser::parse;
 
+// 本匿名命名空间的地图辅助函数只查询十六地点常量和传入任务状态：无状态副作用。
+// 解析失败返回空、非法条件由上层拒绝；道路、载货和遭遇互斥规则不得在此绕过。
 const std::array<std::string_view, kExpeditionWorldLocationCount> kNames{
     {"燧火营地", "苍林", "红土原", "芦苇沼泽", "河鹿渡口", "白羽营地", "燧石矿场", "古老山隘", "岩牙要塞", "盐风海岸",
      "潮盐港", "贝壳滩", "玄石谷", "玄石工坊", "山前集市", "断崖商道"}};
@@ -59,6 +61,8 @@ const std::array<std::pair<int, int>, kExpeditionWorldLocationCount> kCoordinate
                                                                                    {6, 3},
                                                                                    {7, 3}}};
 
+/// 用途：解析十六地点编号或中英文别名。输入：规范化词元。输出：地点下标或空值；无状态修改。
+/// 失败：越界或未知别名返回空。不变量：成功下标始终处于 0 至 15。
 std::optional<int> location(std::string_view value) {
     int number = 0;
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
@@ -87,21 +91,29 @@ std::optional<int> location(std::string_view value) {
     return std::nullopt;
 }
 
+/// 用途：统计任务载货总量。输入：任务状态。输出：五类货物之和；无状态修改。
+/// 失败：无。不变量：调用方须先保证各货物字段非负。
 int cargoTotal(const ExpansionState& state) {
     return state.cargoFood + state.cargoWood + state.cargoStone + state.cargoHerbs + state.cargoHides;
 }
 
+/// 用途：判断两个地图地点是否由道路相邻。输入：起点和终点下标。输出：布尔值；无状态修改。
+/// 失败：调用方保证下标合法。不变量：只查询固定道路表，不改动地图发现状态。
 bool road(int from, int to) {
     const auto& roads = kRoads[static_cast<std::size_t>(from)];
     return std::find(roads.begin(), roads.end(), to) != roads.end();
 }
 
+/// 用途：按坐标计算相邻道路的方位文字。输入：起点和终点下标。输出：方位；无状态修改。
+/// 失败：同点时返回空文本。不变量：只读取固定坐标表。
 std::string direction(int from, int to) {
     const auto [x1, y1] = kCoordinates[static_cast<std::size_t>(from)];
     const auto [x2, y2] = kCoordinates[static_cast<std::size_t>(to)];
     return std::string(y2 < y1 ? "北" : y2 > y1 ? "南" : "") + (x2 < x1 ? "西" : x2 > x1 ? "东" : "");
 }
 
+/// 用途：创建带职业加成的初始任务成员。输入：姓名和职业。输出：合法角色；无外部状态修改。
+/// 失败：无。不变量：生命初始化为依据属性计算的上限。
 Character makeMember(const char* name, Occupation occupation) {
     Character member{name, occupation};
     member.attributes = Attributes{5};
@@ -122,7 +134,11 @@ Character makeMember(const char* name, Occupation occupation) {
     return member;
 }
 
+/// 用途：构造失败的任务校验回执。输入：消息。输出：success 为 false 的结果；无状态修改。
+/// 失败：无。不变量：不暗示任何状态已提交。
 OperationResult invalid(std::string message) { return {false, std::move(message)}; }
+/// 用途：构造成功的任务校验回执。输入：消息。输出：success 为 true 的结果；无状态修改。
+/// 失败：无。不变量：只表达校验结果，不写入任务状态。
 OperationResult valid(std::string message) { return {true, std::move(message)}; }
 
 } // namespace
@@ -277,8 +293,10 @@ ExpansionCommandResult ExpansionGame::settle() {
     const std::size_t at = static_cast<std::size_t>(state_.worldLocation);
     if (!state_.outposts[at]) return rejected("这里只能停留；请在营地或已建前哨结算。");
     ExpansionState candidate = state_;
+    // 1. 只允许在已建立的结算点结束野外阶段；未结算载货不会写回部落库存。
     candidate.phase = ExpansionPhase::Settled;
     candidate.settled = true;
+    // 2. 保留载货和背包给上层 GameEngine 统一入账，避免地图层和部落层重复增加资源。
     recordTurn(candidate, 1, 1);
     for (Character& member : candidate.squad.members) {
         const OperationResult gained = gainExperience(member, 15 + candidate.harvestActions * 10);

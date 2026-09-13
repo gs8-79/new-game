@@ -14,6 +14,7 @@
 
 namespace {
 
+// 为端到端脚本创建唯一临时存档根目录；析构仅删除该测试创建的目录，避免触碰玩家 saves。
 class TemporarySaveDirectory {
    public:
     explicit TemporarySaveDirectory(const std::string& label) {
@@ -66,12 +67,13 @@ bool validUtf8(const std::string_view text) {
 TEST_CASE("application supports a scripted new-game map-save-load-return workflow in an isolated directory") {
     TemporarySaveDirectory directory{"main-flow"};
     std::istringstream input{
-        "seed quick 301\n"
-        "assign wood 2\n"
-        "mission wood\n"
-        "move forest\n"
-        "gather wood\n"
-        "move camp\n"
+        "  seed QUICK 301  \n"
+        "\n"
+        " assign 木材 2\n"
+        " mission 木材\n"
+        " move 苍林\n"
+        " gather 木材\n"
+        " move 营地\n"
         "settle\n"
         "save 1\n"
         "back\n"

@@ -27,7 +27,15 @@ add_library(tribe_formal_lib
     formal/src/population_rules.cpp
     formal/src/seasonal_event_rules.cpp
     formal/src/war_rules.cpp
+    formal/src/game_engine_internal.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_management.cpp
+    formal/src/game_engine_mission.cpp
+    formal/src/game_engine_diplomacy.cpp
+    formal/src/game_engine_war.cpp
+    formal/src/game_engine_season.cpp
+    formal/src/game_engine_validation.cpp
+    formal/src/game_engine_text.cpp
     formal/src/save_repository.cpp
     formal/src/state_safety.cpp
     formal/src/ending_presentation.cpp
@@ -85,6 +93,15 @@ set(TRIBE_FORMAT_SOURCES
     formal/src/expansion_game.cpp
     formal/src/expansion_types.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_internal.cpp
+    formal/src/game_engine_internal.hpp
+    formal/src/game_engine_management.cpp
+    formal/src/game_engine_mission.cpp
+    formal/src/game_engine_diplomacy.cpp
+    formal/src/game_engine_war.cpp
+    formal/src/game_engine_season.cpp
+    formal/src/game_engine_validation.cpp
+    formal/src/game_engine_text.cpp
     formal/src/main.cpp
     formal/src/population_rules.hpp
     formal/src/population_rules.cpp
