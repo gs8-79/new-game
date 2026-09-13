@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -579,9 +580,52 @@ void writeGameState(BufferWriter& writer, const GameState& state) {
         writer.writeInt(site.garrison);
         writer.writeInt(site.unrest);
     }
+    writer.writeU32(state.nextItemSerial);
 }
 
-bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
+bool manufacturedItemSerial(const std::string_view id, std::uint32_t& serial) {
+    const std::size_t first = id.find('_');
+    const std::size_t last = id.rfind('_');
+    if (first == std::string_view::npos || first == last || last + 1U >= id.size()) return false;
+    const std::string_view recipe = id.substr(0U, first);
+    constexpr std::array<std::string_view, 9> recipes{
+        {"knife", "spear", "shield", "armor", "shoes", "flintspear", "reinforcedshield", "cloak", "charm"}};
+    if (std::find(recipes.begin(), recipes.end(), recipe) == recipes.end()) return false;
+    std::uint32_t parsed = 0U;
+    const auto result = std::from_chars(id.data() + static_cast<std::ptrdiff_t>(last + 1U),
+                                        id.data() + static_cast<std::ptrdiff_t>(id.size()), parsed);
+    if (result.ec != std::errc{} || result.ptr != id.data() + static_cast<std::ptrdiff_t>(id.size()) || parsed == 0U)
+        return false;
+    serial = parsed;
+    return true;
+}
+
+bool deriveNextItemSerial(const GameState& state, std::uint32_t& nextSerial, std::string& error) {
+    std::uint32_t largest = 0U;
+    const auto inspect = [&](const Item& item) {
+        std::uint32_t serial = 0U;
+        if (manufacturedItemSerial(item.id, serial)) largest = std::max(largest, serial);
+    };
+    for (const Item& item : state.stockpile) inspect(item);
+    for (const Item& item : state.war.lockedEquipment) inspect(item);
+    for (const Character& character : state.roster)
+        for (const auto& item : character.equipment)
+            if (item) inspect(*item);
+    if (state.activeMission) {
+        for (const Item& item : state.activeMission->backpack.items()) inspect(item);
+        for (const Character& character : state.activeMission->squad.members)
+            for (const auto& item : character.equipment)
+                if (item) inspect(*item);
+    }
+    if (largest == std::numeric_limits<std::uint32_t>::max()) {
+        error = "v5 存档的装备编号已耗尽，无法安全升级。";
+        return false;
+    }
+    nextSerial = largest + 1U;
+    return true;
+}
+
+bool readGameState(BufferReader& reader, GameState& state, std::string& error, const bool containsItemSerial) {
     if (!readEnum(reader, state.mode, GameMode::Quick, GameMode::Long) ||
         !readEnum(reader, state.phase, GamePhase::Managing, GamePhase::Sandbox) || !reader.readU32(state.seed) ||
         !reader.readInt(state.season) || !reader.readInt(state.seasonLimit) || !reader.readInt(state.actionsLeft) ||
@@ -746,6 +790,14 @@ bool readGameState(BufferReader& reader, GameState& state, std::string& error) {
             error = "存档占领字段损坏。";
             return false;
         }
+    if (containsItemSerial) {
+        if (!reader.readU32(state.nextItemSerial) || state.nextItemSerial == 0U) {
+            error = "存档的装备序号字段损坏。";
+            return false;
+        }
+    } else if (!deriveNextItemSerial(state, state.nextItemSerial, error)) {
+        return false;
+    }
     if (!GameEngine::validateState(state, error)) return false;
     error.clear();
     return true;
@@ -775,7 +827,8 @@ bool serializeFile(const GameState& state, std::string& fileData, std::string& e
     return true;
 }
 
-bool deserializeFile(const std::string_view fileData, GameState& candidate, std::string& error) {
+bool deserializeFile(const std::string_view fileData, GameState& candidate, std::string& error,
+                     std::uint32_t* sourceVersion = nullptr) {
     BufferReader fileReader(fileData);
     std::string_view magic;
     std::uint32_t version = 0;
@@ -786,7 +839,7 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
         error = "不是《燧火纪》游戏存档。";
         return false;
     }
-    if (!fileReader.readU32(version) || version != static_cast<std::uint32_t>(kSaveVersion)) {
+    if (!fileReader.readU32(version) || (version != static_cast<std::uint32_t>(kSaveVersion) && version != 5U)) {
         error = "旧版本存档不支持，需要新开局；原文件未被修改。";
         return false;
     }
@@ -805,19 +858,21 @@ bool deserializeFile(const std::string_view fileData, GameState& candidate, std:
     }
     BufferReader payloadReader(payload);
     GameState parsed;
-    if (!readGameState(payloadReader, parsed, error)) return false;
+    if (!readGameState(payloadReader, parsed, error, version == static_cast<std::uint32_t>(kSaveVersion))) return false;
     if (!payloadReader.finished()) {
         error = "存档包含未识别的尾部字段。";
         return false;
     }
     candidate = std::move(parsed);
+    if (sourceVersion) *sourceVersion = version;
     error.clear();
     return true;
 }
 
 enum class LoadFileStatus { Loaded, Missing, Invalid, Unavailable };
 
-LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate, std::string& error) {
+LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate, std::string& error,
+                        std::uint32_t* sourceVersion = nullptr) {
     std::error_code code;
     const bool exists = std::filesystem::exists(path, code);
     if (code) {
@@ -852,7 +907,7 @@ LoadFileStatus loadFile(const std::filesystem::path& path, GameState& candidate,
         error = "读取存档内容失败：" + path.filename().string();
         return LoadFileStatus::Unavailable;
     }
-    return deserializeFile(data, candidate, error) ? LoadFileStatus::Loaded : LoadFileStatus::Invalid;
+    return deserializeFile(data, candidate, error, sourceVersion) ? LoadFileStatus::Loaded : LoadFileStatus::Invalid;
 }
 
 bool restoreRecoveredFile(const std::filesystem::path& source, const std::filesystem::path& destination) {
@@ -875,6 +930,146 @@ bool restoreRecoveredFile(const std::filesystem::path& source, const std::filesy
         std::filesystem::remove(recovery, code);
         return false;
     }
+    return true;
+}
+
+// 将旧档原始字节先复制到专用归档，再进行迁移；归档文件不参与 .bak/.tmp 自动恢复。
+bool copyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& destination,
+                        std::string& error) {
+    std::error_code code;
+    if (std::filesystem::exists(destination, code)) {
+        if (code) {
+            error = "无法检查 v5 历史备份：" + code.message();
+        } else {
+            error = "v5 历史备份已存在，拒绝覆盖：" + destination.filename().string();
+        }
+        return false;
+    }
+    if (code) {
+        error = "无法检查 v5 历史备份：" + code.message();
+        return false;
+    }
+    std::filesystem::path temporary = destination;
+    temporary += ".tmp";
+    std::filesystem::remove(temporary, code);
+    if (code) {
+        error = "无法清理 v5 备份临时文件：" + code.message();
+        return false;
+    }
+    std::filesystem::copy_file(source, temporary, std::filesystem::copy_options::none, code);
+    if (code) {
+        error = "无法复制 v5 原始存档：" + code.message();
+        return false;
+    }
+    std::filesystem::rename(temporary, destination, code);
+    if (code) {
+        std::filesystem::remove(temporary, code);
+        error = "无法提交 v5 历史备份：" + code.message();
+        return false;
+    }
+    return true;
+}
+
+// 用已验证的 v6 临时文件替换主档；任一步失败都会尝试恢复原主档。
+bool replaceMigratedPrimary(const std::filesystem::path& temporary, const std::filesystem::path& destination,
+                            std::string& error) {
+    std::filesystem::path previous = destination;
+    previous += ".v5-migration.old";
+    std::error_code code;
+    std::filesystem::remove(previous, code);
+    if (code) {
+        error = "无法清理迁移回滚文件：" + code.message();
+        return false;
+    }
+    const bool hadPrimary = std::filesystem::exists(destination, code);
+    if (code) {
+        error = "无法检查迁移前主档：" + code.message();
+        return false;
+    }
+    if (hadPrimary) {
+        std::filesystem::rename(destination, previous, code);
+        if (code) {
+            error = "无法暂存迁移前主档：" + code.message();
+            return false;
+        }
+    }
+    std::filesystem::rename(temporary, destination, code);
+    if (code) {
+        const std::string replaceError = code.message();
+        if (hadPrimary) {
+            std::error_code restoreCode;
+            std::filesystem::rename(previous, destination, restoreCode);
+            if (restoreCode) {
+                error = "迁移替换失败且无法恢复原主档：" + replaceError + "；" + restoreCode.message();
+                return false;
+            }
+        }
+        error = "迁移替换主档失败：" + replaceError;
+        return false;
+    }
+    if (hadPrimary) {
+        std::filesystem::remove(previous, code);
+        // 主档已成功提交时不能再把迁移报告为失败；遗留的回滚副本是可恢复的冗余文件。
+    }
+    return true;
+}
+
+// 仅在 v5 已完整解析并通过 GameEngine 状态校验后调用。
+bool migrateV5File(const std::filesystem::path& source, const std::filesystem::path& destination, GameState& parsed,
+                   std::string& error, std::filesystem::path& legacyBackup) {
+    std::string v6Data;
+    if (!serializeFile(parsed, v6Data, error)) return false;
+    GameState memoryRoundTrip;
+    if (!deserializeFile(v6Data, memoryRoundTrip, error) || memoryRoundTrip.nextItemSerial != parsed.nextItemSerial) {
+        error = "v5 升级前的 v6 内存复解析失败：" + error;
+        return false;
+    }
+
+    legacyBackup = destination;
+    legacyBackup += ".v5.bak";
+    if (!copyFileAtomically(source, legacyBackup, error)) return false;
+
+    std::filesystem::path temporary = destination;
+    temporary += ".v6-migrate.tmp";
+    std::error_code code;
+    std::filesystem::remove(temporary, code);
+    if (code) {
+        error = "无法清理 v6 升级临时文件：" + code.message();
+        std::filesystem::remove(legacyBackup, code);
+        return false;
+    }
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output) {
+            error = "无法写入 v6 升级临时文件。";
+            std::filesystem::remove(legacyBackup, code);
+            return false;
+        }
+        output.write(v6Data.data(), static_cast<std::streamsize>(v6Data.size()));
+        output.close();
+        if (!output) {
+            error = "关闭 v6 升级临时文件失败。";
+            std::filesystem::remove(temporary, code);
+            std::filesystem::remove(legacyBackup, code);
+            return false;
+        }
+    }
+    GameState diskRoundTrip;
+    std::string temporaryError;
+    std::uint32_t version = 0U;
+    if (loadFile(temporary, diskRoundTrip, temporaryError, &version) != LoadFileStatus::Loaded ||
+        version != static_cast<std::uint32_t>(kSaveVersion)) {
+        std::filesystem::remove(temporary, code);
+        std::filesystem::remove(legacyBackup, code);
+        error = "v6 升级临时文件复解析失败：" + temporaryError;
+        return false;
+    }
+    if (!replaceMigratedPrimary(temporary, destination, error)) {
+        std::filesystem::remove(temporary, code);
+        std::filesystem::remove(legacyBackup, code);
+        return false;
+    }
+    parsed = std::move(diskRoundTrip);
     return true;
 }
 
@@ -1051,6 +1246,12 @@ bool SaveRepository::save(const GameState& state, const SaveSlot slot, std::stri
 }
 
 bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error) const {
+    return load(slot, candidate, error, nullptr);
+}
+
+bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string& error,
+                          SaveLoadInfo* migrationInfo) const {
+    if (migrationInfo) *migrationInfo = {};
     if (!validSlot(slot)) {
         error = "存档槽编号无效。";
         return false;
@@ -1058,8 +1259,14 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string
     const std::filesystem::path path = pathFor(slot);
     GameState parsed;
     std::string primaryError;
-    const LoadFileStatus primaryStatus = loadFile(path, parsed, primaryError);
+    std::uint32_t primaryVersion = 0U;
+    const LoadFileStatus primaryStatus = loadFile(path, parsed, primaryError, &primaryVersion);
     if (primaryStatus == LoadFileStatus::Loaded) {
+        if (primaryVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(path, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;
@@ -1076,16 +1283,32 @@ bool SaveRepository::load(const SaveSlot slot, GameState& candidate, std::string
     temporary += ".tmp";
 
     std::string backupError;
-    if (loadFile(backup, parsed, backupError) == LoadFileStatus::Loaded) {
-        restoreRecoveredFile(backup, path);
+    std::uint32_t backupVersion = 0U;
+    if (loadFile(backup, parsed, backupError, &backupVersion) == LoadFileStatus::Loaded) {
+        if (backupVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(backup, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        } else if (!restoreRecoveredFile(backup, path)) {
+            error = "已验证" + backup.filename().string() + "，但恢复主档失败；当前游戏状态未改变。";
+            return false;
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;
     }
 
     std::string temporaryError;
-    if (loadFile(temporary, parsed, temporaryError) == LoadFileStatus::Loaded) {
-        restoreRecoveredFile(temporary, path);
+    std::uint32_t temporaryVersion = 0U;
+    if (loadFile(temporary, parsed, temporaryError, &temporaryVersion) == LoadFileStatus::Loaded) {
+        if (temporaryVersion == 5U) {
+            std::filesystem::path legacyBackup;
+            if (!migrateV5File(temporary, path, parsed, error, legacyBackup)) return false;
+            if (migrationInfo) *migrationInfo = {true, std::move(legacyBackup)};
+        } else if (!restoreRecoveredFile(temporary, path)) {
+            error = "已验证" + temporary.filename().string() + "，但恢复主档失败；当前游戏状态未改变。";
+            return false;
+        }
         candidate = std::move(parsed);
         error.clear();
         return true;

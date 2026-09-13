@@ -1,15 +1,14 @@
 #include "tribe/application.hpp"
 
+#include "command_parser.hpp"
 #include "tribe/console_ui.hpp"
 #include "tribe/ending_presentation.hpp"
 #include "tribe/save_repository.hpp"
 
 #include <chrono>
-#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,35 +16,9 @@
 namespace tribe {
 namespace {
 
-struct Words {
-    std::string verb;
-    std::vector<std::string> args;
-};
-
-std::string asciiLower(std::string text) {
-    for (char& character : text) {
-        const auto byte = static_cast<unsigned char>(character);
-        if (byte < 128U) character = static_cast<char>(std::tolower(byte));
-    }
-    return text;
-}
-
-Words words(const std::string& input) {
-    std::istringstream stream(input);
-    Words parsed;
-    stream >> parsed.verb;
-    parsed.verb = asciiLower(parsed.verb);
-    std::string argument;
-    while (stream >> argument) parsed.args.push_back(asciiLower(argument));
-    return parsed;
-}
-
-bool verbIs(const Words& command, const std::initializer_list<std::string_view> aliases) {
-    for (const std::string_view alias : aliases) {
-        if (command.verb == alias) return true;
-    }
-    return false;
-}
+using command_parser::Command;
+using command_parser::parse;
+using command_parser::verbIs;
 
 std::uint32_t freshSeed() {
     const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
@@ -76,7 +49,7 @@ void showHelp(ConsoleUI& ui, std::istream& input) {
     for (;;) {
         ui.renderHelpPage(topic);
         if (!std::getline(input, line)) return;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && (command.verb.empty() || verbIs(command, {"b", "back", "返回"}))) {
             if (topic == 0) return;
             topic = 0;
@@ -115,7 +88,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
     for (;;) {
         ui.renderGame(game, message);
         if (!std::getline(input, line)) return false;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.verb.empty()) {
             message = "请输入命令；第一次游玩可输入9或帮助。";
             continue;
@@ -178,7 +151,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
                 ui.prompt("覆盖" + SaveRepository::slotName(*slot) + "？输入 y/是 确认，其他输入取消 > ");
                 std::string answer;
                 if (!std::getline(input, answer)) return false;
-                const Words confirmation = words(answer);
+                const Command confirmation = parse(answer);
                 if (!confirmation.args.empty() || !verbIs(confirmation, {"y", "yes", "是"})) {
                     message = "已取消覆盖存档。";
                     continue;
@@ -201,11 +174,14 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
             }
             GameState loaded;
             std::string error;
-            if (!saves.load(*slot, loaded, error) || !game.replaceState(loaded, error)) {
+            SaveLoadInfo loadInfo;
+            if (!saves.load(*slot, loaded, error, &loadInfo) || !game.replaceState(loaded, error)) {
                 message = "读取失败，当前游戏不受影响：" + error;
                 continue;
             }
             message = "已读取" + SaveRepository::slotName(*slot) + "。";
+            if (loadInfo.migratedFromV5)
+                message += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
             continue;
         }
 
@@ -241,7 +217,7 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
             inputClosed = true;
             return std::nullopt;
         }
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         if (command.args.empty()) {
             const auto mode = parseMode(command.verb);
@@ -262,7 +238,7 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
             inputClosed = true;
             return std::nullopt;
         }
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"b", "back", "返回"})) return std::nullopt;
         std::optional<SaveSlot> slot;
         if (command.args.empty()) {
@@ -277,11 +253,14 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
         }
         GameState loaded;
         std::string error;
-        if (!saves.load(*slot, loaded, error)) {
+        SaveLoadInfo loadInfo;
+        if (!saves.load(*slot, loaded, error, &loadInfo)) {
             message = error;
             continue;
         }
         loadedMessage = "已读取" + SaveRepository::slotName(*slot) + "。";
+        if (loadInfo.migratedFromV5)
+            loadedMessage += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
         return loaded;
     }
 }
@@ -297,7 +276,7 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
     for (;;) {
         ui.renderMainMenu(menuMessage);
         if (!std::getline(input, line)) break;
-        const Words command = words(line);
+        const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"})) break;
         if (command.args.empty() && verbIs(command, {"1", "start", "开始", "开始游戏"})) {
             bool inputClosed = false;

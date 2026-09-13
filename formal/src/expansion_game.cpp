@@ -1,9 +1,11 @@
 #include "tribe/expansion_game.hpp"
 
+#include "command_parser.hpp"
+#include "state_safety.hpp"
+
 #include <algorithm>
 #include <array>
 #include <charconv>
-#include <cctype>
 #include <initializer_list>
 #include <optional>
 #include <sstream>
@@ -15,30 +17,9 @@
 namespace tribe {
 namespace {
 
-struct ParsedCommand {
-    std::string verb;
-    std::vector<std::string> args;
-};
-
-std::string lower(std::string value) {
-    for (char& character : value) {
-        if (static_cast<unsigned char>(character) < 128U) character = static_cast<char>(std::tolower(character));
-    }
-    return value;
-}
-
-ParsedCommand parse(std::string_view input) {
-    std::istringstream stream{std::string(input)};
-    ParsedCommand command;
-    stream >> command.verb;
-    command.verb = lower(std::move(command.verb));
-    for (std::string argument; stream >> argument;) command.args.push_back(lower(std::move(argument)));
-    return command;
-}
-
-bool any(std::string_view value, std::initializer_list<std::string_view> choices) {
-    return std::find(choices.begin(), choices.end(), value) != choices.end();
-}
+using command_parser::Command;
+using command_parser::equalsAny;
+using command_parser::parse;
 
 const std::array<std::string_view, kExpeditionWorldLocationCount> kNames{
     {"燧火营地", "苍林", "红土原", "芦苇沼泽", "河鹿渡口", "白羽营地", "燧石矿场", "古老山隘", "岩牙要塞", "盐风海岸",
@@ -172,31 +153,31 @@ ExpansionGame::ExpansionGame(ExpansionState state) : state_(std::move(state)) {
 }
 
 ExpansionCommandResult ExpansionGame::execute(std::string_view input) {
-    const ParsedCommand command = parse(input);
+    const Command command = parse(input);
     if (command.verb.empty()) return {};
-    if (any(command.verb, {"look", "查看", "map", "地图"}))
+    if (equalsAny(command.verb, {"look", "查看", "map", "地图"}))
         return command.args.empty() ? ExpansionCommandResult{true, true, false, false, lookText()}
                                     : rejected("用法：look / 查看");
     if (state_.encounterLife > 0) {
-        if (any(command.verb, {"attack", "攻击"}) && command.args.empty()) return attackEncounter();
-        if (any(command.verb, {"defend", "防御"}) && command.args.empty()) return defendEncounter();
-        if (any(command.verb, {"retreat", "撤退"}) && command.args.empty()) return retreatEncounter();
+        if (equalsAny(command.verb, {"attack", "攻击"}) && command.args.empty()) return attackEncounter();
+        if (equalsAny(command.verb, {"defend", "防御"}) && command.args.empty()) return defendEncounter();
+        if (equalsAny(command.verb, {"retreat", "撤退"}) && command.args.empty()) return retreatEncounter();
         return rejected("岩牙巡逻拦住道路；只能攻击、防御、撤退或查看。");
     }
-    if (any(command.verb, {"move", "移动"}))
+    if (equalsAny(command.verb, {"move", "移动"}))
         return command.args.size() == 1U ? move(command.args.front()) : rejected("用法：move <相邻地点>");
-    if (any(command.verb, {"gather", "采集"}))
+    if (equalsAny(command.verb, {"gather", "采集"}))
         return command.args.size() == 1U ? gather(command.args.front()) : rejected("用法：gather <资源>");
-    if (any(command.verb, {"attack", "攻击"}))
+    if (equalsAny(command.verb, {"attack", "攻击"}))
         return command.args.empty() ? attackEncounter() : rejected("用法：attack");
-    if (any(command.verb, {"use", "使用"}) && command.args.size() == 1U &&
-        any(command.args.front(), {"herb", "herbs", "草药"}))
+    if (equalsAny(command.verb, {"use", "使用"}) && command.args.size() == 1U &&
+        equalsAny(command.args.front(), {"herb", "herbs", "草药"}))
         return useHerb();
-    if (any(command.verb, {"buildoutpost", "outpost", "建造前哨"}) ||
-        (any(command.verb, {"build", "建造"}) && command.args.size() == 1U &&
-         any(command.args.front(), {"outpost", "前哨"})))
+    if (equalsAny(command.verb, {"buildoutpost", "outpost", "建造前哨"}) ||
+        (equalsAny(command.verb, {"build", "建造"}) && command.args.size() == 1U &&
+         equalsAny(command.args.front(), {"outpost", "前哨"})))
         return buildOutpost();
-    if (any(command.verb, {"settle", "结算"})) return command.args.empty() ? settle() : rejected("用法：settle");
+    if (equalsAny(command.verb, {"settle", "结算"})) return command.args.empty() ? settle() : rejected("用法：settle");
     return {};
 }
 
@@ -223,19 +204,19 @@ ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
     const int at = state_.worldLocation;
     std::optional<ResourceKind> kind;
     int base = 0;
-    if (any(resource, {"food", "食物", "粮食"}) && (at == 1 || at == 2 || at == 4 || at == 9)) {
+    if (equalsAny(resource, {"food", "食物", "粮食"}) && (at == 1 || at == 2 || at == 4 || at == 9)) {
         kind = ResourceKind::Food;
         base = 6 + state_.foodGatherBonus;
-    } else if (any(resource, {"wood", "木材"}) && (at == 1 || at == 3)) {
+    } else if (equalsAny(resource, {"wood", "木材"}) && (at == 1 || at == 3)) {
         kind = ResourceKind::Wood;
         base = 6;
-    } else if (any(resource, {"stone", "石料", "石头"}) && (at == 6 || at == 7 || at == 12)) {
+    } else if (equalsAny(resource, {"stone", "石料", "石头"}) && (at == 6 || at == 7 || at == 12)) {
         kind = ResourceKind::Stone;
         base = 5;
-    } else if (any(resource, {"herb", "herbs", "草药"}) && (at == 1 || at == 3 || at == 5)) {
+    } else if (equalsAny(resource, {"herb", "herbs", "草药"}) && (at == 1 || at == 3 || at == 5)) {
         kind = ResourceKind::Herbs;
         base = 4 + state_.herbGatherBonus;
-    } else if (any(resource, {"hide", "hides", "兽皮"}) && (at == 1 || at == 2)) {
+    } else if (equalsAny(resource, {"hide", "hides", "兽皮"}) && (at == 1 || at == 2)) {
         kind = ResourceKind::Hides;
         base = 4;
     } else
@@ -363,6 +344,8 @@ ExpansionCommandResult ExpansionGame::useHerb() {
     --candidate.cargoHerbs;
     leader.life = std::min(maximumLife(leader), leader.life + 18);
     leader.fatigue = std::max(0, leader.fatigue - 20);
+    // “任务回合前进”必须与状态一致：草药使用也消耗野外时间；队长本回合不额外积累疲劳。
+    recordTurn(candidate, 0, 1);
     return commit(std::move(candidate), "队长使用草药，生命恢复、疲劳下降。", true);
 }
 
@@ -409,7 +392,9 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         static_cast<int>(state.missionKind) > static_cast<int>(MissionKind::OutpostConstruction) ||
         static_cast<int>(state.assignedResource) < static_cast<int>(ResourceKind::Food) ||
         static_cast<int>(state.assignedResource) > static_cast<int>(ResourceKind::Hides) || state.crewSize < 2 ||
-        state.crewSize > 6 || state.encounterLife < 0)
+        state.crewSize > 6 || state.encounterLife < 0 ||
+        (state.encounterLife > 0 && (state.worldLocation != 8 || state.encounterDefeated)) ||
+        (state.encounterDefeated && (state.worldLocation == 8 && state.encounterLife != 0)))
         return invalid("载货、劳力或遭遇字段无效。");
     const OperationResult squad = validateSquad(state.squad);
     if (!squad) return invalid("小队无效：" + squad.message);
@@ -418,7 +403,9 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         return invalid("任务背包超出容量。");
     std::unordered_set<std::string> ids;
     for (const Item& item : state.backpack.items())
-        if (item.id.empty() || !ids.insert(item.id).second) return invalid("任务背包物品编号无效。");
+        if (item.id.empty() || !state_safety::isSafeDisplayText(item.id) ||
+            !state_safety::isSafeDisplayText(item.name) || !ids.insert(item.id).second)
+            return invalid("任务背包物品编号或文本无效。");
     return valid("地图任务状态合法。");
 }
 

@@ -63,7 +63,8 @@ constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
 constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
 constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
 constexpr std::size_t kPlayerFactionCount = 3U;
-constexpr int kSaveVersion = 5;
+// v6 以持久化的全局序号保证制造物品在跨仓库转移后仍具有唯一编号。
+constexpr int kSaveVersion = 6;
 
 template <typename Enum>
 constexpr std::size_t indexOf(const Enum value) {
@@ -203,6 +204,8 @@ struct GameState {
     int missionCount = 0;
     int missionDeaths = 0;
     int highestLevel = 1;
+    // 下一件制造装备使用的序号；必须为正数，且只会递增而不会复用。
+    std::uint32_t nextItemSerial = 1U;
     std::string tribeName = "燧火";
     std::string leaderName = "炎角";
     std::string actingLeaderName;
@@ -336,13 +339,12 @@ class GameEngine {
     ActionResult rejected(std::string message) const;
     bool canSpendAction(ActionResult& result) const;
     bool diplomacyUsedThisSeason(TribeId tribe) const;
-    ActionResult finalizeDiplomacy(TribeId tribe, ActionResult result);
+    void finalizeDiplomacy(GameState& candidate, TribeId tribe) const;
     void spendAction(GameState& candidate) const;
     void addChronicle(GameState& candidate, int importance, std::string title, std::string detail) const;
     void settleFoodAndTribute(GameState& candidate, std::string& message) const;
     void settleAutonomousTribes(GameState& candidate, std::string& message) const;
     void settleFactions(GameState& candidate, std::string& message) const;
-    void settleEvent(GameState& candidate, std::string& message) const;
     void finishExtinction(GameState& candidate, std::string& message) const;
     void concludeWarVictory(GameState& candidate, std::string& message) const;
     void releaseWarEquipment(GameState& candidate, bool damaged) const;

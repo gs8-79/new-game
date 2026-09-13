@@ -30,12 +30,21 @@ struct SaveSummary {
     int herbs = 0;
 };
 
+// 读取成功时附带的非状态信息；迁移提示不影响加载出的游戏状态。
+struct SaveLoadInfo {
+    bool migratedFromV5 = false;
+    std::filesystem::path legacyBackupPath;
+};
+
 class SaveRepository {
    public:
     explicit SaveRepository(std::filesystem::path root);
 
     bool save(const GameState& state, SaveSlot slot, std::string& error) const;
+    // 保留原有三参数接口，避免调用方因新增迁移提示而改变命令或 ABI。
     bool load(SaveSlot slot, GameState& candidate, std::string& error) const;
+    // 读取槽位；仅在完整合法的 v5 档成功升级后设置 migrationInfo。
+    bool load(SaveSlot slot, GameState& candidate, std::string& error, SaveLoadInfo* migrationInfo) const;
     std::vector<SaveSummary> inspect() const;
     std::filesystem::path pathFor(SaveSlot slot) const;
 
