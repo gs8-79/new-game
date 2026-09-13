@@ -58,7 +58,7 @@ move forest → gather wood → move camp → settle
 
 `save 1` / `保存 1` 写入手动档；覆盖前需输入 `y` 或 `是`。`load 1` / `读取 1` 读取手动档，`load auto` 读取自动档。新局、季节结算、结局和正常退出时都会自动保存。
 
-存档位于 `saves/game`，含 `slot1.sav` 至 `slot6.sav` 及 `autosave.sav`。当前格式版本为 5；v4 及其他版本会提示需要新开局，且不会修改原文件。
+存档位于 `saves/game`，含 `slot1.sav` 至 `slot6.sav` 及 `autosave.sav`。当前格式版本为 6；完整合法的 v5 存档会在首次读取时自动升级，并在同槽保留原始 `.v5.bak`。v4 及更旧版本会提示需要新开局，且不会修改原文件。
 
 ## 构建与测试
 

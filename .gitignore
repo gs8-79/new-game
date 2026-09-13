@@ -1,6 +1,6 @@
 /build/
 /saves/
-/.vs/
+**/.vs/
 /out/
 /vcpkg_installed/
 /formal/docs/generated/
