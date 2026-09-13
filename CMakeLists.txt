@@ -27,8 +27,11 @@ add_library(tribe_formal_lib
     formal/src/population_rules.cpp
     formal/src/seasonal_event_rules.cpp
     formal/src/war_rules.cpp
+    formal/src/world_map_catalog.cpp
+    formal/src/game_command_catalog.cpp
     formal/src/game_engine_internal.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_dispatch.cpp
     formal/src/game_engine_management.cpp
     formal/src/game_engine_mission.cpp
     formal/src/game_engine_diplomacy.cpp
@@ -36,6 +39,8 @@ add_library(tribe_formal_lib
     formal/src/game_engine_season.cpp
     formal/src/game_engine_validation.cpp
     formal/src/game_engine_text.cpp
+    formal/src/save_codec.cpp
+    formal/src/save_file_transaction.cpp
     formal/src/save_repository.cpp
     formal/src/state_safety.cpp
     formal/src/ending_presentation.cpp
@@ -67,7 +72,7 @@ add_executable(tribe-formal-tests
     formal/tests/application_workflow_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
-target_include_directories(tribe-formal-tests PRIVATE tests)
+target_include_directories(tribe-formal-tests PRIVATE tests formal/src)
 
 if(MSVC)
     target_compile_options(tribe-formal-tests PRIVATE /W4 /permissive- /utf-8)
@@ -83,6 +88,7 @@ set(TRIBE_FORMAT_SOURCES
     formal/include/tribe/ending_presentation.hpp
     formal/include/tribe/expansion_game.hpp
     formal/include/tribe/expansion_types.hpp
+    formal/include/tribe/game_state.hpp
     formal/include/tribe/game_engine.hpp
     formal/include/tribe/save_repository.hpp
     formal/src/application.cpp
@@ -93,6 +99,9 @@ set(TRIBE_FORMAT_SOURCES
     formal/src/expansion_game.cpp
     formal/src/expansion_types.cpp
     formal/src/game_engine.cpp
+    formal/src/game_engine_dispatch.cpp
+    formal/src/game_command_catalog.cpp
+    formal/src/game_command_catalog.hpp
     formal/src/game_engine_internal.cpp
     formal/src/game_engine_internal.hpp
     formal/src/game_engine_management.cpp
@@ -107,11 +116,17 @@ set(TRIBE_FORMAT_SOURCES
     formal/src/population_rules.cpp
     formal/src/seasonal_event_rules.hpp
     formal/src/seasonal_event_rules.cpp
+    formal/src/save_codec.cpp
+    formal/src/save_codec.hpp
+    formal/src/save_file_transaction.cpp
+    formal/src/save_file_transaction.hpp
     formal/src/save_repository.cpp
     formal/src/state_safety.cpp
     formal/src/state_safety.hpp
     formal/src/war_rules.hpp
     formal/src/war_rules.cpp
+    formal/src/world_map_catalog.hpp
+    formal/src/world_map_catalog.cpp
     formal/tests/application_workflow_tests.cpp
     formal/tests/current_game_tests.cpp
     formal/tests/map_mission_tests.cpp

@@ -19,11 +19,13 @@
 
 `main` 初始化终端后调用 `runApplication(input, output, saveRoot, interactive, ansiEnabled, terminalWidth)`。注入流和存档目录便于测试完整流程。页面导航使用循环，不递归启动新应用。
 
-`GameEngine` 拥有一份 `GameState`，处理中文、英文和数字命令。规则验证后提交候选状态；失败不会消耗行动或修改进度。封面、主游戏和地图共用 `command_parser`，对任意空白的分词、ASCII 小写化和中英文别名处理一致。统一人口池、劳力岗位、驻军和已组建军队的容量计算由私有 `population_rules` 组件集中处理；季末事件的两条选择由 `seasonal_event_rules` 结算；战时锁定装备由 `war_rules` 归还；`state_safety` 统一拒绝非法 UTF-8、控制字符和 ANSI 转义序列。`GameEngine::validateState` 仍是人物、小队、装备唯一所有权、任务、战争及跨域不变量的唯一提交门。上述内部组件均不改变玩家命令或公共接口。`ConsoleUI` 只读状态，渲染标题、模式/季节、部落、资源、外交、当前局面、消息和阶段命令。
+`GameEngine` 拥有一份 `GameState`，处理中文、英文和数字命令。枚举、持久化状态和展示 DTO 位于 `include/tribe/game_state.hpp`；原 `game_engine.hpp` 仍作为兼容聚合入口。`execute()` 只做“解析、命令目录分类、阶段门禁、职责分派”：地图、战争和经营分派各自调用既有规则函数，规则验证后才提交候选状态；失败不会消耗行动或修改进度。封面、主游戏和地图共用 `command_parser`，`game_command_catalog` 是中英文和数字别名的唯一登记处，因此空白分词、ASCII 小写化和别名行为一致。统一人口池、劳力岗位、驻军和已组建军队的容量计算由私有 `population_rules` 组件集中处理；季末事件的两条选择由 `seasonal_event_rules` 结算；战时锁定装备由 `war_rules` 归还；`state_safety` 统一拒绝非法 UTF-8、控制字符和 ANSI 转义序列。`GameEngine::validateState` 仍是人物、小队、装备唯一所有权、任务、战争及跨域不变量的唯一提交门。上述内部组件均不改变玩家命令或公共接口。
+
+`world_map_catalog` 是十六地点的共享目录：稳定编号、别名、道路、方位坐标、短名称、资源分布和四行道路图布局都由它提供；主引擎、地图任务和终端不再各自维护地点或道路编号表。`ConsoleUI` 只读状态；页面由页头、摘要、阶段命令、道路图和现场记录等小渲染函数组装，保留既有 ANSI 开关与中文文本。
 
 `ExpansionGame/ExpansionState` 是唯一的十六地点小队地图实现。主游戏部署长期小队；采集任务在地图地点装载资源后，必须在营地或前哨结算才会回写部落仓库。前哨建设任务从仓库带走6木材、4石料，再在地图现场建造。装备只能处于仓库、人物、任务背包或军队锁定位置之一。旧苍林路线、常驻任务和旧存档迁移均不保留。
 
-`SaveRepository` 负责文件读写、v5→v6 升级和七档摘要。`inspect()` 返回 `SaveSummary`，只读解析主档/备份/临时文件，不调用带恢复副作用的 `load()`。只有玩家选择档位才读取并恢复。v5 升级先原子归档 `.v5.bak`、再复解析 v6 临时文件、最后替换主档；归档不会参与恢复。文件不可访问时不选旧备份，以免误读较旧进度。
+`SaveRepository` 是七槽位门面，负责状态校验、二进制编解码调用、v5→v6 升级和摘要。写入事务位于私有 `save_file_transaction`：先写 `.tmp`、再使用正常读取链复解析、随后轮换 `.bak`、最后替换主档；替换失败会尝试还原旧主档。`inspect()` 返回 `SaveSummary`，只读解析主档/备份/临时文件，不调用带恢复副作用的 `load()`。只有玩家选择档位才读取并恢复。v5 升级先原子归档 `.v5.bak`、再复解析 v6 临时文件、最后替换主档；归档不会参与恢复。文件不可访问时不选旧备份，以免误读较旧进度。
 
 ## 终端显示
 
@@ -33,4 +35,4 @@
 
 ## 注释约定
 
-用短注释解释不明显的原因：加载前验证、原子替换、只读检查、任务复用及中文折行。避免注释复述单行代码。公开名称使用 `GameEngine/GameState/GameMode/GamePhase/GameEnding/TribeId/SaveRepository/SaveSlot`，不保留版本后缀或兼容别名。
+每个生产函数在声明或定义旁保留一份中文 `///` 文档注释，说明用途、输入输出、状态影响、失败条件与不变量；纯函数明确“不修改状态”。加载前验证、原子替换与回滚、候选提交、人口重分配、任务结算、战争装备、UTF-8 字形和列宽折行等路径使用短行内中文步骤注释。避免在声明和定义重复注释，也不生成 Doxygen HTML 产物。公开名称使用 `GameEngine/GameState/GameMode/GamePhase/GameEnding/TribeId/SaveRepository/SaveSlot`，不保留版本后缀或兼容别名。

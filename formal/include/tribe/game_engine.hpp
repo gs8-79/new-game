@@ -1,261 +1,25 @@
 #pragma once
 
-#include "tribe/expansion_game.hpp"
+#include "tribe/game_state.hpp"
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace tribe {
 
-enum class GameMode { Quick = 0, Standard, Long };
-enum class GamePhase { Managing = 0, Mission, War, EndingChoice, Finished, Sandbox };
-enum class GameEnding { None = 0, Alliance, Conquest, Prosperity, Migration, Extinction };
-enum class WorkforceRole { FoodCrew = 0, WoodCrew, StoneCrew, HerbCrew, Crafters, Healers, Scouts, Envoys, CampGuards };
-
-enum class BuildingId { Granary = 0, Wall, Workshop, HealerHut, Watchtower, CouncilFire, Count };
-
-enum class TechnologyId {
-    FoodPreservation = 0,
-    HerbalKnowledge,
-    Irrigation,
-    FlintSpear,
-    ShieldWall,
-    AmbushTraining,
-    GiftCustoms,
-    SharedLanguage,
-    Confederation,
-    Count
-};
-
-enum class WorldLocationId {
-    Camp = 0,
-    Forest,
-    RedPlain,
-    Marsh,
-    RiverFord,
-    WhiteFeatherCamp,
-    Quarry,
-    OldPass,
-    RockfangFort,
-    SaltwindCoast,
-    TidesaltHarbor,
-    ShellBeach,
-    BlackstoneValley,
-    BlackstoneWorkshop,
-    MountainMarket,
-    CliffTradeRoad,
-    Count
-};
-
-enum class TribeId { Player = 0, RiverDeer, WhiteFeather, Rockfang, Tidesalt, Blackstone, Count };
-enum class FactionCrisis { Calm = 0, Complaint, Slowdown, Refusal, Deposition, Coup };
-enum class WarOrder { Advance = 0, Hold, Focus, Flank, Cover, Retreat };
-enum class LocationRole { Camp = 0, Resource, Diplomacy, Route, War };
-enum class PendingEventKind { Refugees = 0, Disease, Extortion, FactionDemand };
-
-constexpr std::size_t kWorldLocationCount = static_cast<std::size_t>(WorldLocationId::Count);
-constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
-constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
-constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
-constexpr std::size_t kPlayerFactionCount = 3U;
-// v6 以持久化的全局序号保证制造物品在跨仓库转移后仍具有唯一编号。
-constexpr int kSaveVersion = 6;
-
-/// 用途：将连续枚举转换为数组下标。输入：枚举值。输出：无符号下标；无状态修改。
-/// 失败：调用方必须先保证枚举合法。不变量：仅用于以 Count 结尾的连续枚举。
-template <typename Enum>
-constexpr std::size_t indexOf(const Enum value) {
-    return static_cast<std::size_t>(value);
+namespace command_parser {
+struct Command;
 }
 
-struct GameConfig {
-    GameMode mode = GameMode::Standard;
-    std::uint32_t seed = 1U;
-    std::string tribeName = "燧火";
-    std::string leaderName = "炎角";
-    std::string leaderFocus = "生存";
-};
+namespace game_command_catalog {
+enum class CommandId : int;
+}
 
-struct WorldLocationInfo {
-    WorldLocationId id = WorldLocationId::Camp;
-    std::string name;
-    std::string feature;
-    LocationRole role = LocationRole::Route;
-    std::vector<WorldLocationId> neighbors;
-};
-
-struct FactionState {
-    std::string name;
-    int influence = 30;
-    int satisfaction = 60;
-    std::string demand;
-    std::string candidate;
-    FactionCrisis crisis = FactionCrisis::Calm;
-};
-
-struct TribeProfile {
-    TribeId id = TribeId::Player;
-    std::string name;
-    std::string leader;
-    std::string actingLeader;
-    std::string successor;
-    std::string personality;
-    std::vector<FactionState> factions;
-};
-
-struct DiplomacyRelation {
-    int relation = 0;
-    int trust = 0;
-    int fear = 0;
-    int tradeDependence = 0;
-    bool atWar = false;
-    bool truce = false;
-    bool alliance = false;
-    bool marriage = false;
-    bool playerPaysTribute = false;
-    bool otherPaysTribute = false;
-    bool tradeRoute = false;
-};
-
-struct PermanentSquad {
-    std::string name;
-    std::string captain;
-    std::vector<std::string> members;
-    int fatigue = 0;
-    int eliteExperience = 0;
-    bool personallyDeployedThisSeason = false;
-    bool refusingOrders = false;
-    WorldLocationId station = WorldLocationId::Camp;
-};
-
-struct WarState {
-    bool active = false;
-    TribeId enemy = TribeId::Rockfang;
-    std::string commander;
-    int warriors = 0;
-    int militia = 0;
-    int playerPower = 0;
-    int enemyPower = 0;
-    WarOrder order = WarOrder::Hold;
-    bool riskConfirmed = false;
-    int spearMilitia = 0;
-    int shieldBearers = 0;
-    int heavySpears = 0;
-    int craftsmanshipPower = 0;
-    std::vector<Item> lockedEquipment;
-    bool defensive = false;
-};
-
-struct WorkforceState {
-    int foodCrew = 2;
-    int woodCrew = 0;
-    int stoneCrew = 0;
-    int herbCrew = 0;
-    int crafters = 0;
-    int healers = 0;
-    int scouts = 0;
-    int envoys = 0;
-    int campGuards = 0;
-    std::array<int, kWorldLocationCount> outpostGuards{};
-    std::array<int, kWorldLocationCount> outpostIdleSeasons{};
-};
-
-struct OccupationState {
-    bool occupied = false;
-    int garrison = 0;
-    int unrest = 0;
-};
-
-struct PendingEvent {
-    PendingEventKind kind = PendingEventKind::Refugees;
-    bool active = false;
-};
-
-struct ChronicleEntry {
-    int season = 0;
-    int importance = 1;
-    std::string title;
-    std::string detail;
-};
-
-struct GameState {
-    GameMode mode = GameMode::Standard;
-    GamePhase phase = GamePhase::Managing;
-    std::uint32_t seed = 1U;
-    int season = 1;
-    int seasonLimit = 16;
-    int actionsLeft = 3;
-    int population = 16;
-    int food = 30;
-    int wood = 12;
-    int stone = 4;
-    int herbs = 3;
-    int hides = 0;
-    int warriors = 3;
-    int morale = 60;
-    int campDurability = 20;
-    int stability = 65;
-    int tradeCount = 0;
-    int warsWon = 0;
-    int warsLost = 0;
-    int missionCount = 0;
-    int missionDeaths = 0;
-    int highestLevel = 1;
-    // 下一件制造装备使用的序号；必须为正数，且只会递增而不会复用。
-    std::uint32_t nextItemSerial = 1U;
-    std::string tribeName = "燧火";
-    std::string leaderName = "炎角";
-    std::string actingLeaderName;
-    std::string leaderFocus = "生存";
-    std::array<bool, kWorldLocationCount> discovered{};
-    std::array<bool, kBuildingCount> buildings{};
-    std::array<bool, kTechnologyCount> technologies{};
-    std::array<TribeProfile, kTribeCount> tribes{};
-    std::array<DiplomacyRelation, kTribeCount> relations{};
-    std::array<FactionState, kPlayerFactionCount> playerFactions{};
-    std::array<bool, kTribeCount> tradePartners{};
-    std::array<bool, kWorldLocationCount> outposts{};
-    WorkforceState workforce;
-    std::vector<Item> stockpile;
-    std::array<OccupationState, kTribeCount> occupations{};
-    PendingEvent pendingEvent;
-    std::string workshopSupervisor;
-    std::string healerSupervisor;
-    std::vector<Character> roster;
-    std::vector<PermanentSquad> squads;
-    std::optional<ExpansionState> activeMission;
-    WarState war;
-    bool workforceReassignmentRequired = false;
-    bool longModeFinalShown = false;
-    GameEnding ending = GameEnding::None;
-    std::vector<std::string> leadershipHistory;
-    std::vector<ChronicleEntry> chronicle;
-};
-
-struct ActionResult {
-    bool recognized = false;
-    bool success = false;
-    bool stateChanged = false;
-    bool consumesAction = false;
-    bool seasonAdvanced = false;
-    bool endingReached = false;
-    std::string message;
-};
-
-struct EndingSummary {
-    GameEnding ending = GameEnding::None;
-    std::string title;
-    std::string epilogue;
-    std::vector<std::string> statistics;
-    std::vector<std::string> otherRoads;
-    std::vector<ChronicleEntry> importantChronicle;
-};
-
+/// 用途：提供命令调度、候选状态提交和文本视图的游戏门面。
+/// 状态影响：所有成功的规则操作只经 commit 写入 state_；失败路径必须保持 state_ 不变。
 class GameEngine {
    public:
     /// 用途：按配置创建一局完整游戏。输入：模式、种子和可选名称。输出：合法初始引擎。
@@ -275,8 +39,8 @@ class GameEngine {
     /// 状态影响：仅校验成功才替换 state_。失败：状态非法时写入 error。不变量：失败保持原状态。
     bool replaceState(const GameState& candidate, std::string& error);
 
-    /// 以下文本视图均为只读：输入为当前已提交状态或查询名，输出 UTF-8
-    /// 文本；不修改状态；查询失败以文本说明；不得泄露非法控制序列。 用途：生成资源、季节和行动总览。
+    /// 以下文本视图均为只读：输入为当前已提交状态或查询名，输出 UTF-8 文本；不修改状态；查询失败以文本说明。
+    /// 用途：生成资源、季节和行动总览。
     std::string statusText() const;
     /// 用途：生成十六地点地图、道路与任务状态。
     std::string worldText() const;
@@ -313,7 +77,7 @@ class GameEngine {
     /// 用途：汇总已达成结局。输出：展示用统计；状态影响和失败均无。
     EndingSummary endingSummary() const;
 
-    /// 以下元数据和验证函数均不修改状态：验证失败写 error 或返回空/默认文本，并保持输入不变。
+    /// 以下元数据和验证函数均不修改状态；验证失败写 error 或返回空/默认文本，并保持输入不变。
     /// 用途：集中验证完整持久化状态及跨模块不变量。
     static bool validateState(const GameState& candidate, std::string& error);
     /// 用途：取得固定十六地点道路定义。
@@ -330,8 +94,24 @@ class GameEngine {
     static std::string resourceName(ResourceKind resource);
 
    private:
-    /// 以下经营操作输入命令已解析参数，输出 ActionResult；仅成功提交候选状态；失败保持 state_
-    /// 不变；人口、装备和资源不变量必须通过校验。 用途：建设指定建筑。
+    /// 用途：按当前游戏阶段执行已分类的命令。输入：解析命令、分类和原始文本。输出：行动回执。
+    /// 状态影响：仅由下游规则函数经 commit 修改状态。失败：阶段不允许的命令返回拒绝；不变量：不绕过阶段门禁。
+    ActionResult dispatchMissionCommand(const command_parser::Command& command,
+                                        game_command_catalog::CommandId commandId, std::string_view input);
+    /// 用途：执行战争阶段允许的命令。输入：解析命令和分类。输出：行动回执。
+    /// 状态影响：仅战争规则可提交候选状态。失败：未知或不合规军令返回拒绝；不变量：战争外命令不得穿透。
+    ActionResult dispatchWarCommand(const command_parser::Command& command, game_command_catalog::CommandId commandId);
+    /// 用途：执行经营、结局和沙盒阶段的命令。输入：解析命令和分类。输出：行动回执。
+    /// 状态影响：仅成功规则操作提交候选状态。失败：参数、前置条件或门禁不满足时保持状态不变。
+    ActionResult dispatchManagingCommand(const command_parser::Command& command,
+                                         game_command_catalog::CommandId commandId);
+    /// 用途：判断人口待重分配时一条命令是否可能释放人口。输入：解析命令和分类。输出：布尔值。
+    /// 状态影响：无。失败：无。不变量：只允许降低占用或查看事件的命令通过门禁。
+    bool allowsWorkforceRecovery(const command_parser::Command& command,
+                                 game_command_catalog::CommandId commandId) const;
+
+    /// 以下经营操作仅成功提交候选状态；失败保持 state_ 不变，且人口、装备和资源不变量必须通过校验。
+    /// 用途：建设指定建筑。
     ActionResult build(BuildingId building);
     /// 用途：研究指定技术。
     ActionResult research(TechnologyId technology);
@@ -346,7 +126,7 @@ class GameEngine {
     /// 用途：转交活动地图命令并结算返回结果。
     ActionResult executeMission(std::string_view input);
 
-    /// 以下外交操作输入目标部落和资源，输出 ActionResult；成功时同时写入候选编年史；失败不消耗行动且不修改关系。
+    /// 以下外交操作成功时同时写入候选编年史；失败不消耗行动且不修改关系。
     /// 用途：与目标部落交谈。
     ActionResult talk(TribeId tribe);
     /// 用途：向目标部落赠礼。
@@ -388,7 +168,7 @@ class GameEngine {
     /// 用途：执行战争撤退回合。
     ActionResult warRetreat();
 
-    /// 以下季结算操作成功时推进季节或结局阶段；资源不足、未决事件或状态非法时拒绝，且保持已提交状态不变。
+    /// 以下季结算操作成功时推进季节或结局阶段；资源不足、未决事件或状态非法时拒绝。
     /// 用途：结算当前季节。
     ActionResult endSeason();
     /// 用途：选择已满足条件的结局。
@@ -423,21 +203,20 @@ class GameEngine {
     /// 用途：调整已占领据点的驻军。
     ActionResult garrison(TribeId tribe, int warriors);
 
-    /// 用途：验证并原子提交候选状态。输入：候选状态和结果元数据。输出：ActionResult。
-    /// 状态影响：校验成功才移动写入 state_。失败：校验失败返回拒绝。不变量：提交后人口和物品所有权一致。
+    /// 用途：验证并原子提交候选状态。失败：校验失败返回拒绝；不变量：提交后人口和物品所有权一致。
     ActionResult commit(GameState candidate, std::string message, bool consumesAction = false,
                         bool seasonAdvanced = false, bool endingReached = false);
-    /// 用途：构造不改变状态的失败结果。输入：错误消息。输出：失败 ActionResult；无状态影响。
+    /// 用途：构造不改变状态的失败结果。输出：失败 ActionResult；无状态影响。
     ActionResult rejected(std::string message) const;
-    /// 用途：检查本季剩余行动。输入：结果写入位置。输出：是否可行动；无状态影响。
+    /// 用途：检查本季剩余行动。输出：是否可行动；失败时写入拒绝结果；无状态影响。
     bool canSpendAction(ActionResult& result) const;
     /// 用途：判断目标部落本季是否已外交。输出：布尔值；无状态影响。
     bool diplomacyUsedThisSeason(TribeId tribe) const;
-    /// 用途：向候选状态写入外交编年史。状态影响：仅修改 candidate；不变量：必须在 commit 前调用。
+    /// 用途：向候选状态写入外交编年史。状态影响：仅修改 candidate；必须在 commit 前调用。
     void finalizeDiplomacy(GameState& candidate, TribeId tribe) const;
-    /// 用途：从候选状态扣除一次行动。失败：调用方负责先验证行动数；不变量：不得对已提交 state_ 直接调用。
+    /// 用途：从候选状态扣除一次行动。调用方负责先验证行动数；不得对 state_ 直接调用。
     void spendAction(GameState& candidate) const;
-    /// 用途：向候选状态追加受限长度编年史。状态影响：可能丢弃最旧记录；不变量：最多保留 200 条。
+    /// 用途：向候选状态追加受限长度编年史。状态影响：最多保留 200 条。
     void addChronicle(GameState& candidate, int importance, std::string title, std::string detail) const;
     /// 用途：结算食物消耗与朝贡。
     void settleFoodAndTribute(GameState& candidate, std::string& message) const;
@@ -449,13 +228,13 @@ class GameEngine {
     void finishExtinction(GameState& candidate, std::string& message) const;
     /// 用途：将候选状态转入战争胜利结果。
     void concludeWarVictory(GameState& candidate, std::string& message) const;
-    /// 用途：归还或损坏战争锁定装备。状态影响：只修改 candidate；不变量：装备不能同时留在两处。
+    /// 用途：归还或损坏战争锁定装备；不变量：装备不能同时留在两处。
     void releaseWarEquipment(GameState& candidate, bool damaged) const;
     /// 用途：计算当前可出发小队容量。输出：人数上限；无状态影响。
     int availableTeams(const GameState& state) const;
     /// 用途：读取某类资源的数值。输出：资源数量；无状态影响。
     int resourceValue(const GameState& state, ResourceKind resource) const;
-    /// 用途：取得候选状态中某资源的可写引用。调用方必须在 commit 前保持资源非负。
+    /// 用途：取得候选状态中某资源的可写引用；调用方必须在 commit 前保持资源非负。
     int& resourceRef(GameState& state, ResourceKind resource) const;
     /// 用途：映射部落到地图接触点。输出：地点枚举；无状态影响。
     WorldLocationId contactLocation(TribeId tribe) const;

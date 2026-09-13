@@ -10,10 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -21,13 +23,27 @@
 #include <utility>
 
 namespace tribe {
+namespace {
+
+/// 用途：从制造装备编号提取全局序号。输入：物品 ID。输出：制造序号或空值；无状态修改。
+/// 失败：非制造配方、缺少分隔符或序号非法返回空。不变量：只识别 craft 使用的九种配方格式。
+std::optional<std::uint32_t> manufacturedSerial(const std::string_view id) {
+    const std::size_t first = id.find('_');
+    const std::size_t last = id.rfind('_');
+    if (first == std::string_view::npos || first == last || last + 1U >= id.size()) return std::nullopt;
+    constexpr std::array<std::string_view, 9> recipes{
+        {"knife", "spear", "shield", "armor", "shoes", "flintspear", "reinforcedshield", "cloak", "charm"}};
+    if (std::find(recipes.begin(), recipes.end(), id.substr(0U, first)) == recipes.end()) return std::nullopt;
+    std::uint32_t serial = 0U;
+    const auto parsed = std::from_chars(id.data() + last + 1U, id.data() + id.size(), serial);
+    if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size() || serial == 0U) return std::nullopt;
+    return serial;
+}
+
+} // namespace
 
 using namespace game_engine_detail;
 
-using command_parser::Command;
-using command_parser::equalsAny;
-using command_parser::parse;
-using command_parser::verbIs;
 bool GameEngine::replaceState(const GameState& candidate, std::string& error) {
     if (!validateState(candidate, error)) return false;
     state_ = candidate;
@@ -102,6 +118,13 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
             error = "六部落档案不完整。";
             return false;
         }
+        for (const FactionState& faction : profile.factions) {
+            if (faction.influence < 0 || faction.influence > 100 || faction.satisfaction < 0 ||
+                faction.satisfaction > 100 || !enumInRange(faction.crisis, FactionCrisis::Calm, FactionCrisis::Coup)) {
+                error = "部落派系字段无效。";
+                return false;
+            }
+        }
         const auto& relation = candidate.relations[index];
         if (relation.relation < -100 || relation.relation > 100 || relation.trust < 0 || relation.trust > 100 ||
             relation.fear < 0 || relation.fear > 100 || relation.tradeDependence < 0 ||
@@ -128,8 +151,14 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
     }
     std::unordered_set<std::string> rosterNames;
     std::unordered_set<std::string> itemOwners;
+    std::uint32_t largestManufacturedSerial = 0U;
+    const auto inspectItemSerial = [&largestManufacturedSerial](const Item& item) {
+        if (const auto serial = manufacturedSerial(item.id))
+            largestManufacturedSerial = std::max(largestManufacturedSerial, *serial);
+    };
     for (const Character& character : candidate.roster) {
-        if (character.name.empty() || !rosterNames.insert(character.name).second || character.level <= 0 ||
+        if (character.name.empty() || !rosterNames.insert(character.name).second ||
+            !enumInRange(character.occupation, Occupation::Hunter, Occupation::Envoy) || character.level <= 0 ||
             character.level > 100 || character.experience < 0 || character.growthPoints < 0 || character.life < 0 ||
             character.fatigue < 0 || character.fatigue > 100 || character.loyalty < 0 || character.loyalty > 100) {
             error = "角色名单存在重复或非法属性。";
@@ -154,6 +183,7 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
                 error = "装备物品字段、编号或所有权无效。";
                 return false;
             }
+            inspectItemSerial(*item);
         }
     }
     if ((!extinct && candidate.squads.empty()) || candidate.squads.size() > 8U) {
@@ -202,17 +232,48 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         error = "待决事件类型无效。";
         return false;
     }
+    if (!enumInRange(candidate.war.enemy, TribeId::Player, TribeId::Blackstone) ||
+        !enumInRange(candidate.war.order, WarOrder::Advance, WarOrder::Retreat) || candidate.war.warriors < 0 ||
+        candidate.war.militia < 0 || candidate.war.playerPower < 0 || candidate.war.enemyPower < 0 ||
+        candidate.war.spearMilitia < 0 || candidate.war.shieldBearers < 0 || candidate.war.heavySpears < 0 ||
+        candidate.war.craftsmanshipPower < 0 || candidate.war.craftsmanshipPower > 4) {
+        error = "战争字段、枚举或装备加成无效。";
+        return false;
+    }
+    std::int64_t totalGarrison = 0;
+    for (std::size_t index = 0; index < kTribeCount; ++index) {
+        const OccupationState& site = candidate.occupations[index];
+        if (site.garrison < 0 || site.unrest < 0 || site.unrest > 2 ||
+            (!site.occupied && (site.garrison != 0 || site.unrest != 0)) ||
+            (index == indexOf(TribeId::Player) && site.occupied)) {
+            error = "据点占领、驻军或动乱字段无效。";
+            return false;
+        }
+        totalGarrison += site.garrison;
+    }
+    // 以宽位累计先拒绝跨据点超编，避免损坏状态在人口统计前触发有符号溢出。
+    if (totalGarrison > static_cast<std::int64_t>(candidate.warriors)) {
+        error = "据点驻军不能超过受训战士总数。";
+        return false;
+    }
+    if (candidate.stockpile.size() > kMaximumStockpileItems ||
+        candidate.war.lockedEquipment.size() > kMaximumLockedWarEquipment) {
+        error = "仓库或战争锁定装备数量超过持久化上限。";
+        return false;
+    }
     for (const Item& item : candidate.stockpile) {
         if (!validStoredItem(item) || !itemOwners.insert(item.id).second) {
             error = "共享仓库物品字段、编号或所有权冲突。";
             return false;
         }
+        inspectItemSerial(item);
     }
     for (const Item& item : candidate.war.lockedEquipment) {
         if (!validStoredItem(item) || item.condition == ItemCondition::Scrapped || !itemOwners.insert(item.id).second) {
             error = "军队锁定装备字段或与其他位置冲突。";
             return false;
         }
+        inspectItemSerial(item);
     }
     if (candidate.phase == GamePhase::Mission) {
         if (!candidate.activeMission) {
@@ -253,6 +314,7 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
                 error = "任务背包装备字段或与其他位置冲突。";
                 return false;
             }
+            inspectItemSerial(item);
         }
         for (std::size_t index = 0; index < kWorldLocationCount; ++index) {
             if ((candidate.discovered[index] && !candidate.activeMission->worldDiscovered[index]) ||
@@ -265,13 +327,23 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         error = "非任务阶段不能保留活动任务。";
         return false;
     }
+    if (largestManufacturedSerial != 0U && candidate.nextItemSerial <= largestManufacturedSerial) {
+        error = "下一件装备序号必须大于所有已存在的制造装备。";
+        return false;
+    }
     const bool preparedArmy = population_rules::hasPreparedArmy(candidate);
-    if (preparedArmy &&
-        (candidate.war.warriors <= 0 || candidate.war.militia < 0 ||
-         candidate.war.warriors + population_rules::garrisonAllocation(candidate) > candidate.warriors ||
-         candidate.war.craftsmanshipPower < 0 || candidate.war.craftsmanshipPower > 4)) {
+    if (preparedArmy && (candidate.war.warriors <= 0 || candidate.war.militia < 0 ||
+                         static_cast<std::int64_t>(candidate.war.warriors) + totalGarrison > candidate.warriors ||
+                         candidate.war.craftsmanshipPower < 0 || candidate.war.craftsmanshipPower > 4)) {
         error = "已组建军队字段或受训战士分配无效。";
         return false;
+    }
+    if (preparedArmy) {
+        const Character* commander = findRosterCharacter(candidate.roster, candidate.war.commander);
+        if (commander == nullptr || commander->life <= 0) {
+            error = "军队统帅必须是存活的具名人物。";
+            return false;
+        }
     }
     if (!preparedArmy && (candidate.war.warriors != 0 || candidate.war.militia != 0 ||
                           !candidate.war.lockedEquipment.empty() || candidate.war.craftsmanshipPower != 0)) {
@@ -279,7 +351,8 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         return false;
     }
     if (candidate.phase == GamePhase::War) {
-        if (!candidate.war.active || candidate.war.commander.empty() || candidate.war.warriors < 0 ||
+        if (!candidate.war.active || candidate.war.enemy == TribeId::Player || candidate.war.commander.empty() ||
+            !candidate.relations[indexOf(candidate.war.enemy)].atWar || candidate.war.warriors < 0 ||
             candidate.war.militia < 0 || candidate.war.playerPower < 0 || candidate.war.enemyPower <= 0) {
             error = "战争阶段字段无效。";
             return false;
@@ -297,7 +370,8 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         error = "未结束战役不能提前写入结局。";
         return false;
     }
-    if (candidate.chronicle.empty() || candidate.chronicle.size() > 200U || candidate.leadershipHistory.empty()) {
+    if (candidate.chronicle.empty() || candidate.chronicle.size() > kMaximumChronicleEntries ||
+        candidate.leadershipHistory.empty() || candidate.leadershipHistory.size() > kMaximumLeadershipHistoryEntries) {
         error = "编年史或首领历史不完整。";
         return false;
     }
