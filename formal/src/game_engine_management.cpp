@@ -155,6 +155,8 @@ ActionResult GameEngine::craft(const std::string_view recipe) {
     if (!canSpendAction(result)) return result;
     if (!state_.buildings[indexOf(BuildingId::Workshop)] || state_.workforce.crafters < 1)
         return rejected("制造需要已建武备工坊并至少安排1名工匠维护。 ");
+    /// 用途：一件可制造装备的配方，含材料、目标槽位、属性加成与前置技术。输入/输出：本函数内的只读表项。
+    /// 不变量：key 是玩家输入的制作关键字，必须与帮助文本和存档中的装备名称保持一致。
     struct Recipe {
         const char* key;
         const char* name;

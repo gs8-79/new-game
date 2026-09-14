@@ -10,12 +10,21 @@
 
 namespace tribe {
 
+/// 用途：地图任务使用的十六地点数量常量。输入/输出：只读数组长度。
+/// 不变量：必须与 GameEngine 的地点目录数量一致，否则持久化的地点编号会错位。
 constexpr std::size_t kExpeditionWorldLocationCount = 16U;
 
+/// 用途：标记任务处于行军中还是已完成结算。输入/输出：只读枚举；无状态修改。
 enum class ExpansionPhase { Exploring = 0, Settled };
+/// 用途：五种可由小队采集与贸易流转的资源类别。输入/输出：作为命令参数与载货字段使用。
+/// 不变量：新增资源必须同步补齐资源名称、仓库显示以及 resourceValue / resourceRef 的映射。
 enum class ResourceKind { Food = 0, Wood, Stone, Herbs, Hides };
+/// 用途：区分资源采集任务与前哨建设任务。输入/输出：随任务状态一同持久化；无状态修改。
+/// 不变量：前哨建设任务必须先在仓库装载木材与石料，再在地图现场建造。
 enum class MissionKind { Gather = 0, OutpostConstruction };
 
+/// 用途：地图命令的统一回执，供界面判断是否需要重绘页面。输入/输出：由调用方读取；无状态修改。
+/// 失败：success 为假时 message 说明原因，且 state_ 必须保持完全不变。
 struct ExpansionCommandResult {
     bool recognized = false;
     bool success = false;
@@ -53,6 +62,9 @@ struct ExpansionState {
     bool settled = false;
 };
 
+/// 用途：承载一支小队在十六地点地图上的移动、采集、前哨建设与岩牙遭遇。
+/// 状态影响：所有成功地图操作只经 commit 提交候选状态，失败路径不改变 state_。
+/// 不变量：地图状态必须始终通过 validateState；装备只能处于仓库、人物、任务背包或军队锁定之一。
 class ExpansionGame {
    public:
     /// 用途：按种子和队伍人数创建地图任务。输出：合法初始任务。

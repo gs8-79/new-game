@@ -110,97 +110,111 @@ class GameEngine {
     bool allowsWorkforceRecovery(const command_parser::Command& command,
                                  game_command_catalog::CommandId commandId) const;
 
-    /// 以下经营操作仅成功提交候选状态；失败保持 state_ 不变，且人口、装备和资源不变量必须通过校验。
-    /// 用途：建设指定建筑。
+    /// 以下经营操作的输出均为 ActionResult；状态影响：仅成功提交候选状态；失败：参数、前置条件、资源或行动不足时保持
+    /// state_ 不变。
+    ///
+    /// 不变量：人口、装备、资源和活动任务必须通过集中校验，任何路径都不得绕过 commit。
+    ///
+    /// 用途：建设指定建筑。输入：building 为目标建筑枚举。
     ActionResult build(BuildingId building);
-    /// 用途：研究指定技术。
+    /// 用途：研究指定技术。输入：technology 为目标技术枚举。
     ActionResult research(TechnologyId technology);
-    /// 用途：安排永久小队在营地休整。
+    /// 用途：安排永久小队在营地休整。输入：无。
     ActionResult restSquad();
-    /// 用途：以指定资源发起采集任务。
+    /// 用途：以指定资源发起采集任务。输入：resource 为采集目标，省略时采集食物。
     ActionResult startMission(ResourceKind resource = ResourceKind::Food);
-    /// 用途：发起前哨建设任务。
+    /// 用途：发起前哨建设任务。输入：无。
     ActionResult startOutpostMission();
-    /// 用途：按任务类型创建活动地图状态。
+    /// 用途：按任务类型创建活动地图状态。输入：kind 为任务类型，resource 为采集任务的资源目标。
     ActionResult startMission(MissionKind kind, ResourceKind resource);
-    /// 用途：转交活动地图命令并结算返回结果。
+    /// 用途：转交活动地图命令并结算返回结果。输入：input 为原始地图命令文本。
     ActionResult executeMission(std::string_view input);
 
-    /// 以下外交操作成功时同时写入候选编年史；失败不消耗行动且不修改关系。
-    /// 用途：与目标部落交谈。
+    /// 以下外交操作的输出均为 ActionResult；状态影响：成功时在候选状态写入关系、资源和编年史后统一提交。
+    /// 失败：目标不可接触、关系不满足、资源或行动不足时不消耗行动且不修改关系；不变量：每季外交限制不得绕过
+    /// finalizeDiplomacy。
+    ///
+    /// 用途：与目标部落交谈。输入：tribe 为已发现的目标部落。
     ActionResult talk(TribeId tribe);
-    /// 用途：向目标部落赠礼。
+    /// 用途：向目标部落赠礼。输入：tribe 为已发现的目标部落。
     ActionResult gift(TribeId tribe);
-    /// 用途：以两类资源进行贸易。
+    /// 用途：以两类资源进行贸易。输入：tribe 为目标部落，offered 与 requested 为两种不同资源。
     ActionResult trade(TribeId tribe, ResourceKind offered, ResourceKind requested);
-    /// 用途：开通目标部落的商路。
+    /// 用途：开通目标部落的商路。输入：tribe 为目标部落。
     ActionResult openTradeRoute(TribeId tribe);
-    /// 用途：与目标部落联姻。
+    /// 用途：与目标部落联姻。输入：tribe 为目标部落。
     ActionResult marriage(TribeId tribe);
-    /// 用途：向目标部落进贡。
+    /// 用途：向目标部落进贡。输入：tribe 为目标部落。
     ActionResult offerTribute(TribeId tribe);
-    /// 用途：要求目标部落进贡。
+    /// 用途：要求目标部落进贡。输入：tribe 为目标部落。
     ActionResult demandTribute(TribeId tribe);
-    /// 用途：与目标部落结盟。
+    /// 用途：与目标部落结盟。输入：tribe 为目标部落。
     ActionResult alliance(TribeId tribe);
-    /// 用途：向目标部落宣战。
+    /// 用途：向目标部落宣战。输入：tribe 为目标部落。
     ActionResult declareWar(TribeId tribe);
-    /// 用途：与交战部落谈判停战。
+    /// 用途：与交战部落谈判停战。输入：tribe 为当前交战部落。
     ActionResult negotiateTruce(TribeId tribe);
-    /// 用途：劫掠目标部落以换取资源。
+    /// 用途：劫掠目标部落以换取资源。输入：tribe 为目标部落。
     ActionResult raid(TribeId tribe);
-    /// 用途：安抚指定玩家派系。
+    /// 用途：安抚指定玩家派系。输入：faction 为派系下标。
     ActionResult appeaseFaction(std::size_t faction);
 
-    /// 以下战争操作成功时锁定或归还装备并保持人口池一致；失败不移动装备、不改变军队编制。
-    /// 用途：按战士、民兵和统帅组建军队。
+    /// 以下战争操作的输出均为 ActionResult；状态影响：成功时在候选状态锁定或归还装备并保持人口池一致。
+    /// 失败：阶段、人数、装备、敌对关系或行动不满足时不移动装备、不改变军队编制；不变量：装备不能同时属于库存、角色、小队与军队。
+    ///
+    /// 用途：按战士、民兵和统帅组建军队。输入：warriors、militia 为人数，commander 为可选统帅姓名。
     ActionResult formArmy(int warriors, int militia, std::string_view commander = {});
-    /// 用途：解散军队并归还可用装备。
+    /// 用途：解散军队并归还可用装备。输入：无。
     ActionResult disbandArmy();
-    /// 用途：向指定敌对部落发起出征。
+    /// 用途：向指定敌对部落发起出征。输入：enemy 为已宣战的敌对部落。
     ActionResult startWar(TribeId enemy);
-    /// 用途：设置当前战争命令。
+    /// 用途：设置当前战争命令。输入：order 为本回合战争命令枚举。
     ActionResult setWarOrder(WarOrder order);
-    /// 用途：执行战争进攻回合。
+    /// 用途：执行战争进攻回合。输入：无。
     ActionResult warAttack();
-    /// 用途：执行战争防守回合。
+    /// 用途：执行战争防守回合。输入：无。
     ActionResult warDefend();
-    /// 用途：执行战争撤退回合。
+    /// 用途：执行战争撤退回合。输入：无。
     ActionResult warRetreat();
 
-    /// 以下季结算操作成功时推进季节或结局阶段；资源不足、未决事件或状态非法时拒绝。
-    /// 用途：结算当前季节。
+    /// 以下季结算操作的输出均为 ActionResult；状态影响：成功时推进季节、事件或结局阶段并统一提交候选状态。
+    /// 失败：资源不足、未决事件、结局条件或状态校验不满足时拒绝；不变量：季节顺序与阶段迁移只可由季结算规则改变。
+    ///
+    /// 用途：结算当前季节。输入：无。
     ActionResult endSeason();
-    /// 用途：选择已满足条件的结局。
+    /// 用途：选择已满足条件的结局。输入：ending 为结局枚举。
     ActionResult chooseEnding(GameEnding ending);
-    /// 用途：在达成结局后继续沙盒。
+    /// 用途：在达成结局后继续沙盒。输入：无。
     ActionResult continueSandbox();
-    /// 用途：选择当前季节事件选项。
+    /// 用途：选择当前季节事件选项。输入：option 为当前事件提供的选项编号。
     ActionResult chooseEvent(int option);
 
-    /// 用途：设置某类劳力人数。
+    /// 以下人物与经营操作的输出均为 ActionResult；状态影响：成功时只提交完整合法的候选状态。
+    /// 失败：名称、槽位、枚举、人数、材料、前置条件或行动不足时拒绝；不变量：人口占用、角色归属和装备唯一所有权保持一致。
+    ///
+    /// 用途：设置某类劳力人数。输入：role 为岗位枚举，count 为该岗位目标人数。
     ActionResult assignWorkforce(WorkforceRole role, int count);
-    /// 用途：设置已发现前哨的守卫人数。
+    /// 用途：设置已发现前哨的守卫人数。输入：location 为前哨地点，count 为目标守卫人数。
     ActionResult assignOutpostGuards(WorldLocationId location, int count);
-    /// 用途：消耗材料制造装备。
+    /// 用途：消耗材料制造装备。输入：recipe 为配方标识。
     ActionResult craft(std::string_view recipe);
-    /// 用途：消耗材料修复库存装备。
+    /// 用途：消耗材料修复库存装备。输入：itemId 为库存装备唯一编号。
     ActionResult repair(std::string_view itemId);
-    /// 用途：将库存装备报废为材料。
+    /// 用途：将库存装备报废为材料。输入：itemId 为库存装备唯一编号。
     ActionResult scrap(std::string_view itemId);
-    /// 用途：将库存装备穿戴到角色槽位。
+    /// 用途：将库存装备穿戴到角色槽位。输入：person 为角色名，slot 为装备槽名，itemId 为库存装备唯一编号。
     ActionResult equipPerson(std::string_view person, std::string_view slot, std::string_view itemId);
-    /// 用途：卸下角色指定槽位的装备。
+    /// 用途：卸下角色指定槽位的装备。输入：person 为角色名，slot 为装备槽名。
     ActionResult unequipPerson(std::string_view person, std::string_view slot);
-    /// 用途：任命建筑负责人。
+    /// 用途：任命建筑负责人。输入：person 为角色名，role 为建筑岗位名。
     ActionResult appoint(std::string_view person, std::string_view role);
-    /// 用途：撤销建筑负责人任命。
+    /// 用途：撤销建筑负责人任命。输入：role 为建筑岗位名。
     ActionResult unappoint(std::string_view role);
-    /// 用途：配置永久小队成员和队长。
+    /// 用途：配置永久小队成员和队长。输入：args 为命令解析得到的成员与队长参数序列。
     ActionResult configureSquad(const std::vector<std::string>& args);
-    /// 用途：以草药治疗指定永久小队。
+    /// 用途：以草药治疗指定永久小队。输入：squad 为永久小队标识。
     ActionResult treat(std::string_view squad);
-    /// 用途：调整已占领据点的驻军。
+    /// 用途：调整已占领据点的驻军。输入：tribe 为已占领部落，warriors 为目标驻军人数。
     ActionResult garrison(TribeId tribe, int warriors);
 
     /// 用途：验证并原子提交候选状态。失败：校验失败返回拒绝；不变量：提交后人口和物品所有权一致。

@@ -53,6 +53,8 @@ const char* colorCode(const UiColor color) {
     return "\x1b[0m";
 }
 
+/// 用途：描述一个 UTF-8 字形占用的字节跨度与终端显示列数。输入/输出：仅渲染辅助函数内部使用。
+/// 状态影响：无。失败：无。不变量：bytes 至少为一，保证扫描下标必然前进而不会死循环。
 struct Glyph {
     std::size_t bytes;
     std::size_t columns;
@@ -157,6 +159,7 @@ bool ConsoleUI::initializeTerminal() {
     if (output == INVALID_HANDLE_VALUE) return false;
     DWORD mode = 0;
     if (GetConsoleMode(output, &mode) == 0) return false;
+    // Windows 控制台需显式开启虚拟终端处理，否则界面写出的 ANSI 颜色序列不会被解释。
     return SetConsoleMode(output, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
 #else
     return true;
@@ -204,6 +207,7 @@ void ConsoleUI::writeSection(const std::string_view title) {
 void ConsoleUI::clear() {
     output_.str({});
     output_.clear();
+    // 自动宽度在每次刷新页面时重新探测，玩家调整窗口后下一次重画即可生效。
     if (automaticWidth_) width_ = std::max<std::size_t>(detectTerminalWidth(), 2U);
     if (interactive_ && ansiEnabled_) output_ << "\x1b[2J\x1b[H";
 }
@@ -246,6 +250,7 @@ void ConsoleUI::flushPage() {
 void ConsoleUI::renderMainMenu(const std::string_view message) {
     clear();
     writeRule('=');
+    // 封面以居中 ASCII 篝火与山形图案呈现，对应原型 12.rp 的封面版式。
     writeCentered(UiColor::Dim, ".              .");
     writeCentered(UiColor::Dim, "\\     /\\     /");
     writeCentered(UiColor::Dim, " \\___/  \\___/ ");

@@ -183,6 +183,7 @@ void writeFrame(const EndingSummary& summary, const std::string& frame, std::ost
 
 } // namespace
 
+// 每个帧由多行相邻字符串字面量拼成一条文本，clang-tidy 会把这种写法误判成漏写逗号，故整段关闭该检查。
 // NOLINTBEGIN(bugprone-suspicious-missing-comma)
 std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) {
     switch (ending) {
@@ -299,6 +300,7 @@ std::vector<std::string> EndingPresentation::framesFor(const GameEnding ending) 
     }
     return {".-----------------------.\n|    ENDING PENDING     |\n'-----------------------'"};
 }
+// 到此恢复该检查，避免掩盖后续代码中真实的漏写逗号。
 // NOLINTEND(bugprone-suspicious-missing-comma)
 
 std::string EndingPresentation::renderStatic(const GameEnding ending) {

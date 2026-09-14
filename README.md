@@ -58,7 +58,7 @@ move forest → gather wood → move camp → settle
 
 `save 1` / `保存 1` 写入手动档；覆盖前需输入 `y` 或 `是`。`load 1` / `读取 1` 读取手动档，`load auto` 读取自动档。新局、季节结算、结局和正常退出时都会自动保存。
 
-存档位于 `saves/game`，含 `slot1.sav` 至 `slot6.sav` 及 `autosave.sav`。当前格式版本为 5；v4 及其他版本会提示需要新开局，且不会修改原文件。
+存档位于 `saves/game`，含 `slot1.sav` 至 `slot6.sav` 及 `autosave.sav`。当前格式版本为 6；完整合法的 v5 存档会在首次读取时自动升级，并在同槽保留原始 `.v5.bak`。v4 及更旧版本会提示需要新开局，且不会修改原文件。
 
 ## 构建与测试
 
@@ -114,10 +114,11 @@ bash docker-run.sh
 
 ## 代码结构与文档
 
-- `formal/src/game_engine.cpp`：部落管理、劳力、外交、战争、结局和规则校验。
+- `formal/src/game_engine.cpp`：新局初始化与候选状态原子提交；`game_engine_dispatch.cpp` 负责解析、阶段门禁和命令分派。
+- `formal/src/game_engine_management.cpp`、`game_engine_mission.cpp`、`game_engine_diplomacy.cpp`、`game_engine_war.cpp`、`game_engine_season.cpp`、`game_engine_validation.cpp`、`game_engine_text.cpp`：分别承载经营人物、地图结算、外交、战争、季结算、状态校验和文本视图。
 - `formal/src/expansion_game.cpp`：十六地点任务地图、载货、前哨与遭遇。
 - `formal/src/console_ui.cpp`：控制台面板、道路图、现场记录与帮助页。
-- `formal/src/save_repository.cpp`：校验、原子保存、恢复与当前格式读取。
+- `formal/src/save_codec.cpp`、`save_file_transaction.cpp`、`save_repository.cpp`：分别负责二进制编解码、文件恢复与原子替换、七槽位存档门面。
 
 ## 持续集成与发布
 

@@ -10,9 +10,16 @@
 
 namespace tribe {
 
+/// 用途：标识七个存档位，即六个手动档与一个自动档。输入/输出：作为文件名与菜单序号的来源。
+/// 不变量：顺序决定槽位编号，Autosave 始终排在最后并使用独立的文件名。
 enum class SaveSlot { Slot1 = 0, Slot2, Slot3, Slot4, Slot5, Slot6, Autosave };
+/// 用途：只读检查槽位后得出的可用性结论。输入/输出：由 inspect 产生、供存档菜单展示。
+/// 不变量：Recoverable 表示主档缺失或校验失败、但 .bak/.tmp 存在完整副本；主档 I/O 不可用时保守记为 Corrupt，
+/// 不自动回退到可能过期的备份。Corrupt 表示本次检查无法提供可安全加载的候选。
 enum class SaveStatus { Empty, Ready, Recoverable, Corrupt };
 
+/// 用途：存档菜单所需的展示摘要，不包含完整游戏状态。输入/输出：由 inspect 只读解析产生。
+/// 失败：解析失败时 status 记为 Corrupt，其余字段保持默认值。不变量：产生摘要不触发任何恢复副作用。
 struct SaveSummary {
     SaveSlot slot = SaveSlot::Slot1;
     SaveStatus status = SaveStatus::Empty;
@@ -37,6 +44,9 @@ struct SaveLoadInfo {
     std::filesystem::path legacyBackupPath;
 };
 
+/// 用途：负责七个存档位的原子写入、恢复、v5→v6 迁移与只读摘要。
+/// 状态影响：save 先写临时档再替换主档；load 只在完整校验通过后才写出 candidate。
+/// 不变量：任何失败路径都不得污染既有主档，也不得改变调用方当前的游戏状态。
 class SaveRepository {
    public:
     /// 用途：绑定一个独立存档根目录。输入：目录路径。输出：仓库对象。
