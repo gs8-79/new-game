@@ -475,7 +475,8 @@ std::string eventText(const GameState& state) {
     if (!state.pendingEvent.active && state.pendingEvents.empty()) return "本季暂无待决事件。";
     const PendingEventKind current = state.pendingEvents.empty() ? state.pendingEvent.kind : state.pendingEvents.front();
     std::ostringstream out;
-    out << "本季待决事件 " << (state.pendingEvents.empty() ? 1U : 1U) << "/" << state.pendingEvents.size()
+    const std::size_t total = static_cast<std::size_t>(state.pendingEventIndex) + state.pendingEvents.size() - 1U;
+    out << "本季待决事件 " << state.pendingEventIndex << "/" << total
         << "：" << eventName(current) << '\n';
     switch (current) {
         case PendingEventKind::Refugees:

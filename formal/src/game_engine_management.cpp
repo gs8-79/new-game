@@ -46,6 +46,7 @@ ActionResult GameEngine::build(const BuildingId building, const int workers) {
     candidate.wood -= woodCost;
     candidate.stone -= stoneCost;
     candidate.buildings[indexOf(building)] = true;
+    if (building == BuildingId::Longhouse) candidate.populationLimit += 4;
     candidate.stability = std::min(100, candidate.stability + 2);
     spendAction(candidate, workers);
     return commit(std::move(candidate), "建筑完成，投入" + std::to_string(workers) + "人口，部落稳定提高2。", true);

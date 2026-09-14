@@ -75,7 +75,7 @@ constexpr std::size_t kTribeCount = static_cast<std::size_t>(TribeId::Count);
 constexpr std::size_t kBuildingCount = static_cast<std::size_t>(BuildingId::Count);
 constexpr std::size_t kTechnologyCount = static_cast<std::size_t>(TechnologyId::Count);
 constexpr std::size_t kPlayerFactionCount = 3U;
-// v7 重构人口、行动力与季度事件队列，同时保留 v5/v6 的只读兼容解析。
+// v7 重构人口、行动力与季度事件队列；旧版本存档不自动迁移。
 constexpr int kSaveVersion = 7;
 
 /// 用途：将连续枚举转换为数组下标。输入：枚举值。输出：无符号下标；无状态修改。
@@ -239,8 +239,10 @@ struct GameState {
     std::vector<Item> stockpile;
     std::array<OccupationState, kTribeCount> occupations{};
     PendingEvent pendingEvent;
-    // 当前季度按顺序等待处理的事件；pendingEvent 是队首兼容镜像。
+    // 当前季度按顺序等待处理的事件；队首是当前事件。
     std::vector<PendingEventKind> pendingEvents;
+    // 已处理事件数量加一，用于显示当前事件在本季队列中的位置。
+    int pendingEventIndex = 0;
     std::string workshopSupervisor;
     std::string healerSupervisor;
     std::vector<Character> roster;

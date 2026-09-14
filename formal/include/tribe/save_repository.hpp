@@ -30,7 +30,7 @@ struct SaveSummary {
     int herbs = 0;
 };
 
-// 读取成功时附带的非状态信息；迁移提示不影响加载出的游戏状态。
+// 保留该结构以兼容调用方；v7 不再执行旧档迁移，字段始终为默认值。
 struct SaveLoadInfo {
     bool migratedFromV5 = false;
     std::filesystem::path legacyBackupPath;
@@ -49,9 +49,8 @@ class SaveRepository {
     /// 用途：读取槽位的最佳可恢复副本。输出：是否成功；成功仅写 candidate。
     /// 失败：candidate 保持原值。不变量：只返回完整合法状态，不修改当前引擎。
     bool load(SaveSlot slot, GameState& candidate, std::string& error) const;
-    /// 用途：读取并可选报告 v5→v6 迁移信息。输出：是否成功和迁移位置。
-    /// 状态影响：成功迁移时创建 .v5.bak。失败：主档和 candidate 均不污染。
-    // 读取槽位；仅在完整合法的 v5 档成功升级后设置 migrationInfo。
+    /// 用途：读取槽位并可选返回兼容信息。输出：是否成功；旧版本需要新开局。
+    /// 状态影响：只在成功时写 candidate，不创建迁移备份。
     bool load(SaveSlot slot, GameState& candidate, std::string& error, SaveLoadInfo* migrationInfo) const;
     /// 用途：只读检查七个槽位及可恢复来源。输出：摘要列表；无游戏状态修改。
     std::vector<SaveSummary> inspect() const;

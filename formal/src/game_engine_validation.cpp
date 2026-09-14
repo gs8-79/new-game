@@ -86,16 +86,23 @@ bool GameEngine::validateState(const GameState& candidate, std::string& error) {
         error = "未建长屋不能配置住房岗位。";
         return false;
     }
+    if (candidate.pendingEvents.size() > 3U) {
+        error = "季度事件队列数量超出上限。";
+        return false;
+    }
     for (const PendingEventKind event : candidate.pendingEvents) {
         if (!enumInRange(event, PendingEventKind::Refugees, PendingEventKind::FactionDemand)) {
             error = "季度事件队列包含无效事件。";
             return false;
         }
     }
-    if (candidate.pendingEvent.active && candidate.pendingEvents.empty()) {
-        // v5/v6 状态只有单事件字段，允许在加载后由新版本逐步消费；v7 新状态始终写入队列。
-    } else if (!candidate.pendingEvents.empty() &&
-               (!candidate.pendingEvent.active || candidate.pendingEvent.kind != candidate.pendingEvents.front())) {
+    if (candidate.pendingEvents.empty()) {
+        if (candidate.pendingEvent.active || candidate.pendingEventIndex != 0) {
+            error = "空季度事件队列不能保留当前事件。";
+            return false;
+        }
+    } else if (!candidate.pendingEvent.active || candidate.pendingEvent.kind != candidate.pendingEvents.front() ||
+               candidate.pendingEventIndex < 1) {
         error = "季度事件队列与当前事件镜像不一致。";
         return false;
     }

@@ -84,7 +84,12 @@ EventResolution resolveChoice(GameState& state, const int option) {
     }
     if (!state.pendingEvents.empty()) state.pendingEvents.erase(state.pendingEvents.begin());
     state.pendingEvent.active = !state.pendingEvents.empty();
-    if (state.pendingEvent.active) state.pendingEvent.kind = state.pendingEvents.front();
+    if (state.pendingEvent.active) {
+        state.pendingEvent.kind = state.pendingEvents.front();
+        ++state.pendingEventIndex;
+    } else {
+        state.pendingEventIndex = 0;
+    }
     return {true, std::move(outcome)};
 }
 

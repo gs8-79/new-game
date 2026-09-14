@@ -234,6 +234,7 @@ ActionResult GameEngine::endSeason() {
     if (highRisk) candidate.pendingEvents.push_back(static_cast<PendingEventKind>((firstKind + 2) % 4));
     candidate.pendingEvent.active = true;
     candidate.pendingEvent.kind = candidate.pendingEvents.front();
+    candidate.pendingEventIndex = 1;
     message += " 新的季度事件已出现，共" + std::to_string(candidate.pendingEvents.size()) +
                "个（输入 event 查看并按顺序处理）。";
     finishExtinction(candidate, message);

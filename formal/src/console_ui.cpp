@@ -1,5 +1,7 @@
 #include "tribe/console_ui.hpp"
 
+#include "population_rules.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
@@ -105,8 +107,7 @@ std::string slotKey(const SaveSlot slot) {
 std::string firstSeasonGoal(const GameState& state) {
     if (state.season != 1 || state.phase != GamePhase::Managing) return {};
     if (state.missionCount > 0) return {};
-    if (state.workforce.woodCrew < 2) return "先建立补给路线：输入 assign wood 2，安排木材队。";
-    return "带回第一批木材：mission wood → move forest → gather wood → move camp → settle。";
+    return "带回第一批木材：mission wood 4 → move forest → gather wood → move camp → settle。";
 }
 
 /// 用途：汇总联盟、征服与繁荣结局进度。输入：只读状态。输出：提示或空文本；无状态修改。
@@ -331,23 +332,23 @@ void ConsoleUI::renderHelpPage(const int topic) {
                 << "  每季行动点有限；先保证食物，再逐步探索、建设和外交。\n";
         output_
             << "  输入命令后按 Enter 执行。先用 1 查看状态、2 查看全地图，再用 5 派小队。\n"
-            << "  示例：5 → move forest → gather food → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
+                << "  示例：mission wood 4 → move forest → gather wood → move camp → settle。食物不足会导致人口损失，冬季要提前备粮。\n"
             << "  三种模式都从第1季开始：快速8季、正式16季、长期32季。\n";
     } else if (topic == 2) {
         writeSection("经营建设");
         output_ << "  1 状态  2 地图  3 劳力  4 仓库  5 小队地图任务  8 结束季节\n"
                 << "  build/建造  research/研究；经营界面不能直接采集或侦察\n";
         output_ << "  资源与新地点必须由小队进入十六地点地图取得。\n"
-                << "  建造 <粮仓|木墙|武备工坊|医者小屋|瞭望塔|议事火坛>\n"
+                << "  建造 <粮仓|木墙|武备工坊|医者小屋|瞭望塔|议事火坛|长屋> [投入人数]\n"
                 << "  研究 <技术名>；示例：建造 粮仓。\n"
                 << "  技术：食物保存、草药知识、引水耕作、燧石长矛、盾墙阵形、\n"
                 << "        伏击训练、赠礼习俗、共同语言、部落联盟。高级技术需武备工坊。\n"
-                << "  资源队可分配2至6人；工匠、医者、侦察、使者和守卫只需分配0或1人。\n"
-                << "  劳力、前哨守卫、驻军、已组建军队和任务小队共用人口-2；人口减少后先重分配。\n"
+                << "  资源不再配置资源队；地图任务直接指定人数，派出几人就消耗几点行动力。\n"
+                << "  可用人口、已占用人口和剩余行动力会显示在状态页；人口减少后先重分配。\n"
                 << "  建成并配置岗位后，可任命工匠为工坊负责人、医者为医者负责人；负责人不可入小队。\n";
     } else if (topic == 3) {
         writeSection("探索小队");
-        output_ << "  5 或 mission <资源> 进入任务；小队从当前营地/前哨出发并沿相邻道路移动。\n"
+        output_ << "  mission <资源> <人数> 进入任务，例如 mission wood 4；小队从当前营地/前哨出发并沿相邻道路移动。\n"
                 << "  move/移动 <地点>  gather/采集 <资源>  look/查看\n";
         output_ << "  mission outpost：从仓库带走木材6、石料4，现场 build outpost/建造 前哨。\n"
                 << "  settle/结算：只能在营地或前哨卸货；结算后小队驻留当地。\n"
@@ -363,7 +364,7 @@ void ConsoleUI::renderHelpPage(const int topic) {
         writeSection("战争与结局");
         output_ << "  formarmy/组建军队  disbandarmy/解散军队  war/出征；战争中可攻击、防御、下令或撤退。\n"
                 << "  季节上限到达后，按已满足条件选择联盟、征服、繁荣或迁徙。\n";
-        output_ << "  组建军队 <战士人数> <民兵人数>；先 declare <部落> 宣战，再 出征 <部落>。\n"
+        output_ << "  组建军队 石刃 3 1（或组建军队 3 1）；先 declare <部落> 宣战，再 出征 <部落>。\n"
                 << "  下令 <推进|坚守|集火|包抄|掩护|撤退>；retreat/撤退。\n"
                 << "  objectives/目标 查看道路条件；choose <alliance|conquest|prosperity|migration>。\n"
                 << "  结局后 replay/重新播放、characters/人物、chronicle/编年史；\n"
@@ -453,6 +454,10 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
     output_ << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true)
             << "/16  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
 
+    output_ << "  任务类型 " << (mission.missionKind == MissionKind::OutpostConstruction ? "前哨建设" : "资源采集")
+            << "  派出人数 " << mission.crewSize << "  预计行动力消耗 " << mission.crewSize
+            << "  当前剩余行动力 " << state.actionsLeft << "\n";
+
     writeSection("任务指令");
     output_ << "  look/查看：当前位置、资源、结算点    move/移动 <编号或地点>：沿相邻道路前进\n"
             << "  gather/采集 <资源>：按劳力装载        settle/结算：仅营地或前哨\n"
@@ -528,7 +533,7 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
     output_ << "   兽皮 " << state.hides;
     output_ << '\n'
             << "  地点 " << std::count(state.discovered.begin(), state.discovered.end(), true) << "/16"
-            << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/6"
+            << "  建筑 " << std::count(state.buildings.begin(), state.buildings.end(), true) << "/7"
             << "  技术 " << std::count(state.technologies.begin(), state.technologies.end(), true) << "/9"
             << "  贸易 " << state.tradeCount << "  战争胜负 " << state.warsWon << '/' << state.warsLost << '\n';
 
@@ -564,12 +569,9 @@ void ConsoleUI::renderGame(const GameEngine& game, const std::string_view messag
             if (squad.refusingOrders) output_ << " [抗命]";
         }
         output_ << '\n';
-        output_ << "  劳力：食物队" << state.workforce.foodCrew << " 木材队" << state.workforce.woodCrew << " 石料队"
-                << state.workforce.stoneCrew << " 草药队" << state.workforce.herbCrew << "（下季行动上限 "
-                << (3 + static_cast<int>(state.workforce.foodCrew >= 2) +
-                    static_cast<int>(state.workforce.woodCrew >= 2) + static_cast<int>(state.workforce.stoneCrew >= 2) +
-                    static_cast<int>(state.workforce.herbCrew >= 2))
-                << "/7）\n";
+        output_ << "  人口分配：可用" << population_rules::availablePopulation(state) << " 已占用"
+                << population_rules::committedPopulation(state) << " 剩余行动力" << state.actionsLeft << "/"
+                << population_rules::actionCapacity(state) << "（最多7）\n";
     }
 
     const std::string firstGoal = firstSeasonGoal(state);

@@ -40,6 +40,7 @@ ActionResult GameEngine::startMission(const MissionKind kind, const ResourceKind
     ActionResult result;
     if (state_.squads.empty()) return rejected("当前没有可出发的小队。");
     const bool constructionMission = kind == MissionKind::OutpostConstruction;
+    if (!constructionMission && people <= 0) return rejected("资源任务必须明确指定1至8人的派出人数。 ");
     const int legacyCrew = resource == ResourceKind::Food ? state_.workforce.foodCrew
                            : resource == ResourceKind::Wood ? state_.workforce.woodCrew
                            : resource == ResourceKind::Stone ? state_.workforce.stoneCrew

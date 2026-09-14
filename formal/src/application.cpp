@@ -7,11 +7,17 @@
 
 #include <chrono>
 #include <charconv>
+#include <cctype>
 #include <cstdint>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace tribe {
 namespace {
@@ -21,6 +27,46 @@ namespace {
 using command_parser::Command;
 using command_parser::parse;
 using command_parser::verbIs;
+
+/// 用途：从交互控制台或脚本流读取一行 UTF-8 命令。输入：输入流和输出字符串。输出：是否读到一行。
+/// 状态影响：仅推进输入流；交互控制台使用宽字符 API，脚本继续使用 getline。不变量：提交前去掉首尾空白。
+bool readInputLine(std::istream& input, std::string& line) {
+#ifdef _WIN32
+    if (&input == &std::cin) {
+        const HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD mode = 0;
+        if (handle != INVALID_HANDLE_VALUE && GetConsoleMode(handle, &mode)) {
+            std::vector<wchar_t> wideLine(4096U);
+            DWORD read = 0;
+            if (!ReadConsoleW(handle, wideLine.data(), static_cast<DWORD>(wideLine.size() - 1U), &read, nullptr))
+                return false;
+            while (read > 0U && (wideLine[read - 1U] == L'\r' || wideLine[read - 1U] == L'\n')) --read;
+            wideLine[read] = L'\0';
+            const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideLine.data(), static_cast<int>(read),
+                                                   nullptr, 0, nullptr, nullptr);
+            if (bytes <= 0) return false;
+            line.resize(static_cast<std::size_t>(bytes));
+            if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideLine.data(), static_cast<int>(read), line.data(),
+                                    bytes, nullptr, nullptr) != bytes)
+                return false;
+        } else if (!std::getline(input, line)) {
+            return false;
+        }
+    } else if (!std::getline(input, line)) {
+        return false;
+    }
+#else
+    if (!std::getline(input, line)) return false;
+#endif
+    const auto first = line.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        line.clear();
+        return true;
+    }
+    const auto last = line.find_last_not_of(" \t\r\n");
+    line = line.substr(first, last - first + 1U);
+    return true;
+}
 
 /// 用途：生成本次新局的时间种子。输入：无。输出：32 位种子；无游戏状态修改。
 /// 失败：无。不变量：只用于初始化新局，不能替代存档中的持久化种子。
@@ -50,7 +96,7 @@ std::optional<GameMode> parseMode(const std::string_view text) {
 /// 状态影响：仅推进输入流。失败：流结束时直接返回；不变量：不触发任何游戏状态提交。
 void waitForEnter(std::istream& input) {
     std::string ignored;
-    std::getline(input, ignored);
+    readInputLine(input, ignored);
 }
 
 /// 用途：循环展示帮助主题。输入：UI 和输入流。输出：无。
@@ -60,7 +106,7 @@ void showHelp(ConsoleUI& ui, std::istream& input) {
     std::string line;
     for (;;) {
         ui.renderHelpPage(topic);
-        if (!std::getline(input, line)) return;
+        if (!readInputLine(input, line)) return;
         const Command command = parse(line);
         if (command.args.empty() && (command.verb.empty() || verbIs(command, {"b", "back", "返回"}))) {
             if (topic == 0) return;
@@ -104,7 +150,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
     std::string line;
     for (;;) {
         ui.renderGame(game, message);
-        if (!std::getline(input, line)) return false;
+        if (!readInputLine(input, line)) return false;
         const Command command = parse(line);
         if (command.verb.empty()) {
             message = "请输入命令；第一次游玩可输入9或帮助。";
@@ -167,7 +213,7 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
             if (occupied) {
                 ui.prompt("覆盖" + SaveRepository::slotName(*slot) + "？输入 y/是 确认，其他输入取消 > ");
                 std::string answer;
-                if (!std::getline(input, answer)) return false;
+                if (!readInputLine(input, answer)) return false;
                 const Command confirmation = parse(answer);
                 if (!confirmation.args.empty() || !verbIs(confirmation, {"y", "yes", "是"})) {
                     message = "已取消覆盖存档。";
@@ -197,8 +243,6 @@ bool runGame(GameEngine& game, const SaveRepository& saves, ConsoleUI& ui, std::
                 continue;
             }
             message = "已读取" + SaveRepository::slotName(*slot) + "。";
-            if (loadInfo.migratedFromV5)
-                message += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
             continue;
         }
 
@@ -232,7 +276,7 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
     std::string line;
     for (;;) {
         ui.renderModeMenu(message);
-        if (!std::getline(input, line)) {
+        if (!readInputLine(input, line)) {
             inputClosed = true;
             return std::nullopt;
         }
@@ -247,7 +291,7 @@ std::optional<GameMode> chooseMode(ConsoleUI& ui, std::istream& input, bool& inp
 }
 
 /// 用途：在存档菜单加载一份完整合法状态。输入：仓库、UI、流及输出标志/消息。输出：状态或空值。
-/// 状态影响：成功迁移可写存档文件，绝不写入现有游戏。失败：保留调用方消息并不产生候选状态污染。
+/// 状态影响：成功时返回已解析存档，绝不写入现有游戏。失败：保留调用方消息并不产生候选状态污染。
 std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, std::istream& input, bool& inputClosed,
                                     std::string& loadedMessage) {
     loadedMessage.clear();
@@ -255,7 +299,7 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
     std::string line;
     for (;;) {
         ui.renderSaveMenu(saves.inspect(), message);
-        if (!std::getline(input, line)) {
+        if (!readInputLine(input, line)) {
             inputClosed = true;
             return std::nullopt;
         }
@@ -280,8 +324,6 @@ std::optional<GameState> chooseSave(const SaveRepository& saves, ConsoleUI& ui, 
             continue;
         }
         loadedMessage = "已读取" + SaveRepository::slotName(*slot) + "。";
-        if (loadInfo.migratedFromV5)
-            loadedMessage += " 已从 v5 升级；原始档保留在" + loadInfo.legacyBackupPath.filename().string() + "。";
         return loaded;
     }
 }
@@ -296,7 +338,7 @@ int runApplication(std::istream& input, std::ostream& output, const std::filesys
     std::string line;
     for (;;) {
         ui.renderMainMenu(menuMessage);
-        if (!std::getline(input, line)) break;
+        if (!readInputLine(input, line)) break;
         const Command command = parse(line);
         if (command.args.empty() && verbIs(command, {"4", "q", "quit", "退出"})) break;
         if (command.args.empty() && verbIs(command, {"1", "start", "开始", "开始游戏"})) {

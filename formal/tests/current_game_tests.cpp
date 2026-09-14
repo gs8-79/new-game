@@ -31,7 +31,7 @@ tribe::ExpansionCommandResult requireSuccess(tribe::ExpansionGame& game, const s
 std::string stateSnapshot(const tribe::GameState& state) {
     static unsigned int snapshotNumber = 0;
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / ("tribe-v5-snapshot-" + std::to_string(++snapshotNumber));
+        std::filesystem::temp_directory_path() / ("tribe-v7-snapshot-" + std::to_string(++snapshotNumber));
     tribe::SaveRepository saves{root};
     std::string error;
     if (!saves.save(state, tribe::SaveSlot::Slot1, error)) {
@@ -89,7 +89,7 @@ const tribe::ExpansionState& requireMission(const tribe::GameState& state) {
 
 } // namespace
 
-TEST_CASE("the v5 interface exposes five resources, map roles, and road progress") {
+TEST_CASE("the current interface exposes five resources, map roles, and road progress") {
     tribe::GameEngine game{{tribe::GameMode::Quick, 13U}};
     REQUIRE(game.statusText().find("贝币") == std::string::npos);
     REQUIRE(game.helpText().find("贝币") == std::string::npos);
@@ -130,7 +130,7 @@ TEST_CASE("five-resource barter remains available and currency commands are abse
     requireRejectedWithoutChange(game, "trade river shells food");
     requireRejectedWithoutChange(game, "mission shells");
 
-    for (const std::string& command : {"trade river food wood", "trade river wood stone", "trade river stone herbs",
+    for (const std::string command : {"trade river food wood", "trade river wood stone", "trade river stone herbs",
                                        "trade river herbs hides", "trade river hides food"}) {
         tribe::GameEngine tradeBase{{tribe::GameMode::Quick, 18U}};
         tribe::GameState tradeState = tradeBase.state();
@@ -142,8 +142,8 @@ TEST_CASE("five-resource barter remains available and currency commands are abse
     }
 }
 
-TEST_CASE("gathering and outpost missions keep distinct v5 mission kinds through saves") {
-    const std::filesystem::path root = std::filesystem::temp_directory_path() / "tribe-v5-mission-save";
+TEST_CASE("gathering and outpost missions keep distinct mission kinds through saves") {
+    const std::filesystem::path root = std::filesystem::temp_directory_path() / "tribe-v7-mission-save";
     std::error_code cleanup;
     std::filesystem::remove_all(root, cleanup);
     tribe::SaveRepository saves{root};
@@ -151,7 +151,7 @@ TEST_CASE("gathering and outpost missions keep distinct v5 mission kinds through
 
     tribe::GameEngine gather{{tribe::GameMode::Quick, 41U}};
     requireSuccess(gather, "assign wood 2");
-    requireSuccess(gather, "mission wood");
+    requireSuccess(gather, "mission wood 2");
     requireSuccess(gather, "move forest");
     requireSuccess(gather, "gather wood");
     REQUIRE(requireMission(gather.state()).missionKind == tribe::MissionKind::Gather);
@@ -189,19 +189,22 @@ TEST_CASE("gathering and outpost missions keep distinct v5 mission kinds through
 TEST_CASE("uniform population pool blocks army and mission over-allocation") {
     tribe::GameEngine armyBase{{tribe::GameMode::Quick, 51U}};
     tribe::GameState armyState = armyBase.state();
-    armyState.workforce.foodCrew = 6;
-    armyState.workforce.woodCrew = 6;
-    armyState.workforce.stoneCrew = 2;
-    armyState.actionsLeft = 7;
+    armyState.population = 7;
+    armyState.workforce.crafters = 1;
+    armyState.workforce.healers = 1;
+    armyState.workforce.scouts = 1;
+    armyState.workforce.envoys = 1;
+    armyState.workforce.campGuards = 1;
+    armyState.actionsLeft = 0;
     tribe::GameEngine army{std::move(armyState)};
     requireRejectedWithoutChange(army, "formarmy 石刃 1 0");
 
     tribe::GameEngine missionBase{{tribe::GameMode::Quick, 52U}};
     tribe::GameState missionState = missionBase.state();
     missionState.population = 6;
-    missionState.actionsLeft = 7;
+    missionState.actionsLeft = 4;
     tribe::GameEngine mission{std::move(missionState)};
-    requireRejectedWithoutChange(mission, "mission food");
+    requireRejectedWithoutChange(mission, "mission food 5");
 }
 
 TEST_CASE("formed armies and garrisons consume trained warriors and can be released") {
@@ -232,18 +235,66 @@ TEST_CASE("population loss requires manual reassignment before any further actio
     tribe::GameEngine base{{tribe::GameMode::Quick, 61U}};
     tribe::GameState state = base.state();
     state.food = 0;
-    state.workforce.foodCrew = 6;
-    state.workforce.woodCrew = 6;
-    state.workforce.stoneCrew = 2;
-    state.actionsLeft = 7;
+    state.population = 10;
+    state.outposts[tribe::indexOf(tribe::WorldLocationId::Forest)] = true;
+    state.outposts[tribe::indexOf(tribe::WorldLocationId::RedPlain)] = true;
+    state.workforce.crafters = 1;
+    state.workforce.healers = 1;
+    state.workforce.scouts = 1;
+    state.workforce.envoys = 1;
+    state.workforce.campGuards = 1;
+    state.workforce.outpostGuards[tribe::indexOf(tribe::WorldLocationId::Forest)] = 1;
+    state.workforce.outpostGuards[tribe::indexOf(tribe::WorldLocationId::RedPlain)] = 1;
+    state.actionsLeft = 1;
     tribe::GameEngine game{std::move(state)};
     requireSuccess(game, "endturn");
     REQUIRE(game.state().workforceReassignmentRequired);
     requireRejectedWithoutChange(game, "build wall");
-    requireSuccess(game, "assign food 4");
-    REQUIRE(game.state().workforceReassignmentRequired);
-    requireSuccess(game, "assign wood 4");
+    requireSuccess(game, "assign outpost forest 0");
     REQUIRE(!game.state().workforceReassignmentRequired);
+    REQUIRE(!game.state().workforceReassignmentRequired);
+}
+
+TEST_CASE("longhouse raises the population limit and requires a staffed housing role") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 62U}};
+    const int initialPopulation = game.state().population;
+    requireSuccess(game, "build longhouse 2");
+    REQUIRE(game.state().populationLimit == 22);
+    const int stabilityAfterBuild = game.state().stability;
+    requireSuccess(game, "assign housing 1");
+    requireSuccess(game, "endturn");
+    REQUIRE(game.state().population == initialPopulation + 1);
+    REQUIRE(game.state().stability == stabilityAfterBuild);
+
+    tribe::GameEngine unstaffed{{tribe::GameMode::Quick, 63U}};
+    requireSuccess(unstaffed, "build longhouse 2");
+    const int unstaffedStability = unstaffed.state().stability;
+    const int unstaffedPopulation = unstaffed.state().population;
+    requireSuccess(unstaffed, "endturn");
+    REQUIRE(unstaffed.state().population == unstaffedPopulation);
+    REQUIRE(unstaffed.state().stability == unstaffedStability - 2);
+}
+
+TEST_CASE("season event queues contain two events and can escalate to three") {
+    tribe::GameEngine regular = eventGame(3U);
+    requireSuccess(regular, "endturn");
+    REQUIRE(regular.state().pendingEvents.size() == 2U);
+    REQUIRE(regular.state().pendingEventIndex == 1);
+    requireRejectedWithoutChange(regular, "build wall");
+    requireSuccess(regular, "event 1");
+    REQUIRE(regular.state().pendingEventIndex == 2);
+    requireSuccess(regular, "event 1");
+    REQUIRE(regular.state().pendingEvents.empty());
+    REQUIRE(!regular.state().pendingEvent.active);
+
+    tribe::GameEngine highRisk = eventGame(4U);
+    requireSuccess(highRisk, "endturn");
+    REQUIRE(highRisk.state().pendingEvents.size() == 3U);
+    REQUIRE(highRisk.state().pendingEventIndex == 1);
+    requireSuccess(highRisk, "event 1");
+    requireSuccess(highRisk, "event 1");
+    requireSuccess(highRisk, "event 1");
+    REQUIRE(highRisk.state().pendingEvents.empty());
 }
 
 TEST_CASE("responsible crafter controls quality, effective attributes, and capped war power") {
@@ -295,7 +346,7 @@ TEST_CASE("fixed refugees and disease events apply their two choices") {
     requireSuccess(refugees, "event 1");
     REQUIRE(refugees.state().food == refugeeFood - 4);
     REQUIRE(refugees.state().population == refugeePopulation + 1);
-    REQUIRE(refugees.state().stability == refugeeStability + 2);
+    REQUIRE(refugees.state().stability == refugeeStability - 2);
 
     tribe::GameEngine refugeeRefusal = eventGame(3U);
     requireSuccess(refugeeRefusal, "endturn");
@@ -329,7 +380,7 @@ TEST_CASE("fixed extortion and faction events include building effects and atomi
     requireSuccess(extortion, "endturn");
     const int durability = extortion.state().campDurability;
     requireSuccess(extortion, "event 2");
-    REQUIRE(extortion.state().campDurability == durability - 1);
+    REQUIRE(extortion.state().campDurability == durability - 2);
 
     tribe::GameEngine payment = eventGame(1U);
     requireSuccess(payment, "endturn");
@@ -435,7 +486,7 @@ TEST_CASE("state validation rejects unsafe text invalid items and incoherent mis
     REQUIRE(stateSnapshot(game.state()) == before);
 
     requireSuccess(game, "assign wood 2");
-    requireSuccess(game, "mission wood");
+    requireSuccess(game, "mission wood 2");
     tribe::GameState invalidMission = game.state();
     invalidMission.activeMission->encounterLife = 3;
     invalidMission.activeMission->worldLocation = 0;
@@ -460,7 +511,7 @@ TEST_CASE("state validation rejects unsafe text invalid items and incoherent mis
 TEST_CASE("fixed-seed command sequences preserve valid state and make rejected commands byte-identical no-ops") {
     tribe::GameEngine game{{tribe::GameMode::Quick, 303U}};
     const std::array<std::string, 15> commands{
-        {"   ", "unknown", "assign wood 2", "assign wood 1", "mission wood", "move forest", "gather wood", "move camp",
+        {"   ", "unknown", "assign wood 2", "assign wood 1", "mission wood 2", "move forest", "gather wood", "move camp",
          "settle", "endturn", "status", "craft spear", "equip 石刃 主手 missing", "war rock", "event 1"}};
     // 固定种子让随机命令覆盖可复现，任一次拒绝都与循环前的二进制快照比较。
     std::mt19937 generator{0x5EEDU};

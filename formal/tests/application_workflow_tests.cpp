@@ -70,7 +70,7 @@ TEST_CASE("application supports a scripted new-game map-save-load-return workflo
         "  seed QUICK 301  \n"
         "\n"
         " assign 木材 2\n"
-        " mission 木材\n"
+        " mission 木材 2\n"
         " move 苍林\n"
         " gather 木材\n"
         " move 营地\n"
@@ -128,7 +128,7 @@ TEST_CASE("console rendering preserves UTF-8 output at the classroom 80-column b
 TEST_CASE("mission road overview keeps coloring optional and text safe at classroom widths") {
     tribe::GameEngine game{{tribe::GameMode::Quick, 304U}};
     REQUIRE(game.execute("assign wood 2").success);
-    REQUIRE(game.execute("mission wood").success);
+    REQUIRE(game.execute("mission wood 2").success);
 
     std::ostringstream plainOutput;
     tribe::ConsoleUI plain{plainOutput, false, false, 80U};

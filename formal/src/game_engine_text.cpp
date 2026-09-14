@@ -125,12 +125,12 @@ std::string GameEngine::statusText() const {
            << state_.stone << "  草药：" << state_.herbs << "  兽皮：" << state_.hides << "  战士：" << state_.warriors
            << "\n"
            << "营地耐久：" << state_.campDurability << "  贸易次数：" << state_.tradeCount << "\n"
-           << "统一人口池：已占用" << population_rules::committedPopulation(state_) << '/'
-           << population_rules::populationCapacity(state_)
-           << "（劳力、前哨、驻军、军队、出任务小队；首领与基础留守2人不分配）";
+           << "人口上限：" << state_.populationLimit << "  可用人口：" << population_rules::availablePopulation(state_)
+           << "  已占用：" << population_rules::committedPopulation(state_) << "  剩余行动力：" << state_.actionsLeft
+           << "（基础留守2人；建筑岗位、驻军、军队和任务队伍共用人口）";
     if (state_.workforceReassignmentRequired) output << " [劳力待重分配]";
     output << "\n"
-           << "建筑：" << countTrue(state_.buildings) << "/6  技术：" << countTrue(state_.technologies)
+           << "建筑：" << countTrue(state_.buildings) << "/7  技术：" << countTrue(state_.technologies)
            << "/9  已发现地点：" << countTrue(state_.discovered) << "/16  战争胜负：" << state_.warsWon << "/"
            << state_.warsLost;
     return output.str();
@@ -139,9 +139,9 @@ std::string GameEngine::statusText() const {
 std::string GameEngine::workforceText() const {
     const WorkforceState& w = state_.workforce;
     std::ostringstream out;
-    out << "劳力分工（资源只能由地图任务带回；所有岗位均占用统一人口池）\n"
-        << "食物队" << w.foodCrew << " 木材队" << w.woodCrew << " 石料队" << w.stoneCrew << " 草药队" << w.herbCrew
-        << "\n支持岗位（0未配置/1已配置）：工匠" << (w.crafters > 0 ? 1 : 0) << " 医者" << (w.healers > 0 ? 1 : 0)
+    out << "人口分配（资源不再绑定常驻队伍；地图任务直接指定人数）\n"
+        << "兼容字段：食物队" << w.foodCrew << " 木材队" << w.woodCrew << " 石料队" << w.stoneCrew << " 草药队" << w.herbCrew
+        << "（不占用新规则人口）\n支持岗位（0未配置/1已配置）：工匠" << (w.crafters > 0 ? 1 : 0) << " 医者" << (w.healers > 0 ? 1 : 0)
         << " 侦察" << (w.scouts > 0 ? 1 : 0) << " 使者" << (w.envoys > 0 ? 1 : 0) << " 营地守卫"
         << (w.campGuards > 0 ? 1 : 0) << "\n前哨守卫：";
     bool hasOutpostGuard = false;
@@ -151,10 +151,10 @@ std::string GameEngine::workforceText() const {
         hasOutpostGuard = true;
     }
     if (!hasOutpostGuard) out << "无";
-    out << "\n人口占用：" << population_rules::committedPopulation(state_) << '/'
-        << population_rules::populationCapacity(state_) << "；当前/下季行动容量：" << state_.actionsLeft << '/'
-        << availableTeams(state_) << "（基础3，每支2至6人的资源队+1，最高7）"
-        << "\n资源队可分配2至6人；支持岗位与前哨守卫只分配0或1人。"
+    out << "\n人口上限：" << state_.populationLimit << "；已占用：" << population_rules::committedPopulation(state_)
+        << "；可用人口：" << population_rules::availablePopulation(state_) << "；剩余行动力：" << state_.actionsLeft << '/'
+        << availableTeams(state_) << "（最多7，等于当前可用人口）"
+        << "\n派出几人就消耗几行动力；支持岗位、住房岗位与前哨守卫分配0或1人。"
         << "\n已激活效果：";
     bool hasSupportEffect = false;
     if (w.crafters > 0) {
@@ -407,11 +407,11 @@ std::string GameEngine::helpText() const {
            "objectives目标 chronicle编年史\n"
            "经营：build/建造 <建筑>，research/研究 <技术>；资源和地点只能通过地图任务取得\n"
            "任务：5 或 mission；任务内使用move/移动、gather/采集、build outpost/建造前哨、settle/结算\n"
-           "劳力：资源队可分配2至6人；工匠、医者、侦察、使者、守卫和前哨守卫只分配0或1人；所有岗位、驻军、军队和出任务"
-           "小队共用人口-2\n"
+           "劳力：资源不再配置常驻资源队；工匠、医者、侦察、使者、守卫、住房和前哨守卫只分配0或1人；岗位、驻军、军队和出任务"
+           "小队共用人口-2，剩余人口决定本季行动力（最多7）\n"
            "小队：squadrest 小队休整；appoint/unappoint <workshop|healer> 任免负责人；负责人不可加入小队\n"
            "外交：talk gift trade <部落> <给出资源> <换取资源> openroute marry tribute demand ally declare truce raid\n"
-           "内政：appease <1至3>；战争：formarmy <战士> <民兵>，disbandarmy 解散军队，war "
+           "内政：appease <1至3>；战争：formarmy <统帅> <战士> <民兵>，disbandarmy 解散军队，war "
            "<部落>，战中attack/defend/order/retreat\n"
            "季节：8/endturn；结局：choose <alliance|conquest|prosperity|migration>；长期结局后sandbox。";
 }

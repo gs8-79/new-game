@@ -215,6 +215,8 @@ ActionResult GameEngine::execute(const std::string_view input) {
             return command.args.size() == 1U && parseNonnegative(command.args[0], option) ? chooseEvent(option)
                                                                                           : rejected("用法：event <1|2>。 ");
         }
+        if ((state_.pendingEvent.active || !state_.pendingEvents.empty()) && verbIs(command, {"choose", "选择"}))
+            return rejected("本季事件尚未处理完，请先逐个处理事件。 ");
         if (verbIs(command, {"choose", "选择"}) && command.args.size() == 1U) {
             const auto ending = parseGameEnding(command.args.front());
             return ending ? chooseEnding(*ending) : rejected("未知结局道路。");
@@ -228,8 +230,8 @@ ActionResult GameEngine::execute(const std::string_view input) {
                                      equalsAny(command.args[0], {"outpost", "前哨"});
         const bool loweringGarrison = verbIs(command, {"garrison", "驻军"}) && command.args.size() == 2U;
         const bool releasingArmy = verbIs(command, {"disbandarmy", "解散军队"}) && command.args.empty();
-        const bool viewingEvent = verbIs(command, {"event", "事件"}) && command.args.empty();
-        if (!loweringRole && !loweringOutpost && !loweringGarrison && !releasingArmy && !viewingEvent) {
+        const bool handlingEvent = verbIs(command, {"event", "事件"});
+        if (!loweringRole && !loweringOutpost && !loweringGarrison && !releasingArmy && !handlingEvent) {
             return rejected(
                 "人口已不足以维持现有岗位。请降低劳力或驻军，或用 disbandarmy / 解散军队释放军队后再行动。");
         }
@@ -255,7 +257,7 @@ ActionResult GameEngine::execute(const std::string_view input) {
     }
     if (verbIs(command, {"mission", "出任务"}) && command.args.size() <= 2U) {
         if (command.args.empty() || equalsAny(command.args.front(), {"world", "map", "地图", "探索"}))
-            return startMission();
+            return rejected("任务用法：mission <食物|木材|石料|草药|兽皮> <人数>；例如 mission wood 4。 ");
         if (equalsAny(command.args.front(), {"outpost", "前哨"})) {
             int people = 0;
             if (command.args.size() == 2U && !parseNonnegative(command.args.back(), people))
@@ -263,13 +265,15 @@ ActionResult GameEngine::execute(const std::string_view input) {
             return startMission(MissionKind::OutpostConstruction, ResourceKind::Wood, people);
         }
         const auto resource = parseResource(command.args.front());
-        if (!resource) return rejected("任务用法：mission <食物|木材|石料|草药|兽皮> <人数>。 ");
+        if (!resource || command.args.size() != 2U)
+            return rejected("任务用法：mission <食物|木材|石料|草药|兽皮> <人数>。 ");
         int people = 0;
-        if (command.args.size() == 2U && !parseNonnegative(command.args.back(), people))
-            return rejected("任务人数必须是非负整数。 ");
+        if (!parseNonnegative(command.args.back(), people) || people <= 0)
+            return rejected("任务人数必须是1至8人的正整数。 ");
         return startMission(*resource, people);
     }
-    if (command.verb == "5" && command.args.empty()) return startMission();
+    if (command.verb == "5" && command.args.empty())
+        return rejected("任务用法：mission <食物|木材|石料|草药|兽皮> <人数>；例如 mission wood 4。 ");
     if ((verbIs(command, {"workforce", "劳力"}) || command.verb == "3") && command.args.empty())
         return {true, true, false, false, false, false, workforceText()};
     if (verbIs(command, {"assign", "分配"}) && command.args.size() == 3U &&

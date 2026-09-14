@@ -103,7 +103,7 @@ TEST_CASE("settling a gathered map load is the only path that credits the tribe 
     const int woodBefore = game.state().wood;
 
     requireSuccess(game, "assign wood 2");
-    requireSuccess(game, "mission wood");
+    requireSuccess(game, "mission wood 2");
     requireSuccess(game, "move forest");
     requireSuccess(game, "gather wood");
     REQUIRE(game.state().wood == woodBefore);
@@ -113,4 +113,14 @@ TEST_CASE("settling a gathered map load is the only path that credits the tribe 
     REQUIRE(game.state().phase == tribe::GamePhase::Managing);
     REQUIRE(!game.state().activeMission.has_value());
     REQUIRE(game.state().wood > woodBefore);
+}
+
+TEST_CASE("resource missions require an explicit positive crew size") {
+    tribe::GameEngine game{{tribe::GameMode::Quick, 106U}};
+    const tribe::GameState before = game.state();
+    const tribe::ActionResult zero = game.execute("mission wood 0");
+    REQUIRE(!zero.success);
+    REQUIRE(!zero.stateChanged);
+    REQUIRE(!game.state().activeMission.has_value());
+    REQUIRE(game.state().actionsLeft == before.actionsLeft);
 }
