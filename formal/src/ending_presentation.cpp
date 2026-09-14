@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <ostream>
 #include <sstream>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -65,6 +66,57 @@ const char* endingColor(const GameEnding ending) {
 /// 失败：无。不变量：非空 value 原样返回。
 std::string valueOrFallback(const std::string& value, const char* fallback) {
     return value.empty() ? std::string{fallback} : value;
+}
+
+struct TextGlyph {
+    std::size_t bytes;
+    std::size_t columns;
+};
+
+TextGlyph glyphAt(const std::string_view text, const std::size_t index) {
+    const auto first = static_cast<unsigned char>(text[index]);
+    if (first < 0x80U) return {1U, first < 32U ? 0U : 1U};
+    const std::size_t count = (first & 0xE0U) == 0xC0U   ? 2U
+                              : (first & 0xF0U) == 0xE0U ? 3U
+                              : (first & 0xF8U) == 0xF0U ? 4U
+                                                         : 1U;
+    if (count == 1U || index + count > text.size()) return {1U, 1U};
+    unsigned int code = first & (0x7FU >> count);
+    for (std::size_t offset = 1U; offset < count; ++offset) {
+        const auto byte = static_cast<unsigned char>(text[index + offset]);
+        if ((byte & 0xC0U) != 0x80U) return {1U, 1U};
+        code = (code << 6U) | (byte & 0x3FU);
+    }
+    if ((code >= 0x300U && code <= 0x36FU) || (code >= 0xFE00U && code <= 0xFE0FU)) return {count, 0U};
+    const bool wide = (code >= 0x1100U && code <= 0x115FU) || (code >= 0x2E80U && code <= 0xA4CFU && code != 0x303FU) ||
+                      (code >= 0xAC00U && code <= 0xD7A3U) || (code >= 0xF900U && code <= 0xFAFFU) ||
+                      (code >= 0xFE10U && code <= 0xFE6FU) || (code >= 0xFF01U && code <= 0xFF60U) ||
+                      (code >= 0xFFE0U && code <= 0xFFE6U) || (code >= 0x1F300U && code <= 0x1FAFFU) ||
+                      (code >= 0x20000U && code <= 0x3FFFDU);
+    return {count, wide ? 2U : 1U};
+}
+
+/// 用途：按终端列宽写出 UTF-8 文本。输入：输出流、文本、列宽。输出：无；无游戏状态修改。
+/// 失败：无效字节仍按单字节输出。不变量：ANSI 序列由调用方另行包裹，字形不会被拆开。
+void writeWrapped(std::ostream& output, const std::string_view text, const std::size_t requestedWidth) {
+    const std::size_t width = std::max<std::size_t>(requestedWidth, 2U);
+    std::size_t column = 0U;
+    for (std::size_t index = 0U; index < text.size();) {
+        if (text[index] == '\n') {
+            output << '\n';
+            column = 0U;
+            ++index;
+            continue;
+        }
+        const TextGlyph glyph = glyphAt(text, index);
+        if (column > 0U && column + glyph.columns > width) {
+            output << '\n';
+            column = 0U;
+        }
+        output.write(text.data() + static_cast<std::ptrdiff_t>(index), static_cast<std::streamsize>(glyph.bytes));
+        column += glyph.columns;
+        index += glyph.bytes;
+    }
 }
 
 /// 用途：在交互终端轮询跳过动画的按键。输入：构造期开关。输出：轮询器。
@@ -173,12 +225,11 @@ bool waitForNextFrame(const EndingPresentationOptions& options, const std::funct
 
 /// 用途：向输出流写一帧结局画面。输入：摘要、帧、流和 ANSI 开关。输出：无。
 /// 状态影响：仅写输出流。失败：流错误由调用方处理；不变量：ANSI 关闭时绝不附加控制序列。
-void writeFrame(const EndingSummary& summary, const std::string& frame, std::ostream& output, const bool ansiEnabled) {
-    if (ansiEnabled) {
-        output << endingColor(summary.ending) << frame << "\x1b[0m";
-    } else {
-        output << frame;
-    }
+void writeFrame(const EndingSummary& summary, const std::string& frame, std::ostream& output, const bool ansiEnabled,
+                const std::size_t width) {
+    if (ansiEnabled) output << endingColor(summary.ending);
+    writeWrapped(output, frame, width);
+    if (ansiEnabled) output << "\x1b[0m";
 }
 
 } // namespace
@@ -354,6 +405,7 @@ std::string EndingPresentation::formatSummary(const EndingSummary& summary) {
 
 void EndingPresentation::play(const EndingSummary& summary, std::ostream& output, EndingPresentationOptions options) {
     const auto frames = framesFor(summary.ending);
+    const std::size_t width = std::max<std::size_t>(options.width, 2U);
     if (options.animated) {
         std::function<bool()> skipRequested = std::move(options.skipRequested);
         TerminalKeyPoller terminalKeys(!skipRequested);
@@ -369,7 +421,7 @@ void EndingPresentation::play(const EndingSummary& summary, std::ostream& output
                     output << "\n\n";
                 }
             }
-            writeFrame(summary, frames[index], output, options.ansiEnabled);
+            writeFrame(summary, frames[index], output, options.ansiEnabled, width);
             output.flush();
             if (index + 1U < frames.size() && waitForNextFrame(options, skipRequested)) {
                 skipped = true;
@@ -382,13 +434,14 @@ void EndingPresentation::play(const EndingSummary& summary, std::ostream& output
             } else {
                 output << "\n\n";
             }
-            writeFrame(summary, frames.back(), output, options.ansiEnabled);
+            writeFrame(summary, frames.back(), output, options.ansiEnabled, width);
         }
     } else {
         // 静态输出同时是重定向终端的降级方案，因此不得混入 ANSI 控制序列。
-        output << renderStatic(summary.ending);
+        writeWrapped(output, renderStatic(summary.ending), width);
     }
-    output << "\n\n" << formatSummary(summary);
+    output << "\n\n";
+    writeWrapped(output, formatSummary(summary), width);
 }
 
 } // namespace tribe

@@ -62,9 +62,9 @@ class ConsoleUI {
     void writeSection(std::string_view title);
     /// 用途：渲染活动地图任务。输出：任务视图；无游戏状态修改。
     void renderMission(const GameEngine& game, std::string_view message);
-    /// 用途：渲染任务道路总览与图例。输入：活动任务状态。输出：道路文本；无游戏状态修改。
-    /// 失败：无。不变量：节点编号、短名称和布局只来自地图目录。
-    void renderMissionRoadMap(const ExpansionState& mission);
+    /// 用途：渲染任务道路总览与图例。输入：活动任务状态和是否显示 look 资源摘要。输出：道路文本；无游戏状态修改。
+    /// 失败：无。不变量：节点编号、短名称和道路关系只来自地图目录。
+    void renderMissionRoadMap(const ExpansionState& mission, bool showingLook);
     /// 用途：渲染主界面的固定页头。输入：当前状态。输出：标题和季节信息；无游戏状态修改。
     /// 失败：无。不变量：不改变 ANSI 开关或终端列宽。
     void renderGameHeader(const GameState& state);

@@ -80,6 +80,7 @@ void playEnding(const GameEngine& game, ConsoleUI& ui, std::istream& input, std:
     options.ansiEnabled = ui.ansiEnabled();
     options.clearBetweenFrames = ui.interactive() && ui.ansiEnabled();
     options.frameDelay = std::chrono::milliseconds{260};
+    options.width = ui.width();
     ui.clear();
     EndingPresentation::play(game.endingSummary(), output, options);
     output << "\n\n按 Enter 返回结算菜单。";

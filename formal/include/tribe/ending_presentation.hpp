@@ -3,6 +3,7 @@
 #include "tribe/game_engine.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <iosfwd>
 #include <string>
@@ -14,6 +15,8 @@ struct EndingPresentationOptions {
     bool animated = true;
     bool ansiEnabled = false;
     bool clearBetweenFrames = true;
+    /// 用途：结局文本和动画帧的输出列宽。输入：终端列数。输出：按列折行；无游戏状态修改。
+    std::size_t width = 80U;
     std::chrono::milliseconds frameDelay{180};
     std::function<void(std::chrono::milliseconds)> wait;
     /// 用途：由调用方请求跳过结局动画。输入：无。输出：true 时停止动画并渲染最终帧和摘要。

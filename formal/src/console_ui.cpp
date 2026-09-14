@@ -3,6 +3,7 @@
 #include "world_map_catalog.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
@@ -93,6 +94,32 @@ std::size_t displayWidth(const std::string_view text) {
         index += glyph.bytes;
     }
     return width;
+}
+
+/// 用途：汇总 look 查询中所有已访问地点的资源。输入：活动任务状态。输出：按资源分组的文本；无状态修改。
+/// 失败：目录或资源枚举非法时跳过该项。不变量：只读取已发现状态和地图资源目录。
+std::string exploredResourceText(const ExpansionState& mission) {
+    constexpr std::array<ResourceKind, 5> kResources{
+        {ResourceKind::Food, ResourceKind::Wood, ResourceKind::Stone, ResourceKind::Herbs, ResourceKind::Hides}};
+    std::ostringstream output;
+    bool firstResource = true;
+    for (const ResourceKind resource : kResources) {
+        std::ostringstream locations;
+        bool firstLocation = true;
+        for (std::size_t index = 0U; index < mission.worldDiscovered.size(); ++index) {
+            if (!mission.worldDiscovered[index]) continue;
+            const auto location = world_map::fromMissionIndex(static_cast<int>(index));
+            if (!location || !world_map::supportsResource(*location, resource)) continue;
+            if (!firstLocation) locations << "·";
+            locations << index + 1U << std::string{world_map::shortName(*location)};
+            firstLocation = false;
+        }
+        if (firstLocation) continue;
+        if (!firstResource) output << "    ";
+        output << GameEngine::resourceName(resource) << ' ' << locations.str();
+        firstResource = false;
+    }
+    return firstResource ? std::string{"暂无"} : output.str();
 }
 
 /// 用途：生成存档菜单的槽位快捷键。输入：槽位。输出：键名；无状态修改。
@@ -383,8 +410,10 @@ void ConsoleUI::renderHelpPage(const int topic) {
 
 /// 用途：按唯一地图目录绘制道路节点、连接线、图例和探索统计。输入：活动任务状态。输出：道路视图。
 /// 状态影响：仅写入输出缓冲。失败：无。不变量：节点编号与短名称始终由 world_map_catalog 提供。
-void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
+void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission, const bool showingLook) {
     const auto& locations = GameEngine::worldLocations();
+    /// 用途：按实际道路拓扑绘制道路节点、连线、图例和探索统计。
+    /// 状态影响：仅写入输出缓冲。不变量：每条连线只对应 world_map_catalog 中的真实邻接关系。
     writeSection("道路总览");
     const auto roadIndent = [&](const std::size_t amount) { output_ << std::string(amount, ' '); };
     const auto roadNode = [&](const WorldLocationId location) {
@@ -396,20 +425,44 @@ void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
                                                                : UiColor::Dim;
         write(color, "[" + std::to_string(index + 1U) + " " + std::string(world_map::shortName(location)) + "]");
     };
-    // 道路连接线使用低亮度灰色，不喧宾夺主。
-    const auto roadLink = [&] { write(UiColor::Dim, " ── "); };
+    const auto roadLink = [&] { write(UiColor::Dim, " ─ "); };
     output_ << "  ";
     write(UiColor::Neutral, "北方 ↑");
-    write(UiColor::Dim, "    [编号 地点]  道路 ──   当前位置以金色加粗显示\n\n");
-    const auto& rows = world_map::roadRows();
-    for (std::size_t rowIndex = 0U; rowIndex < rows.size(); ++rowIndex) {
-        if (rowIndex > 0U) output_ << "\n\n";
-        roadIndent(rows[rowIndex].indent);
-        for (std::size_t nodeIndex = 0U; nodeIndex < rows[rowIndex].nodes.size(); ++nodeIndex) {
-            if (nodeIndex > 0U) roadLink();
-            roadNode(rows[rowIndex].nodes[nodeIndex]);
-        }
+    write(UiColor::Dim, "    [编号 地点]  同一条线表示相邻道路\n\n");
+    for (const WorldLocationId location :
+         {WorldLocationId::WhiteFeatherCamp, WorldLocationId::Marsh, WorldLocationId::Forest, WorldLocationId::Camp,
+          WorldLocationId::RedPlain, WorldLocationId::RiverFord, WorldLocationId::MountainMarket,
+          WorldLocationId::CliffTradeRoad}) {
+        roadNode(location);
+        if (location != WorldLocationId::CliffTradeRoad) roadLink();
     }
+    output_ << '\n';
+    roadIndent(13U);
+    write(UiColor::Dim, "│");
+    roadIndent(29U);
+    write(UiColor::Dim, "│");
+    roadIndent(19U);
+    write(UiColor::Dim, "│");
+    roadIndent(11U);
+    write(UiColor::Dim, "│\n");
+    roadIndent(9U);
+    roadNode(WorldLocationId::SaltwindCoast);
+    roadLink();
+    roadNode(WorldLocationId::ShellBeach);
+    roadLink();
+    roadNode(WorldLocationId::TidesaltHarbor);
+    write(UiColor::Dim, "─────────────────────┘\n");
+    roadIndent(40U);
+    roadNode(WorldLocationId::Quarry);
+    write(UiColor::Dim, "─");
+    roadNode(WorldLocationId::BlackstoneValley);
+    write(UiColor::Dim, "─");
+    roadNode(WorldLocationId::BlackstoneWorkshop);
+    write(UiColor::Dim, "──┘\n");
+    roadIndent(64U);
+    roadNode(WorldLocationId::RockfangFort);
+    write(UiColor::Dim, "─");
+    roadNode(WorldLocationId::OldPass);
     output_ << "\n  ";
     write(UiColor::Dim, "图例：");
     write(UiColor::Title, "金色");
@@ -418,6 +471,9 @@ void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
     write(UiColor::Dim, "=已发现  ");
     write(UiColor::Dim, "灰色");
     write(UiColor::Dim, "=未发现\n");
+    if (showingLook) {
+        write(UiColor::Herbs, "  已探索资源：" + exploredResourceText(mission) + "\n");
+    }
     output_ << "  当前 ";
     write(UiColor::Title, std::to_string(mission.worldLocation + 1) + "." +
                               locations[static_cast<std::size_t>(mission.worldLocation)].name);
@@ -435,7 +491,8 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
 
     const ExpansionState& mission = *state.activeMission;
     const Character& captain = mission.squad.members[mission.squad.leaderIndex];
-    renderMissionRoadMap(mission);
+    const bool showingLook = message.rfind("北↑", 0U) == 0U;
+    renderMissionRoadMap(mission, showingLook);
 
     writeSection("任务指令");
     output_ << "  look/查看：当前位置、资源、结算点    move/移动 <编号或地点>：沿相邻道路前进\n"
@@ -446,13 +503,16 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
     writeSection("现场记录");
     const std::string record =
         message.empty() ? std::string{"道路延伸到视线之外，等待你的指令。"} : std::string{message};
-    output_ << "  ";
-    // 首局进入地图的介绍句使用蓝色；后续操作消息保持默认色，避免页面过花。
-    if (mission.turn == 0 && record.rfind("晨火队", 0U) == 0U)
-        write(UiColor::Neutral, record);
-    else
-        output_ << record;
-    output_ << '\n';
+    if (!showingLook) {
+        output_ << "  ";
+        // 首局进入地图的介绍句使用蓝色；后续操作消息保持默认色，避免页面过花。
+        if (mission.turn == 0 && record.rfind("晨火队", 0U) == 0U)
+            write(UiColor::Neutral, record);
+        else
+            output_ << record;
+        output_ << '\n';
+    }
+
     const std::string look = ExpansionGame{mission}.lookText();
     std::size_t lineBegin = 0U;
     while (lineBegin <= look.size()) {
@@ -461,11 +521,30 @@ void ConsoleUI::renderMission(const GameEngine& game, const std::string_view mes
             lineBegin, lineEnd == std::string::npos ? look.size() - lineBegin : lineEnd - lineBegin);
         output_ << "  ";
         constexpr std::string_view kResourcePrefix = "可采资源：";
-        // 只给资源标签和资源值着色；“无”保持灰色，避免误读为可用资源。
+        constexpr std::string_view kCurrentPrefix = "当前地点：";
+        constexpr std::string_view kRoadPrefix = "相邻道路：";
+        constexpr std::string_view kCargoPrefix = "载货 ";
+        constexpr std::string_view kSettlePrefix = "结算：";
+        constexpr std::string_view kEncounterPrefix = "遭遇：";
         if (line.rfind(kResourcePrefix, 0U) == 0U) {
             write(UiColor::Wood, kResourcePrefix);
             const std::string_view resources = line.substr(kResourcePrefix.size());
             write(resources == "无" ? UiColor::Dim : UiColor::Herbs, resources);
+        } else if (line.rfind(kCurrentPrefix, 0U) == 0U) {
+            write(UiColor::Accent, kCurrentPrefix);
+            write(UiColor::Title, line.substr(kCurrentPrefix.size()));
+        } else if (line.rfind(kRoadPrefix, 0U) == 0U) {
+            write(UiColor::Neutral, kRoadPrefix);
+            output_ << line.substr(kRoadPrefix.size());
+        } else if (line.rfind(kCargoPrefix, 0U) == 0U) {
+            write(UiColor::Dim, kCargoPrefix);
+            output_ << line.substr(kCargoPrefix.size());
+        } else if (line.rfind(kSettlePrefix, 0U) == 0U) {
+            write(UiColor::Neutral, kSettlePrefix);
+            const std::string_view settlement = line.substr(kSettlePrefix.size());
+            write(settlement.rfind("当前地点可结算", 0U) == 0U ? UiColor::Friendly : UiColor::Warning, settlement);
+        } else if (line.rfind(kEncounterPrefix, 0U) == 0U || line.rfind("敌军生命", 0U) == 0U) {
+            write(UiColor::Warning, line);
         } else {
             output_ << line;
         }
@@ -548,11 +627,15 @@ void ConsoleUI::renderGameCommandHint(const GamePhase phase) {
     } else if (phase == GamePhase::Finished) {
         output_ << "  重新播放  人物  编年史  继续沙盒  返回主菜单\n";
     } else {
-        output_ << "  1状态  2地图  3劳力  4仓库  5小队地图任务  6外交  7小队  8结束季节  9帮助\n"
-                << "  经营：建造 研究 制造 维修  分配  建筑清单 技术清单；mission outpost 前哨建设\n"
-                << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
+        output_ << "  1状态  2地图  3劳力  4仓库  5小队地图任务  6外交  7小队  8结束季节  9帮助\n";
+        write(UiColor::Neutral, "    如：1\n");
+        output_ << "  经营：建造 研究 制造 维修  分配  建筑清单 技术清单；mission outpost 前哨建设\n";
+        write(UiColor::Neutral, "    如：建造 粮仓；分配 木材 2。\n");
+        output_ << "  外交：交谈 送礼 贸易 开通商路 联姻\n";
+        write(UiColor::Neutral, "    如：交谈 河鹿。\n");
     }
     output_ << "  存档：save/保存 <1至6>  load/读取 <1至6|auto>  返回：back  退出：quit\n";
+    write(UiColor::Neutral, "    如：保存 1；读取 auto。\n");
 }
 
 void ConsoleUI::renderGame(const GameEngine& game, const std::string_view message) {
