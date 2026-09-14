@@ -126,7 +126,7 @@ cmake --build .\out\Formal-Debug --target format-check
 git diff --check
 ```
 
-随后直接运行对应的 `tribe-formal-tests.exe`，并记录用例计数。涉及正式版生产文件时，继续运行 `tools/run-clang-tidy.ps1`。任何测试失败、格式失败或注释与控制流矛盾，均不得提交。
+随后直接运行对应的 `tribe-formal-tests.exe`，并记录用例计数。涉及正式版生产文件时，执行 `cmake --build .\out\Formal-Release --target tidy`；该目标会向 `tools/run-clang-tidy.ps1` 传入必需参数。任何测试失败、格式失败或注释与控制流矛盾，均不得提交。
 
 ## 9. 提交前清单
 

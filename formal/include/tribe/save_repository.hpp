@@ -14,7 +14,8 @@ namespace tribe {
 /// 不变量：顺序决定槽位编号，Autosave 始终排在最后并使用独立的文件名。
 enum class SaveSlot { Slot1 = 0, Slot2, Slot3, Slot4, Slot5, Slot6, Autosave };
 /// 用途：只读检查槽位后得出的可用性结论。输入/输出：由 inspect 产生、供存档菜单展示。
-/// 不变量：Recoverable 表示主档不可用但备份或临时档可恢复；Corrupt 表示所有候选均不可用。
+/// 不变量：Recoverable 表示主档缺失或校验失败、但 .bak/.tmp 存在完整副本；主档 I/O 不可用时保守记为 Corrupt，
+/// 不自动回退到可能过期的备份。Corrupt 表示本次检查无法提供可安全加载的候选。
 enum class SaveStatus { Empty, Ready, Recoverable, Corrupt };
 
 /// 用途：存档菜单所需的展示摘要，不包含完整游戏状态。输入/输出：由 inspect 只读解析产生。

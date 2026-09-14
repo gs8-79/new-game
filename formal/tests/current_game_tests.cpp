@@ -561,6 +561,12 @@ TEST_CASE("last season is announced and an early ending choice is answered inste
     REQUIRE(!early.stateChanged);
     REQUIRE(early.message.find("结束回合") != std::string::npos);
 
+    const tribe::ActionResult earlyChinese = game.execute("选择 迁徙");
+    REQUIRE(earlyChinese.recognized);
+    REQUIRE(!earlyChinese.success);
+    REQUIRE(!earlyChinese.stateChanged);
+    REQUIRE(earlyChinese.message.find("结束回合") != std::string::npos);
+
     // 非最后一季的状态文本不应出现引导行。
     REQUIRE(game.statusText().find("这是最后一季") == std::string::npos);
 

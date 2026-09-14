@@ -114,10 +114,11 @@ bash docker-run.sh
 
 ## 代码结构与文档
 
-- `formal/src/game_engine.cpp`：部落管理、劳力、外交、战争、结局和规则校验。
+- `formal/src/game_engine.cpp`：新局初始化与候选状态原子提交；`game_engine_dispatch.cpp` 负责解析、阶段门禁和命令分派。
+- `formal/src/game_engine_management.cpp`、`game_engine_mission.cpp`、`game_engine_diplomacy.cpp`、`game_engine_war.cpp`、`game_engine_season.cpp`、`game_engine_validation.cpp`、`game_engine_text.cpp`：分别承载经营人物、地图结算、外交、战争、季结算、状态校验和文本视图。
 - `formal/src/expansion_game.cpp`：十六地点任务地图、载货、前哨与遭遇。
 - `formal/src/console_ui.cpp`：控制台面板、道路图、现场记录与帮助页。
-- `formal/src/save_repository.cpp`：校验、原子保存、恢复与当前格式读取。
+- `formal/src/save_codec.cpp`、`save_file_transaction.cpp`、`save_repository.cpp`：分别负责二进制编解码、文件恢复与原子替换、七槽位存档门面。
 
 ## 持续集成与发布
 

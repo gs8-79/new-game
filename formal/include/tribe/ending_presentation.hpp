@@ -16,7 +16,8 @@ namespace tribe {
 struct EndingPresentationOptions {
     /// 用途：是否逐帧播放动画。false 时只输出静态结局画面。
     bool animated = true;
-    /// 用途：是否允许写出 ANSI 颜色与清屏序列。重定向输出必须保持 false。
+    /// 用途：是否允许写出 ANSI 颜色与清屏序列。输入：调用方的终端能力判断。
+    /// 不变量：重定向或非交互输出必须传入 false；play 不会自行探测输出流类型。
     bool ansiEnabled = false;
     /// 用途：帧间是否清屏重画。false 时改用空行分隔，适配不支持清屏的终端。
     bool clearBetweenFrames = true;
@@ -31,7 +32,8 @@ struct EndingPresentationOptions {
 };
 
 /// 用途：生成并播放各结局（联盟、征服、繁荣、迁徙、覆灭与未结算）的 ASCII 演出和结算摘要。
-/// 状态影响：只写输出流与终端模式，不修改 GameEngine。失败：非交互或非 ANSI 环境降级为静态输出。
+/// 状态影响：只写输出流与终端模式，不修改 GameEngine。失败：输出流错误由调用方处理。
+/// 非交互降级：调用方须将 animated 设为 false；类不会根据流类型自动切换为静态输出。
 /// 不变量：帧与摘要均为纯文本，非 ANSI 模式不得混入控制序列。
 class EndingPresentation {
    public:
