@@ -70,9 +70,11 @@ add_executable(tribe-formal-tests
     formal/tests/map_mission_tests.cpp
     formal/tests/save_repository_tests.cpp
     formal/tests/application_workflow_tests.cpp
+    # 成员3交付测试：按项目约定放在交付目录内，避免与成员5负责的 formal/tests 产生合并冲突。
+    deliverables/member3-map-mission/tests/map_mission_delivery_tests.cpp
 )
 target_link_libraries(tribe-formal-tests PRIVATE tribe_formal_lib)
-target_include_directories(tribe-formal-tests PRIVATE tests formal/src)
+target_include_directories(tribe-formal-tests PRIVATE tests formal/src deliverables/member3-map-mission/tools)
 
 if(MSVC)
     target_compile_options(tribe-formal-tests PRIVATE /W4 /permissive- /utf-8)
@@ -81,6 +83,21 @@ else()
 endif()
 
 add_test(NAME tribe-formal-tests COMMAND tribe-formal-tests)
+
+# 成员3交付工具（可选目标）：按交付文档登记的路线驱动真实引擎，生成可复现的试玩实录与 Mermaid 图。
+# 默认关闭，保证其他成员的默认构建与 CI 行为完全不变；需要时用 -DTRIBE_BUILD_DELIVERY_TOOLS=ON 打开。
+option(TRIBE_BUILD_DELIVERY_TOOLS "构建成员3交付工具 tribe-map-playthrough" OFF)
+if(TRIBE_BUILD_DELIVERY_TOOLS)
+    add_executable(tribe-map-playthrough deliverables/member3-map-mission/tools/playthrough_main.cpp)
+    target_link_libraries(tribe-map-playthrough PRIVATE tribe_formal_lib)
+    target_include_directories(tribe-map-playthrough PRIVATE deliverables/member3-map-mission/tools formal/src)
+
+    if(MSVC)
+        target_compile_options(tribe-map-playthrough PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(tribe-map-playthrough PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
 
 set(TRIBE_FORMAT_SOURCES
     formal/include/tribe/application.hpp
@@ -131,6 +148,9 @@ set(TRIBE_FORMAT_SOURCES
     formal/tests/current_game_tests.cpp
     formal/tests/map_mission_tests.cpp
     formal/tests/save_repository_tests.cpp
+    deliverables/member3-map-mission/tests/map_mission_delivery_tests.cpp
+    deliverables/member3-map-mission/tools/delivery_route.hpp
+    deliverables/member3-map-mission/tools/playthrough_main.cpp
     tests/test_harness.hpp
     tests/test_main.cpp
 )

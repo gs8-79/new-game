@@ -1,5 +1,6 @@
 #include "tribe/console_ui.hpp"
 
+#include "tribe/expansion_game.hpp"
 #include "world_map_catalog.hpp"
 
 #include <algorithm>
@@ -395,6 +396,8 @@ void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
                               : mission.worldDiscovered[index] ? UiColor::Normal
                                                                : UiColor::Dim;
         write(color, "[" + std::to_string(index + 1U) + " " + std::string(world_map::shortName(location)) + "]");
+        // 结算点星标写在节点方括号之外：既有节点文本保持不变，玩家也能一眼看出哪里可以结算入库。
+        if (mission.worldDiscovered[index] && mission.outposts[index]) write(UiColor::Title, "★");
     };
     // 道路连接线使用低亮度灰色，不喧宾夺主。
     const auto roadLink = [&] { write(UiColor::Dim, " ── "); };
@@ -417,12 +420,29 @@ void ConsoleUI::renderMissionRoadMap(const ExpansionState& mission) {
     write(UiColor::Normal, "白色");
     write(UiColor::Dim, "=已发现  ");
     write(UiColor::Dim, "灰色");
-    write(UiColor::Dim, "=未发现\n");
+    write(UiColor::Dim, "=未发现  ");
+    write(UiColor::Title, "★");
+    write(UiColor::Dim, "=结算点\n");
     output_ << "  当前 ";
     write(UiColor::Title, std::to_string(mission.worldLocation + 1) + "." +
                               locations[static_cast<std::size_t>(mission.worldLocation)].name);
     output_ << "  已发现 " << std::count(mission.worldDiscovered.begin(), mission.worldDiscovered.end(), true)
             << "/16  前哨 " << std::count(mission.outposts.begin(), mission.outposts.end(), true) - 1 << "\n";
+    // 路线提示：直接复用地图任务层生成的寻路文案，界面不重复实现最短路计算，
+    // 只挑出“路线提示/探索提示”两行贴在图上，减少玩家在十六地点之间迷路与空跑。
+    const std::string hints = missionRouteHint(mission);
+    for (std::size_t cursor = 0U; cursor < hints.size();) {
+        const std::size_t end = hints.find('\n', cursor);
+        const std::string_view line(hints.data() + cursor,
+                                    (end == std::string::npos ? hints.size() : end) - cursor);
+        if (line.rfind("路线提示：", 0U) == 0U || line.rfind("探索提示：", 0U) == 0U) {
+            output_ << "  ";
+            write(UiColor::Dim, std::string(line));
+            output_ << '\n';
+        }
+        if (end == std::string::npos) break;
+        cursor = end + 1U;
+    }
 }
 
 void ConsoleUI::renderMission(const GameEngine& game, const std::string_view message) {

@@ -1,0 +1,93 @@
+[RUN ] the v5 interface exposes five resources, map roles, and road progress
+[PASS] the v5 interface exposes five resources, map roles, and road progress
+[RUN ] command catalog keeps whitespace Chinese English and numeric query contracts identical
+[PASS] command catalog keeps whitespace Chinese English and numeric query contracts identical
+[RUN ] five-resource barter remains available and currency commands are absent
+[PASS] five-resource barter remains available and currency commands are absent
+[RUN ] gathering and outpost missions keep distinct v5 mission kinds through saves
+[PASS] gathering and outpost missions keep distinct v5 mission kinds through saves
+[RUN ] uniform population pool blocks army and mission over-allocation
+[PASS] uniform population pool blocks army and mission over-allocation
+[RUN ] formed armies and garrisons consume trained warriors and can be released
+[PASS] formed armies and garrisons consume trained warriors and can be released
+[RUN ] population loss requires manual reassignment before any further action
+[PASS] population loss requires manual reassignment before any further action
+[RUN ] responsible crafter controls quality, effective attributes, and capped war power
+[PASS] responsible crafter controls quality, effective attributes, and capped war power
+[RUN ] responsible healer improves treatment and rest, and can be dismissed
+[PASS] responsible healer improves treatment and rest, and can be dismissed
+[RUN ] fixed refugees and disease events apply their two choices
+[PASS] fixed refugees and disease events apply their two choices
+[RUN ] fixed extortion and faction events include building effects and atomic failures
+[PASS] fixed extortion and faction events include building effects and atomic failures
+[RUN ] crafted equipment keeps a global serial after being equipped and recreated in the same season
+[PASS] crafted equipment keeps a global serial after being equipped and recreated in the same season
+[RUN ] using expedition herbs advances exactly one turn while applying recovery and fatigue consistently
+[PASS] using expedition herbs advances exactly one turn while applying recovery and fatigue consistently
+[RUN ] state validation rejects unsafe text invalid items and incoherent mission states atomically
+[PASS] state validation rejects unsafe text invalid items and incoherent mission states atomically
+[RUN ] fixed-seed command sequences preserve valid state and make rejected commands byte-identical no-ops
+[PASS] fixed-seed command sequences preserve valid state and make rejected commands byte-identical no-ops
+[RUN ] the sixteen-location catalog keeps stable ids aliases bidirectional roads and road-map coverage
+[PASS] the sixteen-location catalog keeps stable ids aliases bidirectional roads and road-map coverage
+[RUN ] map missions reject nonadjacent roads and wrong local resources without changing state
+[PASS] map missions reject nonadjacent roads and wrong local resources without changing state
+[RUN ] map mission cargo capacity caps harvesting and preserves a full load
+[PASS] map mission cargo capacity caps harvesting and preserves a full load
+[RUN ] outpost construction spends only carried materials and creates a settlement point
+[PASS] outpost construction spends only carried materials and creates a settlement point
+[RUN ] fort encounter blocks travel until retreat and keeps the route state coherent
+[PASS] fort encounter blocks travel until retreat and keeps the route state coherent
+[RUN ] settling a gathered map load is the only path that credits the tribe store
+[PASS] settling a gathered map load is the only path that credits the tribe store
+[RUN ] map commands share Chinese English and direct-outpost aliases without changing their contracts
+[PASS] map commands share Chinese English and direct-outpost aliases without changing their contracts
+[RUN ] save repository reports all seven empty slots and a failed load leaves its candidate untouched
+[PASS] save repository reports all seven empty slots and a failed load leaves its candidate untouched
+[RUN ] save repository round-trips every manual slot and the autosave
+[PASS] save repository round-trips every manual slot and the autosave
+[RUN ] v6 codec keeps deterministic bytes after load and re-save through a different slot
+[PASS] v6 codec keeps deterministic bytes after load and re-save through a different slot
+[RUN ] stockpile growth beyond the legacy 64-item decoder limit remains saveable
+[PASS] stockpile growth beyond the legacy 64-item decoder limit remains saveable
+[RUN ] a corrupt primary recovers its previous backup and a temporary file when it is the only valid copy
+[PASS] a corrupt primary recovers its previous backup and a temporary file when it is the only valid copy
+[RUN ] valid v5 primary backup and temporary saves migrate atomically to v6 and preserve original bytes
+[PASS] valid v5 primary backup and temporary saves migrate atomically to v6 and preserve original bytes
+[RUN ] damaged legacy and unsafe v6 text are rejected without changing caller state or creating migration backups
+[PASS] damaged legacy and unsafe v6 text are rejected without changing caller state or creating migration backups
+[RUN ] application supports a scripted new-game map-save-load-return workflow in an isolated directory
+[PASS] application supports a scripted new-game map-save-load-return workflow in an isolated directory
+[RUN ] application asks before overwriting a manual save and honours cancellation
+[PASS] application asks before overwriting a manual save and honours cancellation
+[RUN ] console rendering preserves UTF-8 output at the classroom 80-column baseline and a narrow window
+[PASS] console rendering preserves UTF-8 output at the classroom 80-column baseline and a narrow window
+[RUN ] mission road overview keeps coloring optional and text safe at classroom widths
+[PASS] mission road overview keeps coloring optional and text safe at classroom widths
+[RUN ] 交付试玩路线每一步都沿相邻道路前进，覆盖十六地点并回到结算点
+[PASS] 交付试玩路线每一步都沿相邻道路前进，覆盖十六地点并回到结算点
+[RUN ] 十六地点道路图双向连通，最短路、方位与地点档案可复现
+[PASS] 十六地点道路图双向连通，最短路、方位与地点档案可复现
+[RUN ] 路线提示给出最近结算点、最近未探索地点与指定资源产地，且建议指令可直接执行
+[PASS] 路线提示给出最近结算点、最近未探索地点与指定资源产地，且建议指令可直接执行
+[RUN ] 采集只在允许的地点与指定资源上成功，错误地点与混采一律被拒绝
+[PASS] 采集只在允许的地点与指定资源上成功，错误地点与混采一律被拒绝
+[RUN ] 采集时段与载货上限按常量截断，满载与时段耗尽都被拒绝
+[PASS] 采集时段与载货上限按常量截断，满载与时段耗尽都被拒绝
+[RUN ] 移动只沿相邻道路前进，跨越地图与原地打转都被拒绝
+[PASS] 移动只沿相邻道路前进，跨越地图与原地打转都被拒绝
+[RUN ] 前哨建设只消耗现场携带材料，并在错误地点与材料不足时被拒绝
+[PASS] 前哨建设只消耗现场携带材料，并在错误地点与材料不足时被拒绝
+[RUN ] 结算只能在营地或已建前哨完成，并且是载货入账的唯一入口
+[PASS] 结算只能在营地或已建前哨完成，并且是载货入账的唯一入口
+[RUN ] 未结算的载货不进入部落仓库：放弃任务与存档往返都不入账
+[PASS] 未结算的载货不进入部落仓库：放弃任务与存档往返都不入账
+[RUN ] 行动点不足或疲劳过高时任务无法出发，而地图命令不额外消耗季节行动点
+[PASS] 行动点不足或疲劳过高时任务无法出发，而地图命令不额外消耗季节行动点
+[RUN ] 岩牙要塞遭遇：攻击、防御、撤退与遭遇期间的移动封锁
+[PASS] 岩牙要塞遭遇：攻击、防御、撤退与遭遇期间的移动封锁
+[RUN ] 地图任务状态校验拒绝越权地点、越权结算与不一致的遭遇字段
+[PASS] 地图任务状态校验拒绝越权地点、越权结算与不一致的遭遇字段
+[RUN ] 交付试玩路线在真实引擎上跑通：采集、全图探索、遭遇、前哨建设与前哨结算
+[PASS] 交付试玩路线在真实引擎上跑通：采集、全图探索、遭遇、前哨建设与前哨结算
+46/46 tests passed
