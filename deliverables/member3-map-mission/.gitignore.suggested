@@ -1,0 +1,55 @@
+# 建议的仓库根目录 .gitignore（成员3提供，供架构负责人在独立小 PR 中采用）
+#
+# 用法：把本文件内容复制到仓库根目录的 .gitignore。
+# 为什么单独放一份建议稿而不是直接改根目录：根目录约定属于架构负责人（TEAM_ASSIGNMENT.md §3.1），
+# 直接改容易与其他成员的小 PR 冲突。本文件不参与构建，删掉也不影响任何功能。
+
+# 构建产物（CMake 默认与项目脚本使用的目录）
+/out/
+/dist/
+build/
+cmake-build-*/
+
+# 构建中间产物（以防在源码目录里就地构建）
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+cmake_install.cmake
+Makefile
+*.ninja
+
+# 可执行文件（构建会重新生成）
+tribe-dawn
+tribe-formal-tests
+tribe-map-playthrough
+tribe-dawn.exe
+
+# 本地存档（main.cpp 会把存档写到运行目录下的 saves/game）
+/saves/
+*.bak
+*.tmp
+
+# 编辑器与操作系统噪声
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# 打包产物
+*.tar.gz
+*.zip

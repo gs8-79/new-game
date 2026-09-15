@@ -12,6 +12,17 @@ namespace tribe {
 
 constexpr std::size_t kExpeditionWorldLocationCount = 16U;
 
+/// 用途：一次地图任务允许的采集次数上限，同时约束采集命令与状态校验。输入/输出：只读常量。
+/// 不变量：gather 命令、validateState 与提示文本必须共用本常量，避免三处各写一个字面量而失配。
+constexpr int kMaximumHarvestActions = 4;
+/// 用途：建造前哨需要随队携带的材料（现场消耗，只能来自任务载货）。输入/输出：只读常量。
+/// 不变量：建造校验、扣减与拒绝文本必须共用这两个常量，避免提示与实际消耗不一致。
+constexpr int kOutpostWoodCost = 6;
+constexpr int kOutpostStoneCost = 4;
+/// 用途：岩牙巡逻遭遇的初始敌军生命。输入/输出：只读常量；无状态修改。
+/// 不变量：开战、提示与平衡调整都以本常量为准。
+constexpr int kRockfangEncounterLife = 14;
+
 enum class ExpansionPhase { Exploring = 0, Settled };
 enum class ResourceKind { Food = 0, Wood, Stone, Herbs, Hides };
 enum class MissionKind { Gather = 0, OutpostConstruction };
@@ -53,6 +64,11 @@ struct ExpansionState {
     bool settled = false;
 };
 
+/// 用途：为任意地图任务状态生成风险档案与路线提示，供任务对象与界面共用同一套文案。
+/// 输入：已通过 validateState 或至少字段自洽的地图状态。输出：UTF-8 文本；无状态修改。
+/// 失败：无；越界的地点编号按未知档案输出。不变量：只读状态，可在渲染路径上安全调用，不会抛出异常。
+std::string missionRouteHint(const ExpansionState& state);
+
 class ExpansionGame {
    public:
     /// 用途：按种子和队伍人数创建地图任务。输出：合法初始任务。
@@ -66,6 +82,10 @@ class ExpansionGame {
     const ExpansionState& state() const { return state_; }
     /// 用途：生成地点、载货和遭遇文本。输出：UTF-8 文本；无状态修改。
     std::string lookText() const;
+    /// 用途：生成当前地点的风险/收益档案与路线提示，降低迷路与空跑成本。
+    /// 输出：UTF-8 文本；无状态修改。失败：无；非法地点按未知档案输出，绝不抛异常。
+    /// 不变量：提示完全由当前状态与地图目录推导，不新增任何持久化字段，因此不影响 v6 存档兼容。
+    std::string routeHintText() const;
     /// 用途：验证地图任务、背包与遭遇不变量。输出：操作结果；失败不修改输入状态。
     static OperationResult validateState(const ExpansionState& state);
 

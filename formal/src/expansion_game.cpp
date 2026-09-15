@@ -58,6 +58,65 @@ OperationResult invalid(std::string message) { return {false, std::move(message)
 /// 失败：无。不变量：只表达校验结果，不写入任务状态。
 OperationResult valid(std::string message) { return {true, std::move(message)}; }
 
+/// 用途：在道路图上寻找距离起点最近、且满足条件的地点。输入：起点与该地点的判定函数。
+/// 输出：最近地点；没有候选时为空值。失败：无。不变量：距离相等时取编号更小的地点，保证提示稳定可复现。
+template <typename Accept>
+std::optional<WorldLocationId> nearestWhere(const WorldLocationId from, Accept accept) {
+    std::optional<WorldLocationId> best;
+    int bestSteps = -1;
+    for (std::size_t index = 0U; index < kExpeditionWorldLocationCount; ++index) {
+        const WorldLocationId candidate = static_cast<WorldLocationId>(index);
+        if (!accept(candidate)) continue;
+        const int steps = world_map::roadDistance(from, candidate);
+        if (steps < 0) continue;
+        if (!best || steps < bestSteps) {
+            best = candidate;
+            bestSteps = steps;
+        }
+    }
+    return best;
+}
+
+/// 用途：把最短路压缩成中文方位链，例如“西→北”。输入：起点与终点。
+/// 输出：方位链；同点或不可达时为空文本。失败：无。不变量：方位词只来自 world_map::direction。
+std::string directionChain(const WorldLocationId from, const WorldLocationId to) {
+    const std::vector<WorldLocationId> path = world_map::roadPath(from, to);
+    std::string chain;
+    for (std::size_t index = 1U; index < path.size(); ++index) {
+        if (index > 1U) chain += "→";
+        chain += world_map::direction(path[index - 1U], path[index]);
+    }
+    return chain;
+}
+
+/// 用途：生成“第几步、方位链、建议指令”形式的单行路线提示。输入：目标地点与当前地点。
+/// 输出：可直接插入提示文本的片段。失败：无。不变量：目标与当前位置相同或不可达时返回失败说明文本，不产生越界访问。
+std::string pathHint(const WorldLocationId from, const WorldLocationId to) {
+    const int steps = world_map::roadDistance(from, to);
+    if (steps < 0) return "（道路不通）";
+    const std::size_t target = indexOf(to);
+    return std::to_string(steps) + "步（" + directionChain(from, to) + "），输入 move " +
+           std::to_string(target + 1U);
+}
+
+/// 用途：把资源枚举转换为与命令参数一致的中文名称。输入：资源枚举。输出：中文名；无状态修改。
+/// 失败：未知枚举返回“资源”。不变量：名称与 gather 命令接受的参数保持同一套用词。
+std::string_view resourceLabel(const ResourceKind resource) {
+    switch (resource) {
+        case ResourceKind::Food:
+            return "食物";
+        case ResourceKind::Wood:
+            return "木材";
+        case ResourceKind::Stone:
+            return "石料";
+        case ResourceKind::Herbs:
+            return "草药";
+        case ResourceKind::Hides:
+            return "兽皮";
+    }
+    return "资源";
+}
+
 } // namespace
 
 ExpansionGame::ExpansionGame(std::uint32_t seed, std::size_t squadSize) {
@@ -105,6 +164,12 @@ ExpansionCommandResult ExpansionGame::execute(std::string_view input) {
         return hasArity(1U) ? gather(command.args.front()) : rejected("用法：gather <资源>");
     if (commandId == game_command_catalog::CommandId::Attack)
         return hasArity(0U) ? attackEncounter() : rejected("用法：attack");
+    // 防御与撤退在没有遭遇时也必须被“识别后拒绝”：直接返回未识别会让界面提示“无法识别该命令”，
+    // 掩盖真实原因（此处没有遭遇战）。5.2 的错误地点操作测试覆盖了这一提示差异。
+    if (commandId == game_command_catalog::CommandId::Defend)
+        return hasArity(0U) ? defendEncounter() : rejected("用法：defend");
+    if (commandId == game_command_catalog::CommandId::Retreat)
+        return hasArity(0U) ? retreatEncounter() : rejected("用法：retreat");
     if (commandId == game_command_catalog::CommandId::Use && hasArity(1U) &&
         equalsAny(command.args.front(), {"herb", "herbs", "草药"}))
         return useHerb();
@@ -136,7 +201,7 @@ ExpansionCommandResult ExpansionGame::move(std::string_view target) {
 ExpansionCommandResult ExpansionGame::gather(std::string_view resource) {
     if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
     if (state_.missionKind != MissionKind::Gather) return rejected("前哨建设任务只能运输建材，不能额外采集。");
-    if (state_.harvestActions >= 4) return rejected("本次任务的采集时段已用完，请前往营地或前哨结算。");
+    if (state_.harvestActions >= kMaximumHarvestActions) return rejected("本次任务的采集时段已用完，请前往营地或前哨结算。");
     const int at = state_.worldLocation;
     const WorldLocationId location = static_cast<WorldLocationId>(at);
     std::optional<ResourceKind> kind;
@@ -204,10 +269,12 @@ ExpansionCommandResult ExpansionGame::buildOutpost() {
     if (state_.outposts[at]) return rejected("该地点已经有前哨。");
     if (state_.worldLocation == static_cast<int>(WorldLocationId::RockfangFort) && !state_.encounterDefeated)
         return rejected("岩牙要塞仍有敌对巡逻，不能建造前哨。");
-    if (state_.cargoWood < 6 || state_.cargoStone < 4) return rejected("建造前哨需要现场携带木材6、石料4。");
+    if (state_.cargoWood < kOutpostWoodCost || state_.cargoStone < kOutpostStoneCost)
+        return rejected("建造前哨需要现场携带木材" + std::to_string(kOutpostWoodCost) + "、石料" +
+                       std::to_string(kOutpostStoneCost) + "。");
     ExpansionState candidate = state_;
-    candidate.cargoWood -= 6;
-    candidate.cargoStone -= 4;
+    candidate.cargoWood -= kOutpostWoodCost;
+    candidate.cargoStone -= kOutpostStoneCost;
     candidate.outposts[at] = true;
     recordTurn(candidate, 5, 3);
     return commit(std::move(candidate), "小队建成前哨；这里现在可作为结算点。", true);
@@ -232,10 +299,12 @@ ExpansionCommandResult ExpansionGame::settle() {
 }
 
 ExpansionCommandResult ExpansionGame::attackEncounter() {
+    // 结算后地图阶段已经结束：与 move/gather/buildOutpost 保持一致地拒绝，避免结算后仍能推进任务回合。
+    if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
     if (state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort) || state_.encounterDefeated)
         return rejected("这里没有可攻击的遭遇。");
     ExpansionState candidate = state_;
-    if (candidate.encounterLife == 0) candidate.encounterLife = 14;
+    if (candidate.encounterLife == 0) candidate.encounterLife = kRockfangEncounterLife;
     Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
     const Attributes attributes = effectiveAttributes(leader);
     const int damage = std::max(2, attributes[Attribute::Strength] / 2 + attributes[Attribute::Agility] / 4);
@@ -263,6 +332,7 @@ ExpansionCommandResult ExpansionGame::attackEncounter() {
 }
 
 ExpansionCommandResult ExpansionGame::defendEncounter() {
+    if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
     if (state_.encounterLife <= 0 || state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort))
         return rejected("当前没有遭遇战。");
     ExpansionState candidate = state_;
@@ -274,16 +344,22 @@ ExpansionCommandResult ExpansionGame::defendEncounter() {
 }
 
 ExpansionCommandResult ExpansionGame::retreatEncounter() {
+    if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
     if (state_.encounterLife <= 0 || state_.worldLocation != static_cast<int>(WorldLocationId::RockfangFort))
         return rejected("当前没有遭遇战。");
     ExpansionState candidate = state_;
     candidate.encounterLife = 0;
     candidate.worldLocation = static_cast<int>(WorldLocationId::OldPass);
+    // 撤退落点必须同时是已发现地点：否则候选状态会被 validateState 判为非法，撤退被整体取消，
+    // 玩家反而被困在遭遇里。正常行军一定先经过古老山隘，这里是防御性兜底，保证撤退永远安全。
+    candidate.worldDiscovered[indexOf(WorldLocationId::OldPass)] = true;
     recordTurn(candidate, 2, 1);
     return commit(std::move(candidate), "小队撤回古老山隘。", true);
 }
 
 ExpansionCommandResult ExpansionGame::useHerb() {
+    // 地图阶段的统一前置条件：已结算的任务不再消耗草药，也不再推进任务回合。
+    if (state_.phase != ExpansionPhase::Exploring) return rejected("任务已结算。");
     if (state_.cargoHerbs <= 0) return rejected("任务载货中没有草药。");
     ExpansionState candidate = state_;
     Character& leader = candidate.squad.members[candidate.squad.leaderIndex];
@@ -322,6 +398,73 @@ std::string ExpansionGame::lookText() const {
     if (state_.worldLocation == static_cast<int>(WorldLocationId::RockfangFort) && !state_.encounterDefeated)
         output << "\n遭遇：岩牙巡逻；可用攻击、防御、撤退。";
     if (state_.encounterLife > 0) output << " 敌军生命" << state_.encounterLife << "。";
+    output << '\n' << routeHintText();
+    return output.str();
+}
+
+std::string ExpansionGame::routeHintText() const { return missionRouteHint(state_); }
+
+std::string missionRouteHint(const ExpansionState& state) {
+    const WorldLocationId current = static_cast<WorldLocationId>(state.worldLocation);
+    const std::size_t at = indexOf(current);
+    const world_map::LocationProfile& profile = world_map::profile(current);
+    std::ostringstream output;
+    output << "地点档案：风险" << profile.risk << "级（" << profile.riskName << "）  收益：" << profile.reward
+           << "\n现场风险：" << profile.hazard;
+    // 任务状态提示：把“现在能做什么、做完该回哪里”写成一行，避免玩家在错误地点反复试错。
+    output << "\n任务状态：";
+    if (state.phase != ExpansionPhase::Exploring) {
+        output << "本次任务已结算，地图不再接受移动、采集、建造或遭遇指令。";
+    } else if (state.encounterLife > 0) {
+        output << "岩牙巡逻拦住道路，只能 attack、defend、retreat 或 look；敌军生命" << state.encounterLife << "。";
+    } else {
+        output << (state.outposts[at] ? "当前地点是结算点，settle 可立即入库；"
+                                     : "当前地点不是结算点，载货必须先带回营地或前哨；");
+        if (state.missionKind == MissionKind::Gather)
+            output << "采集时段剩余" << std::max(0, kMaximumHarvestActions - state.harvestActions) << '/'
+                   << kMaximumHarvestActions << "；";
+        output << "载货" << cargoTotal(state) << '/' << state.cargoCapacity;
+        if (cargoTotal(state) >= state.cargoCapacity) output << "（已满，结算后才能继续装载）";
+        output << "。";
+    }
+    // 指定资源提示：只有任务层知道“本次任务采什么”，所以本地点的资源错配必须在这里说清楚。
+    if (state.phase == ExpansionPhase::Exploring && state.missionKind == MissionKind::Gather) {
+        if (!world_map::supportsResource(current, state.assignedResource)) {
+            const ResourceKind assigned = state.assignedResource;
+            if (const auto source = nearestWhere(current, [assigned](const WorldLocationId location) {
+                    return world_map::supportsResource(location, assigned);
+                })) {
+                const std::size_t index = indexOf(*source);
+                output << "\n任务提示：本次指定资源是" << resourceLabel(assigned) << "，此地不产；最近产地 "
+                       << (index + 1U) << '.' << world_map::locations()[index].name << ' '
+                       << pathHint(current, *source) << "。";
+            }
+        } else if (state.assignedResource == ResourceKind::Food &&
+                   world_map::supportsResource(current, ResourceKind::Hides)) {
+            // 兽皮是食物任务的合法副产品（gather 的混采豁免），这里显式提示，避免玩家以为要另开任务。
+            output << "\n任务提示：本次指定资源是食物，此地还可顺带装载兽皮（狩猎副产品不算混采）。";
+        }
+    }
+    if (state.phase == ExpansionPhase::Exploring) {
+        if (state.outposts[at]) {
+            output << "\n路线提示：当前地点即为结算点，可随时 settle 入库。";
+        } else if (const auto settlement = nearestWhere(
+                       current, [&state](const WorldLocationId location) { return state.outposts[indexOf(location)]; })) {
+            const std::size_t index = indexOf(*settlement);
+            output << "\n路线提示：最近结算点 " << (index + 1U) << '.' << world_map::locations()[index].name << ' '
+                   << pathHint(current, *settlement) << "；具备木材6、石料4时也可就地建造前哨。";
+        }
+        // 未探索提示按最短路给出，等价于一条自动规划的“补全地图”路线，替代玩家自己数格子。
+        if (const auto unknown = nearestWhere(current, [&state](const WorldLocationId location) {
+                return !state.worldDiscovered[indexOf(location)];
+            })) {
+            const std::size_t index = indexOf(*unknown);
+            output << "\n探索提示：最近未探索地点 " << (index + 1U) << '.' << world_map::locations()[index].name << ' '
+                   << pathHint(current, *unknown) << "。";
+        } else {
+            output << "\n探索提示：十六地点已全部发现。";
+        }
+    }
     return output.str();
 }
 
@@ -335,7 +478,8 @@ OperationResult ExpansionGame::validateState(const ExpansionState& state) {
         (state.settled && !state.outposts[static_cast<std::size_t>(state.worldLocation)]))
         return invalid("结算点状态无效。");
     if (state.turn < 0 || state.cargoFood < 0 || state.cargoWood < 0 || state.cargoStone < 0 || state.cargoHerbs < 0 ||
-        state.cargoHides < 0 || state.harvestActions < 0 || state.harvestActions > 4 || state.cargoCapacity <= 0 ||
+        state.cargoHides < 0 || state.harvestActions < 0 || state.harvestActions > kMaximumHarvestActions ||
+        state.cargoCapacity <= 0 ||
         cargoTotal(state) > state.cargoCapacity || state.foodGatherBonus < 0 || state.herbGatherBonus < 0 ||
         static_cast<int>(state.missionKind) < static_cast<int>(MissionKind::Gather) ||
         static_cast<int>(state.missionKind) > static_cast<int>(MissionKind::OutpostConstruction) ||
